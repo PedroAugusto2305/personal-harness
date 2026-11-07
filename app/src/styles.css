@@ -1,0 +1,520 @@
+/* Tokens de tema (docs/DESIGN.md, seção 0). Toda a interface usa só estas variáveis,
+   então trocar o tema troca o app inteiro. */
+:root,
+[data-theme="dracula"] {
+  --bar: #191a21;
+  --side: #21222c;
+  --bg: #282a36;
+  --elev: #343746;
+  --line: #3b3e4f;
+  --line2: #44475a;
+  --term: #1e1f29;
+  --tx: #f8f8f2;
+  --mut: #a9aec9;
+  --fnt: #8f95b2;
+  --acc: #82a0ff;
+  --acct: #a9bcff;
+  --soft: rgba(130, 160, 255, 0.16);
+  --onacc: #191a21;
+  --run: #8be9fd;
+  --wait: #bd93f9;
+  --warn: #ff79c6;
+  --err: #ff5555;
+  --sel: #44475a;
+}
+
+[data-theme="grafite"] {
+  --bar: #18181a;
+  --side: #202023;
+  --bg: #1c1c1f;
+  --elev: #2a2a2f;
+  --line: #323238;
+  --line2: #3d3d44;
+  --term: #222428;
+  --tx: #e8e8ec;
+  --mut: #a6a6b0;
+  --fnt: #94949e;
+  --acc: #6ea8fe;
+  --acct: #9ec5fe;
+  --soft: rgba(110, 168, 254, 0.15);
+  --onacc: #101012;
+  --run: #79c0ff;
+  --wait: #d2a8ff;
+  --warn: #ffa198;
+  --err: #ff7b72;
+  --sel: #34343b;
+}
+
+[data-theme="claro"] {
+  --bar: #e8e9ef;
+  --side: #f1f2f6;
+  --bg: #ffffff;
+  --elev: #f3f4f8;
+  --line: #dfe1e8;
+  --line2: #c9ccd8;
+  --term: #f6f7fb;
+  --tx: #1f2330;
+  --mut: #4f5568;
+  --fnt: #5e6478;
+  --acc: #3b63d6;
+  --acct: #2f53c0;
+  --soft: rgba(59, 99, 214, 0.12);
+  --onacc: #ffffff;
+  --run: #0b7ea8;
+  --wait: #7c4dcc;
+  --warn: #c2307a;
+  --err: #d03030;
+  --sel: #e3e6f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--tx);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+.mono {
+  font-family: "Fira Code", ui-monospace, monospace;
+}
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Barra de título própria: arrasta a janela e tem os controles em cinza. */
+.titlebar {
+  height: 40px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+.traffic {
+  display: flex;
+  gap: 8px;
+}
+
+.traffic button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--line2);
+}
+
+.traffic button:hover {
+  background: var(--fnt);
+}
+
+.titlebar .name {
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.titlebar .search {
+  margin: 0 auto;
+  flex: 0 1 420px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--side);
+  color: var(--fnt);
+}
+
+.chip {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--elev);
+  color: var(--mut);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* Faixa de ícones à esquerda (Obsidian). */
+.ribbon {
+  width: 48px;
+  flex: 0 0 48px;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: var(--bar);
+  border-right: 1px solid var(--line);
+}
+
+.ribbon button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fnt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ribbon button[aria-current="page"] {
+  background: var(--soft);
+  color: var(--acct);
+}
+
+.ribbon button:disabled {
+  opacity: 0.45;
+}
+
+.ribbon .spacer {
+  margin-top: auto;
+}
+
+/* Barra lateral de sessões (Orca). */
+.sidebar {
+  width: 270px;
+  flex: 0 0 270px;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--side);
+  border-right: 1px solid var(--line);
+}
+
+.section-title {
+  padding: 0 8px;
+  color: var(--fnt);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.folder {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.folder input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  outline: none;
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  user-select: text;
+}
+
+.folder input:focus {
+  border-color: var(--acc);
+}
+
+.new-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.btn {
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn.primary {
+  border: 0;
+  background: var(--acc);
+  color: var(--onacc);
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+}
+
+.session-row[aria-current="true"] {
+  background: var(--sel);
+}
+
+.session-row .meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-row .meta span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-row .close {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fnt);
+}
+
+.session-row .close:hover {
+  background: var(--line2);
+  color: var(--tx);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.small {
+  font-size: 12px;
+  color: var(--fnt);
+}
+
+.error-box {
+  margin: 0 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+  color: var(--err);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Área principal com os terminais. */
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  outline: 1px solid var(--acc);
+  outline-offset: -1px;
+}
+
+.pane[hidden] {
+  display: none;
+}
+
+.pane-tabs {
+  height: 38px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+.pane-tab {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  font-weight: 500;
+}
+
+.pane-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 11px;
+}
+
+.pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.path-chip {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: var(--elev);
+  color: var(--mut);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 20px;
+}
+
+.term-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 6px 6px 12px;
+  background: var(--term);
+}
+
+.term-host .xterm {
+  height: 100%;
+  user-select: text;
+}
+
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--mut);
+  text-align: center;
+  padding: 24px;
+}
+
+.empty h1 {
+  margin: 0;
+  color: var(--tx);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.empty p {
+  margin: 0;
+  max-width: 460px;
+  line-height: 1.6;
+}
+
+/* Barra de status (Orca + Obsidian). */
+.statusbar {
+  height: 28px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  background: var(--bar);
+  border-top: 1px solid var(--line);
+  color: var(--mut);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.usage {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bar {
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line2);
+  overflow: hidden;
+  display: inline-block;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+}
+
+.statusbar .right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

@@ -1,0 +1,12 @@
+.DS_Store
+
+# núcleo (Python)
+core/.venv/
+**/__pycache__/
+.pytest_cache/
+
+# app (Tauri + React)
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/src-tauri/gen/
