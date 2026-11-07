@@ -1,17 +1,20 @@
-"""Registro das sessões, status dos agentes e eventos para a interface."""
+"""Registro das sessões, contas, status dos agentes e eventos para a interface."""
 
 from __future__ import annotations
 
 import asyncio
 import os
 import shutil
+import sys
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .accounts import PROVIDERS, AccountStore
 from .claude_settings import claude_argv
+from .codex_usage import read_codex_limits
 from .config import Settings
 from .pty_session import PtySession
 from .statusline import parse_statusline
@@ -44,7 +47,8 @@ HOOK_STATUS = {
     "Notification": "waiting",
 }
 
-KINDS = ("claude", "shell")
+KINDS = ("claude", "codex", "shell")
+CODEX_POLL_SECONDS = 180
 
 
 class UnknownKind(ValueError):
@@ -80,6 +84,8 @@ class Session:
     cwd: str
     created_at: float
     pty: PtySession
+    account: str | None = None
+    tag: str | None = None
     status: str = "starting"
     statusline: dict | None = None
     exit_code: int | None = None
@@ -91,6 +97,8 @@ class Session:
             "title": self.title,
             "cwd": self.cwd,
             "created_at": self.created_at,
+            "account": self.account,
+            "tag": self.tag,
             "status": self.status,
             "statusline": self.statusline,
             "exit_code": self.exit_code,
@@ -100,25 +108,45 @@ class Session:
 
 @dataclass
 class Usage:
-    """Uso do plano por provedor. Os limites são da conta, não da sessão."""
+    """Uso do plano por provedor e por conta. Os limites são da conta, não da sessão."""
 
-    claude: dict = field(default_factory=dict)
+    claude: dict[str, dict] = field(default_factory=dict)
+    codex: dict[str, dict] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"claude": self.claude}
+        return {"claude": self.claude, "codex": self.codex}
 
 
-def child_env(settings: Settings, session_id: str) -> dict[str, str]:
+def _venv_bin() -> str | None:
+    """Pasta bin do ambiente virtual do núcleo (o `uv run` a põe na frente do PATH)."""
+    return str(Path(sys.prefix) / "bin") if sys.prefix != sys.base_prefix else None
+
+
+def clean_env() -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith(BLOCKED_ENV_PREFIXES) and key not in BLOCKED_ENV_KEYS
     }
+    # Sem isso, `python3` e `pip` nos terminais seriam os do núcleo, não os do usuário.
+    venv_bin = _venv_bin()
+    if venv_bin and "PATH" in env:
+        env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep) if p and p != venv_bin)
+    if env.get("VIRTUAL_ENV") == sys.prefix:
+        del env["VIRTUAL_ENV"]
+    return env
+
+
+def child_env(settings: Settings, session_id: str, extra: dict[str, str] | None = None) -> dict[str, str]:
+    env = clean_env()
+    env.update(extra or {})
     env.update(
         {
             "TERM": "xterm-256color",
             "COLORTERM": "truecolor",
             "LANG": env.get("LANG") or "pt_BR.UTF-8",
+            # No fim, para nunca passar na frente de um comando do usuário.
+            "PATH": f"{env.get('PATH') or '/usr/bin:/bin'}:{settings.relay_path.parent}",
             "HARNESS_SESSION_ID": session_id,
             "HARNESS_CORE_URL": settings.url,
             "HARNESS_TOKEN": settings.token,
@@ -128,22 +156,25 @@ def child_env(settings: Settings, session_id: str) -> dict[str, str]:
 
 
 def resolve_argv(kind: str, settings: Settings) -> list[str]:
-    if kind == "claude":
-        executable = shutil.which("claude")
+    if kind in ("claude", "codex"):
+        executable = shutil.which(kind)
         if not executable:
-            raise ExecutableNotFound("claude não encontrado no PATH")
-        return claude_argv(executable, settings.relay_path)
+            raise ExecutableNotFound(f"{kind} não encontrado no PATH")
+        return claude_argv(executable, settings.relay_path) if kind == "claude" else [executable]
     if kind == "shell":
         return [os.environ.get("SHELL") or "/bin/zsh", "-l"]
     raise UnknownKind(kind)
 
 
 class SessionManager:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, accounts: AccountStore | None = None) -> None:
         self.settings = settings
+        self.accounts = accounts or AccountStore(settings.home)
         self.sessions: dict[str, Session] = {}
         self.events = EventBus()
         self.usage = Usage()
+
+    # --- sessões -----------------------------------------------------------
 
     def list(self) -> list[dict]:
         return [s.to_dict() for s in sorted(self.sessions.values(), key=lambda s: s.created_at)]
@@ -151,33 +182,61 @@ class SessionManager:
     def get(self, session_id: str) -> Session | None:
         return self.sessions.get(session_id)
 
-    def create(self, kind: str, cwd: str | None = None, cols: int = 120, rows: int = 32, title: str | None = None) -> Session:
+    def session_env(self, kind: str, session_id: str, account_id: str | None) -> tuple[dict[str, str], str | None]:
+        """Ambiente do processo e a conta usada (só Claude e Codex têm conta)."""
+        if kind not in PROVIDERS:
+            return child_env(self.settings, session_id), None
+        account = self.accounts.get(kind, account_id) if account_id else self.accounts.active(kind)
+        return child_env(self.settings, session_id, self.accounts.env(kind, account)), account.id
+
+    def create(
+        self,
+        kind: str,
+        cwd: str | None = None,
+        cols: int = 120,
+        rows: int = 32,
+        title: str | None = None,
+        account_id: str | None = None,
+        tag: str | None = None,
+    ) -> Session:
         if kind not in KINDS:
             raise UnknownKind(kind)
         session_id = uuid.uuid4().hex[:8]
         workdir = str(Path(cwd or Path.home()).expanduser())
         argv = resolve_argv(kind, self.settings)
+        env, account = self.session_env(kind, session_id, account_id)
         pty = PtySession(
             argv=argv,
             cwd=workdir,
-            env=child_env(self.settings, session_id),
+            env=env,
             cols=cols,
             rows=rows,
             on_exit=lambda code: self._on_exit(session_id, code),
         )
+        default_title = {"claude": "Claude", "codex": "Codex"}.get(kind, Path(argv[0]).name)
         session = Session(
             id=session_id,
             kind=kind,
-            title=title or ("Claude" if kind == "claude" else Path(argv[0]).name),
+            title=self._unique_title(title or default_title),
             cwd=workdir,
             created_at=time.time(),
             pty=pty,
+            account=account,
+            tag=tag,
             status="starting" if kind == "claude" else "running",
         )
         self.sessions[session_id] = session
         pty.start()
         self.events.publish({"type": "session.created", "session": session.to_dict()})
         return session
+
+    def _unique_title(self, base: str) -> str:
+        """Claude, Claude 2, Claude 3…: abas e a barra de entrada precisam distinguir."""
+        taken = {s.title for s in self.sessions.values()}
+        title, n = base, 2
+        while title in taken:
+            title, n = f"{base} {n}", n + 1
+        return title
 
     async def close(self, session_id: str) -> bool:
         session = self.sessions.pop(session_id, None)
@@ -204,6 +263,8 @@ class SessionManager:
         session.exit_code = code
         self._set_status(session, "exited")
 
+    # --- telemetria do Claude Code -----------------------------------------
+
     def record_statusline(self, session_id: str, payload: dict) -> dict | None:
         session = self.sessions.get(session_id)
         if session is None:
@@ -215,8 +276,9 @@ class SessionManager:
         self.events.publish({"type": "session.statusline", "id": session_id, "statusline": parsed})
         # Só o Claude Code manda statusline; os limites são da conta, não da sessão.
         if parsed["rate_limits"]:
-            self.usage.claude = {**parsed["rate_limits"], "updated_at": time.time()}
-            self.events.publish({"type": "usage", "usage": self.usage.to_dict()})
+            account = session.account or self.accounts.active("claude").id
+            self.usage.claude[account] = {**parsed["rate_limits"], "updated_at": time.time()}
+            self._publish_usage()
         return parsed
 
     def record_hook(self, session_id: str, name: str) -> bool:
@@ -228,3 +290,31 @@ class SessionManager:
             self._set_status(session, status)
         self.events.publish({"type": "session.hook", "id": session_id, "name": name})
         return True
+
+    # --- contas e cota -----------------------------------------------------
+
+    def accounts_changed(self) -> None:
+        self.events.publish({"type": "accounts", "accounts": self.accounts.list()})
+
+    def _publish_usage(self) -> None:
+        self.events.publish({"type": "usage", "usage": self.usage.to_dict()})
+
+    async def refresh_codex_usage(self) -> dict | None:
+        executable = shutil.which("codex")
+        if not executable:
+            return None
+        account = self.accounts.active("codex")
+        env = {**clean_env(), **self.accounts.env("codex", account)}
+        limits = await read_codex_limits(executable, env)
+        if limits is not None:
+            self.usage.codex[account.id] = {**limits, "updated_at": time.time()}
+            self._publish_usage()
+        return limits
+
+    async def poll_codex_usage(self) -> None:
+        while True:
+            try:
+                await self.refresh_codex_usage()
+            except Exception:  # a cota nunca derruba o núcleo
+                pass
+            await asyncio.sleep(CODEX_POLL_SECONDS)

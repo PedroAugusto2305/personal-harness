@@ -7,6 +7,8 @@ travar o agente se o núcleo estiver fora do ar.
 
 from __future__ import annotations
 
+import shlex
+import sys
 from pathlib import Path
 
 RELAY_SCRIPT = """#!/bin/sh
@@ -33,5 +35,21 @@ def install_relay(path: Path) -> Path:
     """Grava o script no disco com permissão de execução e devolve o caminho."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(RELAY_SCRIPT, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def install_cli_shim(bin_dir: Path, home: Path) -> Path:
+    """Põe o comando `harness` em ~/.harness/bin, que entra no PATH dos terminais do app."""
+    path = bin_dir / "harness"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        "# Gerado pelo Personal Harness: o comando `harness` dentro dos terminais do app.\n"
+        f"HARNESS_HOME={shlex.quote(str(home))}\n"
+        "export HARNESS_HOME\n"
+        f'exec {shlex.quote(sys.executable)} -m harness_core.cli "$@"\n',
+        encoding="utf-8",
+    )
     path.chmod(0o755)
     return path

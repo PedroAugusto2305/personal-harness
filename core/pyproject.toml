@@ -1,16 +1,18 @@
 [project]
 name = "harness-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Núcleo do Personal Harness: terminais dos agentes, sessões e telemetria do Claude Code."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "faster-whisper>=1.1",
     "uvicorn[standard]>=0.32",
 ]
 
 [project.scripts]
 harness-core = "harness_core.__main__:main"
+harness = "harness_core.cli:main"
 
 [dependency-groups]
 dev = [
@@ -28,3 +30,8 @@ packages = ["src/harness_core"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.uv]
+# O onnxruntime não publica mais wheels para Mac Intel. O faster-whisper só o usa no
+# filtro de silêncio (VAD), que o Harness não liga; sem ele, o resto funciona.
+override-dependencies = ["onnxruntime; sys_platform == 'never'"]

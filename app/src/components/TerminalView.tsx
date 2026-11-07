@@ -2,7 +2,9 @@ import { useEffect, useRef } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { CoreClient } from "../lib/core";
-import { STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
+import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
+import { terminals } from "../lib/terminals";
+import { ICON, Icon } from "../icons";
 import type { Session, ThemeName } from "../types";
 
 const ANSI_DARK = {
@@ -57,18 +59,35 @@ function terminalTheme(theme: ThemeName): ITheme {
   };
 }
 
+/** Onde o terminal aparece. Todos ficam montados; só mudam de lugar ou somem. */
+export type Slot = "left" | "right" | "float" | "hidden";
+
 interface Props {
   session: Session;
   client: CoreClient;
-  active: boolean;
   theme: ThemeName;
+  slot: Slot;
+  focused: boolean;
+  split: boolean;
+  accountName: string | null;
+  dropping: boolean;
+  onFocus: () => void;
+  onHide?: () => void;
 }
 
-export function TerminalView({ session, client, active, theme }: Props) {
+export function TerminalView({ session, client, theme, slot, focused, split, accountName, dropping, onFocus, onHide }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fitter = useRef<FitAddon | null>(null);
   const socket = useRef<WebSocket | null>(null);
+  const focusRef = useRef(onFocus);
+  focusRef.current = onFocus;
+
+  const sendInput = (data: string) => {
+    if (socket.current?.readyState === WebSocket.OPEN) {
+      socket.current.send(JSON.stringify({ type: "input", data }));
+    }
+  };
 
   const sendResize = () => {
     const t = term.current;
@@ -84,7 +103,7 @@ export function TerminalView({ session, client, active, theme }: Props) {
     sendResize();
   };
 
-  // Um xterm por sessão, montado uma vez e só escondido quando a aba não está ativa.
+  // Um xterm por sessão, montado uma vez e só escondido quando não aparece.
   useEffect(() => {
     let disposed = false;
     const terminal = new Terminal({
@@ -101,18 +120,19 @@ export function TerminalView({ session, client, active, theme }: Props) {
     term.current = terminal;
     fitter.current = addon;
 
-    const input = terminal.onData((data) => {
-      if (socket.current?.readyState === WebSocket.OPEN) {
-        socket.current.send(JSON.stringify({ type: "input", data }));
-      }
-    });
-
+    const input = terminal.onData(sendInput);
     const observer = new ResizeObserver(() => fit());
+    terminals.set(session.id, {
+      paste: (text) => terminal.paste(text),
+      send: sendInput,
+      focus: () => terminal.focus(),
+    });
 
     (async () => {
       await document.fonts.load('13px "Fira Code"');
       if (disposed || !host.current) return;
       terminal.open(host.current);
+      terminal.textarea?.addEventListener("focus", () => focusRef.current());
       observer.observe(host.current);
       fit();
       const ws = new WebSocket(client.wsUrl(`/sessions/${session.id}/pty`));
@@ -130,11 +150,11 @@ export function TerminalView({ session, client, active, theme }: Props) {
         terminal.write(new Uint8Array(message.data as ArrayBuffer));
       };
       socket.current = ws;
-      if (active) terminal.focus();
     })();
 
     return () => {
       disposed = true;
+      terminals.delete(session.id);
       observer.disconnect();
       input.dispose();
       socket.current?.close();
@@ -146,39 +166,56 @@ export function TerminalView({ session, client, active, theme }: Props) {
   }, [session.id, client]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!focused || slot === "hidden") return;
     const frame = requestAnimationFrame(() => {
       fit();
       term.current?.focus();
     });
     return () => cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [focused, slot]);
 
   useEffect(() => {
     if (term.current) term.current.options.theme = terminalTheme(theme);
   }, [theme]);
 
   const status = session.status;
-  const isClaude = session.kind === "claude";
   return (
-    <section className="pane" hidden={!active} aria-label={`Terminal: ${session.title}`}>
-      <div className="pane-tabs">
-        <div className="pane-tab">
-          <span style={{ color: isClaude ? "#d97757" : "var(--tx)" }}>{isClaude ? "✻" : ">_"}</span>
-          <span>{session.title}</span>
-        </div>
+    <section
+      className="pane"
+      data-slot={slot}
+      data-focused={focused && (split || slot === "float") ? "true" : undefined}
+      data-drop={session.id}
+      hidden={slot === "hidden"}
+      aria-label={`Terminal: ${session.title}`}
+      onMouseDown={onFocus}
+    >
+      <div className="pane-head">
+        <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span>
+        <span className="pane-title">{session.title}</span>
+        {accountName && (
+          <span className="path-chip" title="Conta usada nesta sessão">
+            {accountName}
+          </span>
+        )}
+        <span className="path-chip">{shortPath(session.statusline?.cwd ?? session.cwd)}</span>
+        {session.statusline?.model && <span className="small mono">{session.statusline.model}</span>}
         <span className="pane-status" style={{ color: STATUS_COLOR[status] }}>
           <span className="dot" style={{ background: STATUS_COLOR[status] }} />
           {STATUS_LABEL[status]}
         </span>
-      </div>
-      <div className="pane-head">
-        <span style={{ fontWeight: 600 }}>{isClaude ? "Claude Code" : "Shell"}</span>
-        <span className="path-chip">{shortPath(session.statusline?.cwd ?? session.cwd)}</span>
-        {session.statusline?.model && <span className="small mono">{session.statusline.model}</span>}
+        {onHide && (
+          <button type="button" className="icon-btn" title={slot === "float" ? "Esconder (⌃`)" : "Tirar da divisão"} onClick={onHide}>
+            <Icon d={ICON.close} size={13} strokeWidth={2} />
+          </button>
+        )}
       </div>
       <div className="term-host" ref={host} />
+      {dropping && (
+        <div className="drop-hint">
+          <span>Solte para colar o caminho neste terminal</span>
+        </div>
+      )}
     </section>
   );
 }
