@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CoreClient, getCoreInfo } from "./lib/core";
-import type { Connection, CoreEvent, Session, SessionKind, Usage } from "./types";
+import { CoreClient, getCoreInfo, type NewSessionOptions } from "./lib/core";
+import type { Accounts, Connection, CoreEvent, Session, SessionKind, Usage } from "./types";
 
-/** Estado do app ligado ao núcleo: sessões, uso do plano e conexão. */
+const NO_ACCOUNTS: Accounts = { claude: { active: "padrao", accounts: [] }, codex: { active: "padrao", accounts: [] } };
+
+const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
+
+/** Estado do app ligado ao núcleo: sessões, contas, uso do plano e conexão. */
 export function useHarness() {
   const [client, setClient] = useState<CoreClient | null>(null);
   const [connection, setConnection] = useState<Connection>("connecting");
   const [sessions, setSessions] = useState<Record<string, Session>>({});
-  const [usage, setUsage] = useState<Usage>({ claude: {} });
+  const [usage, setUsage] = useState<Usage>({ claude: {}, codex: {} });
+  const [accounts, setAccounts] = useState<Accounts>(NO_ACCOUNTS);
   const [error, setError] = useState<string | null>(null);
   const retry = useRef<number | undefined>(undefined);
 
@@ -20,6 +25,7 @@ export function useHarness() {
         case "hello":
           setSessions(Object.fromEntries(event.sessions.map((s) => [s.id, s])));
           setUsage(event.usage);
+          setAccounts(event.accounts);
           break;
         case "session.created":
           setSessions((all) => ({ ...all, [event.session.id]: event.session }));
@@ -41,6 +47,9 @@ export function useHarness() {
         case "usage":
           setUsage(event.usage);
           break;
+        case "accounts":
+          setAccounts(event.accounts);
+          break;
       }
     };
 
@@ -48,7 +57,7 @@ export function useHarness() {
       if (cancelled) return;
       socket = new WebSocket(core.wsUrl("/events"));
       socket.onopen = () => setConnection("online");
-      socket.onmessage = (message) => apply(JSON.parse(message.data) as CoreEvent);
+      socket.onmessage = (event) => apply(JSON.parse(event.data) as CoreEvent);
       socket.onclose = () => {
         if (cancelled) return;
         setConnection("offline");
@@ -66,7 +75,7 @@ export function useHarness() {
       } catch (cause) {
         if (!cancelled) {
           setConnection("offline");
-          setError(cause instanceof Error ? cause.message : String(cause));
+          setError(message(cause));
         }
       }
     })();
@@ -79,15 +88,15 @@ export function useHarness() {
   }, []);
 
   const create = useCallback(
-    async (kind: SessionKind, cwd: string): Promise<Session | null> => {
+    async (kind: SessionKind, cwd: string, options: NewSessionOptions = {}): Promise<Session | null> => {
       if (!client) return null;
       setError(null);
       try {
-        const session = await client.createSession(kind, cwd, 120, 32);
+        const session = await client.createSession(kind, cwd, options);
         setSessions((all) => ({ ...all, [session.id]: session }));
         return session;
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(message(cause));
         return null;
       }
     },
@@ -106,6 +115,21 @@ export function useHarness() {
     [client],
   );
 
+  /** Roda uma ação no núcleo e mostra o erro na barra lateral se falhar. */
+  const run = useCallback(
+    async <T,>(action: (core: CoreClient) => Promise<T>): Promise<T | null> => {
+      if (!client) return null;
+      setError(null);
+      try {
+        return await action(client);
+      } catch (cause) {
+        setError(message(cause));
+        return null;
+      }
+    },
+    [client],
+  );
+
   const ordered = Object.values(sessions).sort((a, b) => a.created_at - b.created_at);
-  return { client, connection, sessions: ordered, usage, error, create, close };
+  return { client, connection, sessions: ordered, usage, accounts, error, setError, create, close, run };
 }

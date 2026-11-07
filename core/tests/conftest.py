@@ -41,3 +41,13 @@ def statusline_payload() -> dict:
             "seven_day": {"used_percentage": 41.2, "resets_at": 1794400000},
         },
     }
+
+
+@pytest.fixture
+def accounts(settings: Settings, tmp_path: Path):
+    """Contas numa pasta temporária, com um config.toml do Codex de mentira para copiar."""
+    from harness_core.accounts import AccountStore
+
+    source = tmp_path / "codex-config.toml"
+    source.write_text('model = "gpt-teste"\n', encoding="utf-8")
+    return AccountStore(settings.home, codex_config_source=source)

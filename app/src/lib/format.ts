@@ -1,4 +1,4 @@
-import type { SessionStatus } from "../types";
+import type { Provider, SessionKind, SessionStatus } from "../types";
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
   starting: "iniciando",
@@ -52,4 +52,20 @@ export function shortPath(path: string): string {
 export function money(value: number | null | undefined): string {
   if (value == null) return "";
   return `US$ ${value.toFixed(2).replace(".", ",")}`;
+}
+
+export const KIND_LABEL: Record<SessionKind, string> = { claude: "Claude Code", codex: "Codex", shell: "Shell" };
+export const KIND_GLYPH: Record<SessionKind, string> = { claude: "✻", codex: "◇", shell: ">_" };
+export const KIND_COLOR: Record<SessionKind, string> = { claude: "#d97757", codex: "var(--acct)", shell: "var(--mut)" };
+export const PROVIDERS: Provider[] = ["claude", "codex"];
+
+/** 83 s → "1:23". */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Sem acento e em minúsculas, para a busca do salto rápido. */
+export function fold(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }

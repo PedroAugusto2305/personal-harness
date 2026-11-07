@@ -1,6 +1,6 @@
 [package]
 name = "harness"
-version = "0.1.0"
+version = "0.2.0"
 description = "Personal Harness: OS pessoal e ADE no Mac"
 authors = ["Pedro Aquino"]
 edition = "2024"

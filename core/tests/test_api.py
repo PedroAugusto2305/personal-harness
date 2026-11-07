@@ -17,9 +17,9 @@ AUTH = {"X-Harness-Token": TOKEN}
 
 
 @pytest.fixture
-def client(settings, monkeypatch):
+def client(settings, accounts, monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/sh")
-    with TestClient(create_app(settings)) as test_client:
+    with TestClient(create_app(settings, accounts=accounts, poll_codex=False)) as test_client:
         yield test_client
 
 
@@ -70,10 +70,10 @@ def test_child_env_drops_orca_and_nested_claude_markers(settings, monkeypatch):
 
 
 @pytest.fixture
-def live_core(settings, monkeypatch):
+def live_core(settings, accounts, monkeypatch):
     """Núcleo de verdade numa thread, para o relay.sh falar com ele por curl."""
     monkeypatch.setenv("SHELL", "/bin/sh")
-    app = create_app(settings)
+    app = create_app(settings, accounts=accounts, poll_codex=False)
     server = uvicorn.Server(uvicorn.Config(app, host=settings.host, port=settings.port, log_level="warning"))
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -102,7 +102,8 @@ def test_relay_script_delivers_statusline_and_hooks(live_core, settings, statusl
         session = next(s for s in http.get("/sessions").json() if s["id"] == session_id)
         assert session["status"] == "working"
         assert session["statusline"]["context"]["used_pct"] == 38.2
-        assert http.get("/usage").json()["claude"]["five_hour"]["used_pct"] == 23.5
+        # Os limites são da conta: sessão sem conta própria cai na conta ativa do Claude.
+        assert http.get("/usage").json()["claude"]["padrao"]["five_hour"]["used_pct"] == 23.5
         http.delete(f"/sessions/{session_id}")
 
 
@@ -113,3 +114,8 @@ def test_relay_is_silent_and_harmless_without_a_core(settings, statusline_payloa
     env = {"PATH": "/usr/bin:/bin"}  # sessão fora do Harness: sem variáveis do núcleo
     out = subprocess.run(["/bin/sh", str(relay), "statusline"], input=json.dumps(statusline_payload), env=env, capture_output=True, text=True, timeout=10)
     assert out.returncode == 0 and out.stdout == ""
+
+
+def test_repeated_titles_get_a_number(client):
+    titles = [client.post("/sessions", json={"kind": "shell", "cwd": "/tmp", "title": "Shell"}, headers=AUTH).json()["title"] for _ in range(3)]
+    assert titles == ["Shell", "Shell 2", "Shell 3"]

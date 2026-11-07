@@ -151,8 +151,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 | Versão | Entrega | Pronto quando |
 |---|---|---|
 | `v0.1.0` | **Fase 0, provas:** `claude` e `codex` num terminal do app; statusline, hooks e MCP do Harness chegando à sessão; troca de conta por pasta; Whisper no Mac Intel; anexo chegando às duas CLIs; bot do Slack tocando no iPhone, com mensagem agendada | Todas as provas passam ou têm plano B |
-| `v0.2.0` | **Núcleo** ⭐: abas, divisões, terminal flutuante, salto rápido, contas e uso (5 h, 7 dias, alerta em 80%), agentes em arquivo, barra de entrada com voz e anexo | Você passa um dia programando nele |
-| `v0.3.0` | **Código** ⭐: espaços de trabalho, worktrees (criar e limpar), diff com notas, commit escrito por IA, portas, árvore de arquivos, visualizadores | Você troca o Orca pelo Harness em um projeto |
+| `v0.2.0` | **Núcleo** ⭐: abas, divisões, terminal flutuante, salto rápido, contas e uso (5 h, 7 dias, alerta em 80%), barra de entrada com voz e anexo | Você passa um dia programando nele |
+| `v0.3.0` | **Código** ⭐: agentes em arquivo (papel e prompt por agente), espaços de trabalho, worktrees (criar e limpar), diff com notas, commit escrito por IA, portas, árvore de arquivos, visualizadores | Você troca o Orca pelo Harness em um projeto |
 | `v0.4.0` | **Navegador embutido** ⭐ com modo de design | Usa o navegador do Harness em vez do do Orca |
 | `v0.5.0` | **Brain e kanban:** leitura, busca, precedentes v1 (consulta e início de sessão), kanban de projetos e tarefas | Abre os projetos pelo kanban |
 | `v0.6.0` | **Conectores e avisos:** galeria, central de MCP, ClickUp e Slack, aprovações, atividade, Skills | Um lembrete pedido no Mac toca no iPhone |
@@ -163,6 +163,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 | depois | Celular, SSH e remoto, tela de chat, catálogo de plugins, outros provedores | Quando fizer falta |
 
 > **Caminho decidido (2026-11-07): do zero.** O roadmap acima vale como está. A `v0.1.0` é uma fatia vertical: moldura, terminal real do Claude Code, contexto e cota na barra de status.
+>
+> **`v0.2.0` (2026-11-07):** Codex, contas por pasta com `harness switch`, cota do Codex pelo `app-server`, abas, divisão em dois, flutuante, ⌘K, Ajustes, barra de entrada com ditado (Whisper local) e anexos. "Agentes em arquivo" foi para a `v0.3.0`, junto com o resto do trabalho de código.
 
 ## 10. Riscos
 
