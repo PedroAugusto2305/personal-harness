@@ -1,5 +1,5 @@
 #!/bin/sh
-# Abre o Harness na janela do Tauri. O app sobe o núcleo sozinho com uv e o encerra ao sair.
+# Abre a MÊTIS na janela do Tauri. O app sobe o núcleo sozinho com uv e o encerra ao sair.
 set -e
 cd "$(dirname "$0")/.."
 (cd core && uv sync --quiet)

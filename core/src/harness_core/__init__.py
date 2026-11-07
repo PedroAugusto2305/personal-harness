@@ -1,3 +1,3 @@
 """Núcleo do Personal Harness."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

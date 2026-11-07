@@ -1,4 +1,18 @@
-import type { Accounts, Account, Provider, Session, SessionKind, Usage, VoiceStatus } from "../types";
+import type {
+  Accounts,
+  Account,
+  Agent,
+  AgentDraft,
+  GitStatus,
+  Project,
+  Provider,
+  Session,
+  SessionKind,
+  TextFile,
+  Usage,
+  VoiceStatus,
+  Worktree,
+} from "../types";
 
 export interface CoreInfo {
   url: string;
@@ -37,6 +51,7 @@ export interface NewSessionOptions {
   account?: string;
   title?: string;
   tag?: string;
+  agent?: string;
   cols?: number;
   rows?: number;
 }
@@ -133,6 +148,119 @@ export class CoreClient {
   async transcribe(wav: Blob, language = "pt"): Promise<string> {
     const answer = await this.send<{ text: string }>("POST", `/voice/transcribe?language=${language}`, wav, "audio/wav");
     return answer.text;
+  }
+
+  // --- projetos e worktrees
+
+  projects(): Promise<Project[]> {
+    return this.request("GET", "/projects");
+  }
+
+  addProject(path: string): Promise<Project> {
+    return this.request("POST", "/projects", { path });
+  }
+
+  removeProject(id: string): Promise<void> {
+    return this.request("DELETE", `/projects/${encodeURIComponent(id)}`);
+  }
+
+  worktrees(projectId: string): Promise<Worktree[]> {
+    return this.request("GET", `/projects/${encodeURIComponent(projectId)}/worktrees`);
+  }
+
+  createWorktree(projectId: string, name: string, copyEnv: boolean, base?: string): Promise<{ path: string; branch: string; copied: string[] }> {
+    return this.request("POST", `/projects/${encodeURIComponent(projectId)}/worktrees`, { name, copy_env: copyEnv, base: base || null });
+  }
+
+  deleteWorktree(projectId: string, path: string, force = false): Promise<{ branch_deleted: boolean; branch_kept: string | null; branch: string | null }> {
+    const query = new URLSearchParams({ path, force: String(force) });
+    return this.request("DELETE", `/projects/${encodeURIComponent(projectId)}/worktrees?${query}`);
+  }
+
+  // --- git da revisão
+
+  gitStatus(path: string): Promise<GitStatus> {
+    return this.request("GET", `/git/status?${new URLSearchParams({ path })}`);
+  }
+
+  async gitDiff(path: string, file: string, mode: "head" | "staged" | "worktree", untracked: boolean): Promise<string> {
+    const query = new URLSearchParams({ path, file, mode, untracked: String(untracked) });
+    const response = await fetch(`${this.info.url}/git/diff?${query}`, { headers: { "X-Harness-Token": this.info.token } });
+    if (!response.ok) throw new CoreError((await response.json().catch(() => ({}))).detail ?? response.statusText, response.status);
+    return response.text();
+  }
+
+  stage(path: string, files: string[]): Promise<unknown> {
+    return this.request("POST", "/git/stage", { path, files });
+  }
+
+  unstage(path: string, files: string[]): Promise<unknown> {
+    return this.request("POST", "/git/unstage", { path, files });
+  }
+
+  commit(path: string, message: string): Promise<unknown> {
+    return this.request("POST", "/git/commit", { path, message });
+  }
+
+  push(path: string): Promise<unknown> {
+    return this.request("POST", "/git/push", { path });
+  }
+
+  pull(path: string): Promise<unknown> {
+    return this.request("POST", "/git/pull", { path });
+  }
+
+  // --- arquivos
+
+  files(root: string): Promise<{ root: string; files: string[] }> {
+    return this.request("GET", `/fs/files?${new URLSearchParams({ root })}`);
+  }
+
+  readText(root: string, path: string): Promise<TextFile> {
+    return this.request("GET", `/fs/text?${new URLSearchParams({ root, path })}`);
+  }
+
+  /** Para <img>, <iframe>, <audio> e <video>, que não mandam cabeçalho. */
+  rawUrl(root: string, path: string): string {
+    return `${this.info.url}/fs/raw?${new URLSearchParams({ root, path, token: this.info.token })}`;
+  }
+
+  open(target: { url?: string; reveal?: string }): Promise<void> {
+    return this.request("POST", "/open", target);
+  }
+
+  // --- agentes
+
+  agents(): Promise<Agent[]> {
+    return this.request("GET", "/agents");
+  }
+
+  createAgent(draft: AgentDraft): Promise<Agent> {
+    return this.request("POST", "/agents", draft);
+  }
+
+  updateAgent(id: string, draft: AgentDraft): Promise<Agent> {
+    return this.request("PUT", `/agents/${encodeURIComponent(id)}`, draft);
+  }
+
+  deleteAgent(id: string): Promise<void> {
+    return this.request("DELETE", `/agents/${encodeURIComponent(id)}`);
+  }
+
+  setSprite(id: string, png: Blob): Promise<void> {
+    return this.send("POST", `/agents/${encodeURIComponent(id)}/sprite`, png, "image/png");
+  }
+
+  clearSprite(id: string): Promise<void> {
+    return this.request("DELETE", `/agents/${encodeURIComponent(id)}/sprite`);
+  }
+
+  spriteUrl(id: string, version: number): string {
+    return `${this.info.url}/agents/${encodeURIComponent(id)}/sprite?${new URLSearchParams({ token: this.info.token, v: String(version) })}`;
+  }
+
+  importMaestri(): Promise<{ imported: string[] }> {
+    return this.request("POST", "/agents/import/maestri");
   }
 
   async upload(file: Blob, name: string): Promise<string> {

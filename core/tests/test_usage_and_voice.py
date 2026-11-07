@@ -198,6 +198,7 @@ def test_harness_command_works_inside_app_terminals(settings, accounts):
     venv_bin = str(__import__("pathlib").Path(sys.prefix) / "bin")
     assert venv_bin not in env["PATH"].split(":")  # o Python do núcleo não vaza para os terminais
     accounts.add("codex", "Pessoal")
-    out = subprocess.run(["harness", "contas"], env=env, capture_output=True, text=True, timeout=30)
-    assert out.returncode == 0, out.stderr
-    assert "Pessoal" in out.stdout  # o atalho aponta para o HARNESS_HOME deste núcleo
+    for comando in ("metis", "harness"):  # harness é o nome antigo, mantido como apelido
+        out = subprocess.run([comando, "contas"], env=env, capture_output=True, text=True, timeout=30)
+        assert out.returncode == 0, out.stderr
+        assert "Pessoal" in out.stdout  # o atalho aponta para o HARNESS_HOME deste núcleo

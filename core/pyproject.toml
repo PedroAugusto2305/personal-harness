@@ -1,7 +1,7 @@
 [project]
 name = "harness-core"
-version = "0.2.0"
-description = "Núcleo do Personal Harness: terminais dos agentes, sessões e telemetria do Claude Code."
+version = "0.3.0"
+description = "Núcleo da MÊTIS (antes Personal Harness): terminais dos agentes, sessões e telemetria do Claude Code."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +12,8 @@ dependencies = [
 
 [project.scripts]
 harness-core = "harness_core.__main__:main"
+metis = "harness_core.cli:main"
+# nome antigo do comando, mantido enquanto a troca para metis assenta
 harness = "harness_core.cli:main"
 
 [dependency-groups]
@@ -33,5 +35,5 @@ filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
 
 [tool.uv]
 # O onnxruntime não publica mais wheels para Mac Intel. O faster-whisper só o usa no
-# filtro de silêncio (VAD), que o Harness não liga; sem ele, o resto funciona.
+# filtro de silêncio (VAD), que a MÊTIS não liga; sem ele, o resto funciona.
 override-dependencies = ["onnxruntime; sys_platform == 'never'"]

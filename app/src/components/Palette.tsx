@@ -11,7 +11,7 @@ export interface PaletteItem {
 }
 
 /** Salto rápido (⌘K): pula para um terminal ou roda uma ação, só com o teclado. */
-export function Palette({ items, onClose }: { items: PaletteItem[]; onClose: () => void }) {
+export function Palette({ items, onClose, placeholder }: { items: PaletteItem[]; onClose: () => void; placeholder?: string }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -22,7 +22,7 @@ export function Palette({ items, onClose }: { items: PaletteItem[]; onClose: () 
     return items.filter((item) => {
       const haystack = fold(`${item.label} ${item.group} ${item.hint ?? ""}`);
       return words.every((word) => haystack.includes(word));
-    });
+    }).slice(0, 200);
   }, [items, query]);
 
   useEffect(() => input.current?.focus(), []);
@@ -44,7 +44,7 @@ export function Palette({ items, onClose }: { items: PaletteItem[]; onClose: () 
         <input
           ref={input}
           value={query}
-          placeholder="Pular para um terminal ou fazer algo…"
+          placeholder={placeholder ?? "Pular para um terminal ou fazer algo…"}
           spellCheck={false}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {

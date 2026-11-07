@@ -94,7 +94,7 @@ def test_relay_script_delivers_statusline_and_hooks(live_core, settings, statusl
 
         out = subprocess.run(["/bin/sh", relay, "statusline"], input=json.dumps(statusline_payload), env=env, capture_output=True, text=True, timeout=10)
         assert out.returncode == 0
-        assert out.stdout == "◆ harness · Opus 5.5 · contexto 38%"
+        assert out.stdout == "◆ metis · Opus 5.5 · contexto 38%"
 
         hook = subprocess.run(["/bin/sh", relay, "hook", "UserPromptSubmit"], input="{}", env=env, capture_output=True, text=True, timeout=10)
         assert hook.returncode == 0 and hook.stdout == ""

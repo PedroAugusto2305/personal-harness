@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_PORT = 47830
+# Mesma pasta do Orca: durante a migração, os dois enxergam as mesmas worktrees.
+DEFAULT_WORKTREES = Path.home() / "orca" / "workspaces"
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class Settings:
     host: str
     port: int
     token: str
+    worktrees: Path = DEFAULT_WORKTREES
 
     @property
     def url(self) -> str:
@@ -30,4 +33,5 @@ def load_settings() -> Settings:
     home = Path(os.environ.get("HARNESS_HOME") or Path.home() / ".harness").expanduser()
     port = int(os.environ.get("HARNESS_PORT") or DEFAULT_PORT)
     token = os.environ.get("HARNESS_TOKEN") or secrets.token_urlsafe(32)
-    return Settings(home=home, host="127.0.0.1", port=port, token=token)
+    worktrees = Path(os.environ.get("HARNESS_WORKTREES_DIR") or DEFAULT_WORKTREES).expanduser()
+    return Settings(home=home, host="127.0.0.1", port=port, token=token, worktrees=worktrees)

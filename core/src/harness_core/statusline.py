@@ -62,7 +62,7 @@ def parse_statusline(payload: dict) -> dict:
 
 def render_statusline(parsed: dict) -> str:
     """Texto curto que aparece na statusline dentro do terminal."""
-    pieces = ["◆ harness"]
+    pieces = ["◆ metis"]
     if parsed.get("model"):
         pieces.append(str(parsed["model"]))
     pct = parsed.get("context", {}).get("used_pct")

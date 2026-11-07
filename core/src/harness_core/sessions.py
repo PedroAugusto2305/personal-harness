@@ -13,9 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from .accounts import PROVIDERS, AccountStore
+from .agents import Agent, agent_args
 from .claude_settings import claude_argv
 from .codex_usage import read_codex_limits
 from .config import Settings
+from .ports import ports_by_session
 from .pty_session import PtySession
 from .statusline import parse_statusline
 
@@ -49,6 +51,7 @@ HOOK_STATUS = {
 
 KINDS = ("claude", "codex", "shell")
 CODEX_POLL_SECONDS = 180
+PORTS_POLL_SECONDS = 4
 
 
 class UnknownKind(ValueError):
@@ -86,6 +89,8 @@ class Session:
     pty: PtySession
     account: str | None = None
     tag: str | None = None
+    agent: str | None = None
+    ports: list[int] = field(default_factory=list)
     status: str = "starting"
     statusline: dict | None = None
     exit_code: int | None = None
@@ -99,6 +104,8 @@ class Session:
             "created_at": self.created_at,
             "account": self.account,
             "tag": self.tag,
+            "agent": self.agent,
+            "ports": self.ports,
             "status": self.status,
             "statusline": self.statusline,
             "exit_code": self.exit_code,
@@ -198,12 +205,20 @@ class SessionManager:
         title: str | None = None,
         account_id: str | None = None,
         tag: str | None = None,
+        agent: Agent | None = None,
     ) -> Session:
+        if agent is not None:
+            kind = agent.cli
+            cwd = cwd or agent.folder or None
+            title = title or agent.name
+            account_id = account_id or agent.account or None
         if kind not in KINDS:
             raise UnknownKind(kind)
         session_id = uuid.uuid4().hex[:8]
         workdir = str(Path(cwd or Path.home()).expanduser())
         argv = resolve_argv(kind, self.settings)
+        if agent is not None:
+            argv = argv + agent_args(agent)
         env, account = self.session_env(kind, session_id, account_id)
         pty = PtySession(
             argv=argv,
@@ -223,6 +238,7 @@ class SessionManager:
             pty=pty,
             account=account,
             tag=tag,
+            agent=agent.id if agent else None,
             status="starting" if kind == "claude" else "running",
         )
         self.sessions[session_id] = session
@@ -310,6 +326,32 @@ class SessionManager:
             self.usage.codex[account.id] = {**limits, "updated_at": time.time()}
             self._publish_usage()
         return limits
+
+    # --- portas ---------------------------------------------------------------
+
+    def refresh_ports(self) -> bool:
+        roots = {s.id: s.pty.pid for s in self.sessions.values() if s.pty.pid and s.status != "exited"}
+        found = ports_by_session(roots)
+        changed = False
+        for session in self.sessions.values():
+            ports = found.get(session.id, [])
+            if ports != session.ports:
+                session.ports = ports
+                changed = True
+        if changed:
+            self.events.publish({"type": "ports", "ports": {s.id: s.ports for s in self.sessions.values()}})
+        return changed
+
+    async def poll_ports(self) -> None:
+        loop = asyncio.get_running_loop()
+        while True:
+            await asyncio.sleep(PORTS_POLL_SECONDS)
+            if not self.sessions:
+                continue
+            try:
+                await loop.run_in_executor(None, self.refresh_ports)
+            except Exception:  # lsof ou ps falharam: tenta de novo na próxima volta
+                pass
 
     async def poll_codex_usage(self) -> None:
         while True:

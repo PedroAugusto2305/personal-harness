@@ -1,5 +1,5 @@
 #!/bin/sh
-# Harness no navegador, sem a janela do Tauri: útil para testar a tela.
+# MÊTIS no navegador, sem a janela do Tauri: útil para testar a tela.
 # Sobe o núcleo com um token novo e o Vite em http://localhost:1420.
 set -e
 cd "$(dirname "$0")/.."

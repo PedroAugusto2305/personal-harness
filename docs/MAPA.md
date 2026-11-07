@@ -165,6 +165,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 > **Caminho decidido (2026-11-07): do zero.** O roadmap acima vale como está. A `v0.1.0` é uma fatia vertical: moldura, terminal real do Claude Code, contexto e cota na barra de status.
 >
 > **`v0.2.0` (2026-11-07):** Codex, contas por pasta com `harness switch`, cota do Codex pelo `app-server`, abas, divisão em dois, flutuante, ⌘K, Ajustes, barra de entrada com ditado (Whisper local) e anexos. "Agentes em arquivo" foi para a `v0.3.0`, junto com o resto do trabalho de código.
+>
+> **`v0.3.0` (2026-11-07):** projetos e worktrees na barra lateral (criar com branch novo em `~/orca/workspaces`, copiando o `.env`; apagar com aviso de terminal aberto e de mudança sem commit, sem nunca apagar branch não juntado), painel da worktree com Mudanças, Arquivos e Portas, diff em aba com notas por linha que vão em lote para o agente, commit escrito pelo agente da worktree no terminal dele, visualizadores (Markdown, imagem, PDF, CSV, áudio, vídeo, HTML sem scripts, código), ⌘P e agentes em arquivo com tela de edição e sprite trocável (adiantado da `v0.7`), com os 8 agentes do Maestri importados. Ficou para depois: agentes por repositório (`.harness/agentes/` dentro do projeto), stage por trecho ou linha e comparar com qualquer ref.
 
 ## 10. Riscos
 
