@@ -40,16 +40,21 @@ def install_relay(path: Path) -> Path:
 
 
 def install_cli_shim(bin_dir: Path, home: Path) -> Path:
-    """Põe o comando `harness` em ~/.harness/bin, que entra no PATH dos terminais do app."""
-    path = bin_dir / "harness"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    """Põe o comando `metis` em ~/.harness/bin, que entra no PATH dos terminais do app.
+
+    O nome antigo, `harness`, continua instalado como apelido enquanto a troca de nome assenta.
+    Devolve o caminho do `metis`.
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    body = (
         "#!/bin/sh\n"
-        "# Gerado pelo Personal Harness: o comando `harness` dentro dos terminais do app.\n"
+        "# Gerado pela MÊTIS: o comando `metis` (e o antigo `harness`) dentro dos terminais do app.\n"
         f"HARNESS_HOME={shlex.quote(str(home))}\n"
         "export HARNESS_HOME\n"
-        f'exec {shlex.quote(sys.executable)} -m harness_core.cli "$@"\n',
-        encoding="utf-8",
+        f'exec {shlex.quote(sys.executable)} -m harness_core.cli "$@"\n'
     )
-    path.chmod(0o755)
-    return path
+    for name in ("metis", "harness"):
+        path = bin_dir / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+    return bin_dir / "metis"

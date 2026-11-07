@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CoreClient, getCoreInfo, type NewSessionOptions } from "./lib/core";
-import type { Accounts, Connection, CoreEvent, Session, SessionKind, Usage } from "./types";
+import type { Accounts, Agent, Connection, CoreEvent, Project, Session, SessionKind, Usage } from "./types";
 
 const NO_ACCOUNTS: Accounts = { claude: { active: "padrao", accounts: [] }, codex: { active: "padrao", accounts: [] } };
 
@@ -13,6 +13,10 @@ export function useHarness() {
   const [sessions, setSessions] = useState<Record<string, Session>>({});
   const [usage, setUsage] = useState<Usage>({ claude: {}, codex: {} });
   const [accounts, setAccounts] = useState<Accounts>(NO_ACCOUNTS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  /** Sobe a cada mudança de worktrees num projeto, para quem lista recarregar. */
+  const [worktreesTick, setWorktreesTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const retry = useRef<number | undefined>(undefined);
 
@@ -26,6 +30,8 @@ export function useHarness() {
           setSessions(Object.fromEntries(event.sessions.map((s) => [s.id, s])));
           setUsage(event.usage);
           setAccounts(event.accounts);
+          setProjects(event.projects ?? []);
+          setAgents(event.agents ?? []);
           break;
         case "session.created":
           setSessions((all) => ({ ...all, [event.session.id]: event.session }));
@@ -49,6 +55,24 @@ export function useHarness() {
           break;
         case "accounts":
           setAccounts(event.accounts);
+          break;
+        case "projects":
+          setProjects(event.projects);
+          break;
+        case "worktrees":
+          setWorktreesTick((n) => n + 1);
+          break;
+        case "agents":
+          setAgents(event.agents);
+          break;
+        case "ports":
+          setSessions((all) => {
+            const next = { ...all };
+            for (const [id, ports] of Object.entries(event.ports)) {
+              if (next[id]) next[id] = { ...next[id], ports };
+            }
+            return next;
+          });
           break;
       }
     };
@@ -131,5 +155,20 @@ export function useHarness() {
   );
 
   const ordered = Object.values(sessions).sort((a, b) => a.created_at - b.created_at);
-  return { client, connection, sessions: ordered, usage, accounts, error, setError, create, close, run };
+  return {
+    client,
+    connection,
+    sessions: ordered,
+    usage,
+    accounts,
+    projects,
+    agents,
+    worktreesTick,
+    bumpWorktrees: () => setWorktreesTick((n) => n + 1),
+    error,
+    setError,
+    create,
+    close,
+    run,
+  };
 }

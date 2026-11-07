@@ -1,5 +1,5 @@
 import { windowAction } from "../lib/core";
-import { ICON, Icon } from "../icons";
+import { ICON, Icon, MetisMark } from "../icons";
 import type { ThemeName, View } from "../types";
 
 export const THEME_LABEL: Record<ThemeName, string> = { dracula: "Drácula azul", grafite: "Grafite", claro: "Claro" };
@@ -18,7 +18,8 @@ export function TitleBar({ theme, onCycleTheme, onPalette }: { theme: ThemeName;
         />
       </div>
       <span className="name" data-tauri-drag-region>
-        Harness
+        <MetisMark size={15} />
+        MÊTIS
       </span>
       <button type="button" className="search" onClick={onPalette} title="Salto rápido (⌘K)">
         <Icon d={ICON.search} size={13} strokeWidth={2} />
@@ -46,21 +47,23 @@ const NAV: { key: keyof typeof ICON; label: string; version: string }[] = [
   { key: "plug", label: "Conectores", version: "v0.6" },
 ];
 
-/** Faixa de ícones. Terminais e Ajustes já existem; o resto mostra quando chega. */
+const READY: Partial<Record<keyof typeof ICON, View>> = { term: "term", agents: "agents" };
+
+/** Faixa de ícones. Terminais, Agentes e Ajustes já existem; o resto mostra quando chega. */
 export function Ribbon({ view, onView }: { view: View; onView: (view: View) => void }) {
   return (
     <nav className="ribbon" aria-label="Módulos">
       {NAV.map((item) => {
-        const here = item.key === "term";
+        const target = READY[item.key];
         return (
           <button
             key={item.key}
             type="button"
-            aria-label={here ? item.label : `${item.label} (chega na ${item.version})`}
-            title={here ? item.label : `${item.label} · chega na ${item.version}`}
-            aria-current={here && view === "term" ? "page" : undefined}
-            disabled={!here}
-            onClick={() => here && onView("term")}
+            aria-label={target ? item.label : `${item.label} (chega na ${item.version})`}
+            title={target ? item.label : `${item.label} · chega na ${item.version}`}
+            aria-current={target && view === target ? "page" : undefined}
+            disabled={!target}
+            onClick={() => target && onView(target)}
           >
             <Icon d={ICON[item.key]} />
           </button>

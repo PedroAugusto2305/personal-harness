@@ -91,7 +91,7 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
       <h1>Contas e uso</h1>
       <p className="lead">
         Cada conta é uma pasta de configuração com o próprio login, e o Claude Code e o Codex rodam aqui como no seu
-        terminal. O Harness não lê nem guarda token: o login acontece na própria CLI, na primeira vez que você abre uma
+        terminal. A MÊTIS não lê nem guarda token: o login acontece na própria CLI, na primeira vez que você abre uma
         sessão da conta.
       </p>
       {PROVIDERS.map((provider) => {
@@ -193,7 +193,7 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
               })}
             </ul>
             <p className="small card-foot">
-              {info.usageHint} No terminal: <span className="mono">harness switch {provider} &lt;conta&gt;</span>. A troca
+              {info.usageHint} No terminal: <span className="mono">metis switch {provider} &lt;conta&gt;</span>. A troca
               vale para as sessões novas.
             </p>
           </div>
@@ -234,7 +234,7 @@ function AppearanceSection({ theme, onTheme }: { theme: ThemeName; onTheme: (the
             <Icon d={ICON.palette} size={26} strokeWidth={1.4} />
           </span>
           <span className="theme-name">Criar tema com prompt</span>
-          <span className="small">Você descreve, um agente gera as cores e o Harness confere o contraste. Chega numa próxima versão.</span>
+          <span className="small">Você descreve, um agente gera as cores e a MÊTIS confere o contraste. Chega numa próxima versão.</span>
         </div>
       </div>
     </section>

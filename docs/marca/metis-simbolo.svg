@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 7 7" width="512" height="512">
+  <!-- MÊTIS, variante C (Partes). Grade 7 × 7: traço = vão = 1 unidade. Corte de 0,35 entre os arcos e o vale. -->
+  <g fill="none" stroke-width="1" stroke-linejoin="miter" stroke-linecap="butt">
+    <path d="M0.5 7V0.5H3M6.5 7V0.5H4" stroke="#f8f8f2"/>
+    <path d="M2.5 1.35V4.5H4.5V1.35" stroke="#82a0ff"/>
+  </g>
+</svg>

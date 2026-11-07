@@ -1,4 +1,14 @@
-# Personal Harness: direção visual
+# MÊTIS: direção visual
+
+> O app se chamava Personal Harness até 2026-11-07. Folha de marca completa: https://claude.ai/artifact/5DNZE4R1Fo8TXs3UT5HxU5
+
+## Marca
+
+- **Nome:** MÊTIS, em caixa alta e com acento; `metis` no terminal e no código. Assinatura: **Inteligência em ação.** Descrição curta: **O ambiente pessoal onde agentes, projetos e memória trabalham juntos.**
+- **Símbolo (variante C, Partes):** um M em meandro numa grade de 7 × 7 em que o traço e o vão têm a mesma largura (1 unidade). Dois arcos na cor do texto e o vale do meio suspenso em `acento`, separados por um corte de 0,35 unidade. Cantos retos, sem curva, diagonal ou gradiente. Arquivos: `docs/marca/metis-simbolo.svg` e `docs/marca/metis-icone.svg` (fonte dos ícones de `app/src-tauri/icons`, gerados com `npx tauri icon`). No app: `MetisMark` em `app/src/icons.tsx`.
+- **Ícone do app:** escuro (`#1e1f29`) nos três temas, símbolo a 58% do quadrado. Na barra de menu, uma cor só.
+- **Logotipo:** as letras desenhadas na mesma grade do símbolo; o acento do Ê é um pedaço de meandro em `acento`. Na interface, o nome vai em texto (Inter 600, espaço de 0,06 em entre as letras).
+- **Fica de fora:** colunas, templos, bustos, elmos, louros, corujas, cérebro com circuitos, robô, infinito, estrela de quatro pontas, órbitas e gradiente neon.
 
 > **Estado:** proposta, a validar com o Pedro. **Atualizado em:** 2026-11-07.
 > Construída a partir das referências em [`../refs.md`](../refs.md) e do visual que o Pedro já usa no Orca.

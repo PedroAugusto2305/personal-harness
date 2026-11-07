@@ -1,8 +1,8 @@
-"""Comando `harness`: contas e troca de conta pelo terminal.
+"""Comando `metis` (antes `harness`, que segue como apelido): contas e troca de conta pelo terminal.
 
-    harness contas                       lista as contas e qual está ativa
-    harness switch <claude|codex> <conta> passa a usar outra conta nas sessões novas
-    harness login <claude|codex> <nome>   cria a conta e abre o login oficial aqui
+    metis contas                       lista as contas e qual está ativa
+    metis switch <claude|codex> <conta> passa a usar outra conta nas sessões novas
+    metis login <claude|codex> <nome>   cria a conta e abre o login oficial aqui
 
 O login acontece sempre no fluxo oficial da CLI, numa pasta só daquela conta.
 """
@@ -43,7 +43,7 @@ def _print_accounts(store: AccountStore) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="harness", description="Contas do Personal Harness.")
+    parser = argparse.ArgumentParser(prog="metis", description="Contas da MÊTIS.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("contas", help="lista as contas e qual está ativa")
     switch = sub.add_parser("switch", help="troca a conta ativa de uma CLI")
@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             account = store.find(args.provider, args.conta)
         except UnknownAccount:
-            print(f"conta não encontrada: {args.conta}. Veja `harness contas`.", file=sys.stderr)
+            print(f"conta não encontrada: {args.conta}. Veja `metis contas`.", file=sys.stderr)
             return 1
         store.activate(args.provider, account.id)
         _notify_core(home)

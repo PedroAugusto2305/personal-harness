@@ -25,5 +25,5 @@ def test_partial_rate_limits_keep_only_present_windows():
 
 
 def test_render_is_short(statusline_payload):
-    assert render_statusline(parse_statusline(statusline_payload)) == "◆ harness · Opus 5.5 · contexto 38%"
-    assert render_statusline(parse_statusline({})) == "◆ harness"
+    assert render_statusline(parse_statusline(statusline_payload)) == "◆ metis · Opus 5.5 · contexto 38%"
+    assert render_statusline(parse_statusline({})) == "◆ metis"

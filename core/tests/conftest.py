@@ -19,7 +19,13 @@ def free_port() -> int:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     # Pasta com espaço de propósito: o caminho do relay precisa sobreviver às aspas.
-    return Settings(home=tmp_path / "Harness Home", host="127.0.0.1", port=free_port(), token=TOKEN)
+    return Settings(
+        home=tmp_path / "Harness Home",
+        host="127.0.0.1",
+        port=free_port(),
+        token=TOKEN,
+        worktrees=tmp_path / "workspaces",
+    )
 
 
 @pytest.fixture
@@ -51,3 +57,25 @@ def accounts(settings: Settings, tmp_path: Path):
     source = tmp_path / "codex-config.toml"
     source.write_text('model = "gpt-teste"\n', encoding="utf-8")
     return AccountStore(settings.home, codex_config_source=source)
+
+
+def run(*args: str, cwd: Path) -> str:
+    import subprocess
+
+    return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    """Repositório git de verdade, com um commit e um .env fora do git."""
+    path = tmp_path / "meu-repo"
+    path.mkdir()
+    run("git", "init", "-q", "-b", "main", cwd=path)
+    run("git", "config", "user.email", "teste@example.com", cwd=path)
+    run("git", "config", "user.name", "Teste", cwd=path)
+    (path / "app.py").write_text("print('oi')\n", encoding="utf-8")
+    (path / ".gitignore").write_text(".env\n", encoding="utf-8")
+    run("git", "add", ".", cwd=path)
+    run("git", "commit", "-q", "-m", "primeiro", cwd=path)
+    (path / ".env").write_text("CHAVE=local\n", encoding="utf-8")
+    return path

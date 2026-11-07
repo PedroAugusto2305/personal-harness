@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { CoreClient } from "../lib/core";
@@ -70,12 +70,16 @@ interface Props {
   focused: boolean;
   split: boolean;
   accountName: string | null;
+  /** Sprite do agente, quando a sessão é de um agente. */
+  badge?: ReactNode;
+  /** "projeto · worktree" quando o terminal está dentro de um projeto. */
+  place?: string | null;
   dropping: boolean;
   onFocus: () => void;
   onHide?: () => void;
 }
 
-export function TerminalView({ session, client, theme, slot, focused, split, accountName, dropping, onFocus, onHide }: Props) {
+export function TerminalView({ session, client, theme, slot, focused, split, accountName, badge, place, dropping, onFocus, onHide }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fitter = useRef<FitAddon | null>(null);
@@ -191,14 +195,17 @@ export function TerminalView({ session, client, theme, slot, focused, split, acc
       onMouseDown={onFocus}
     >
       <div className="pane-head">
-        <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span>
+        {badge ?? <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span>}
         <span className="pane-title">{session.title}</span>
         {accountName && (
           <span className="path-chip" title="Conta usada nesta sessão">
             {accountName}
           </span>
         )}
-        <span className="path-chip">{shortPath(session.statusline?.cwd ?? session.cwd)}</span>
+        <span className="path-chip" title={session.cwd}>
+          {place ?? shortPath(session.statusline?.cwd ?? session.cwd)}
+        </span>
+        {session.ports.length > 0 && <span className="small mono">:{session.ports.join(" :")}</span>}
         {session.statusline?.model && <span className="small mono">{session.statusline.model}</span>}
         <span className="pane-status" style={{ color: STATUS_COLOR[status] }}>
           <span className="dot" style={{ background: STATUS_COLOR[status] }} />
