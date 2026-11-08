@@ -3,8 +3,9 @@ import { ICON, Icon } from "../icons";
 import { openExternal } from "../lib/browser";
 import type { CoreClient } from "../lib/core";
 import { TYPE_ICON, TYPE_LABEL, renderNote, snippetParts } from "../lib/obsidian";
-import type { BrainHit, BrainNote } from "../types";
+import type { BrainHit, BrainNote, SemanticStatus, Suggestion } from "../types";
 import { BrainGraph } from "./BrainGraph";
+import { SuggestionCard } from "./SuggestionCard";
 
 /** Pedido vindo de fora da tela (kanban, painel da worktree, ⌘K): abrir uma nota ou buscar. */
 export interface BrainRequest {
@@ -21,6 +22,7 @@ interface Props {
   projects: string[];
   onOpenTasks: (project: string) => void;
   onError: (message: string) => void;
+  suggestionsTick: number;
 }
 
 const FILTERS: { key: string; label: string; tipos: string[] }[] = [
@@ -63,7 +65,7 @@ export function HitRow({ hit, active, onOpen }: { hit: BrainHit; active?: boolea
   );
 }
 
-export function BrainView({ client, tick, request, projects, onOpenTasks, onError }: Props) {
+export function BrainView({ client, tick, request, projects, onOpenTasks, onError, suggestionsTick }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("tudo");
   const [project, setProject] = useState("");
@@ -73,6 +75,10 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
   const [history, setHistory] = useState<{ path: string }[]>([]);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [vault, setVault] = useState<{ total: number; available: boolean } | null>(null);
+  const [semantic, setSemantic] = useState<SemanticStatus | null>(null);
+  const [scanning, setScanning] = useState(false);
+  /** Sugestões ligadas à nota aberta: nascidas dela, viradas nela ou (nota de projeto) esperando nele. */
+  const [related, setRelated] = useState<Suggestion[]>([]);
   /** A última nota aberta continua marcada no grafo ao voltar para ele. */
   const [lastPath, setLastPath] = useState<string | null>(null);
   const noteRef = useRef(note);
@@ -92,6 +98,51 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
       .then((s) => setVault(s))
       .catch(() => setVault(null));
   }, [client, tick]);
+
+  // Estado da busca por significado e das sugestões: na abertura, a cada mudança e a cada 30 s.
+  useEffect(() => {
+    if (!client) return;
+    const load = () => void client.brainSemantic().then(setSemantic).catch(() => setSemantic(null));
+    load();
+    const timer = window.setInterval(load, 30000);
+    return () => window.clearInterval(timer);
+  }, [client, tick, suggestionsTick]);
+
+  useEffect(() => {
+    if (!client || !note) return setRelated([]);
+    let alive = true;
+    const asks = [client.suggestions({ note: note.path })];
+    if (note.tipo === "projeto") asks.push(client.suggestions({ project: note.title }));
+    void Promise.all(asks)
+      .then((lists) => {
+        const seen = new Set<number>();
+        alive && setRelated(lists.flat().filter((s) => !seen.has(s.id) && seen.add(s.id)));
+      })
+      .catch(() => alive && setRelated([]));
+    return () => {
+      alive = false;
+    };
+  }, [client, note, suggestionsTick]);
+
+  const scan = async () => {
+    if (!client || scanning) return;
+    setScanning(true);
+    try {
+      const done = await client.scanSuggestions();
+      onError(
+        done.skipped
+          ? "Já tem uma varredura em andamento."
+          : done.baseline != null
+            ? `Começou a acompanhar o Brain: ${done.baseline} registros existentes ficam como vistos.`
+            : `${done.new ?? 0} registro(s) novo(s), ${done.judged ?? 0} julgado(s), ${done.created?.length ?? 0} sugestão(ões) nova(s).`,
+      );
+      setSemantic(await client.brainSemantic());
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setScanning(false);
+    }
+  };
 
   // Busca enquanto digita, com uma pausa curta para não disparar a cada letra.
   useEffect(() => {
@@ -240,7 +291,12 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
             </p>
           )}
         </div>
-        {vault && <div className="brain-foot small mono">{vault.total} notas no índice</div>}
+        {vault && (
+          <div className="brain-foot small mono">
+            <div>{vault.total} notas no índice</div>
+            {semantic && <SemanticLine status={semantic} scanning={scanning} onScan={() => void scan()} onDownload={() => client && void client.brainSemanticDownload().then(() => client.brainSemantic().then(setSemantic))} />}
+          </div>
+        )}
       </section>
 
       <article className="brain-reader" ref={body} onClick={onBodyClick} aria-label="Nota">
@@ -284,6 +340,31 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
               </div>
             </header>
             <div className="markdown brain-markdown" dangerouslySetInnerHTML={{ __html: html }} />
+            {related.length > 0 && (
+              <section className="brain-suggestions">
+                <div className="section-title">Sugestões de precedente ({related.length})</div>
+                {related.map((item) =>
+                  item.status === "pendente" ? (
+                    <SuggestionCard
+                      key={item.id}
+                      client={client}
+                      item={item}
+                      showTarget
+                      onOpenNote={(title) => void open({ title })}
+                      onDone={onError}
+                      onError={onError}
+                    />
+                  ) : (
+                    <p key={item.id} className="small brain-suggestion-past">
+                      {item.status === "aceita" ? "✓ virou decisão em" : "✗ recusada para"} {item.target_project}:{" "}
+                      <button type="button" className="link-btn" onClick={() => void open(item.note ? { path: item.note } : { title: item.title })}>
+                        {item.title}
+                      </button>
+                    </p>
+                  ),
+                )}
+              </section>
+            )}
             {note.backlinks.length > 0 && (
               <section className="brain-backlinks">
                 <div className="section-title">Citada por ({note.backlinks.length})</div>
@@ -302,6 +383,41 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
           <BrainGraph client={client} tick={tick} highlight={found} current={lastPath} onOpen={(path) => void open({ path })} />
         )}
       </article>
+    </div>
+  );
+}
+
+const MODEL_STATE: Record<string, string> = {
+  pronto: "carregado",
+  parado: "pronto (fora da memória)",
+  carregando: "carregando…",
+  baixando: "baixando…",
+  ausente: "não baixado",
+  erro: "com erro",
+};
+
+/** Rodapé da lista: o modelo de significado, os vetores e o juiz das sugestões. */
+function SemanticLine({ status, scanning, onScan, onDownload }: { status: SemanticStatus; scanning: boolean; onScan: () => void; onDownload: () => void }) {
+  const { model, index, suggestions } = status;
+  const pending = suggestions.counts.pendente ?? 0;
+  return (
+    <div className="brain-semantic" title={model.error || `${model.model} · ${model.url}`}>
+      <div>
+        significado: {MODEL_STATE[model.state] ?? model.state}
+        {model.state !== "ausente" && ` · ${index.vectors}/${index.notes} vetores`}
+        {model.state === "ausente" && (
+          <button type="button" className="link-btn" onClick={onDownload}>
+            baixar (500 MB)
+          </button>
+        )}
+      </div>
+      <div>
+        sugestões: {pending} pendente{pending === 1 ? "" : "s"} · juiz {suggestions.judged_today}/{suggestions.daily_max} hoje
+        <button type="button" className="link-btn" disabled={scanning} onClick={onScan}>
+          {scanning ? "procurando…" : "procurar agora"}
+        </button>
+      </div>
+      {model.error && <div className="brain-semantic-err">{model.error}</div>}
     </div>
   );
 }

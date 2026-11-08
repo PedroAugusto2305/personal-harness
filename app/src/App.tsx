@@ -20,6 +20,7 @@ import { Sidebar, type Selected } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { Tabs, type TabItem } from "./components/Tabs";
 import { TerminalView, type Slot } from "./components/TerminalView";
+import { MiniMap } from "./components/MiniMap";
 import { browser, describePick, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
 import { CoreError, inTauri, type NewSessionOptions } from "./lib/core";
 import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
@@ -927,6 +928,8 @@ export default function App() {
             onOpenTasks={(project) => openTasks(project)}
             onDecide={decide}
             onToast={setToast}
+            suggestionsTick={harness.suggestionsTick}
+            onOpenNote={(title) => openNote({ title })}
           />
         )}
         {view === "connectors" && (
@@ -948,6 +951,7 @@ export default function App() {
             projects={boardNames}
             onOpenTasks={(project) => openTasks(project)}
             onError={setToast}
+            suggestionsTick={harness.suggestionsTick}
           />
         )}
         {view === "kanban" && (
@@ -1044,6 +1048,16 @@ export default function App() {
                         window.setTimeout(() => dock.current?.type(text), 0);
                       }}
                       onFocusInput={() => dock.current?.focus()}
+                      corner={
+                        session.kind !== "shell" && slot !== "float" ? (
+                          <MiniMap
+                            client={harness.client!}
+                            sessionId={session.id}
+                            tick={(harness.sessionMapTicks[session.id] ?? 0) + harness.brainTick}
+                            onOpenNote={(title) => openNote({ title })}
+                          />
+                        ) : undefined
+                      }
                       onHide={
                         slot === "float"
                           ? () => setFloatOpen(false)
@@ -1178,6 +1192,9 @@ export default function App() {
                 brainTick={harness.brainTick}
                 onOpenNote={(title) => openNote({ title })}
                 onOpenTasks={(project) => openTasks(project)}
+                suggestionsTick={harness.suggestionsTick}
+                contextSession={dockTarget}
+                onNotice={setToast}
               />
             )}
           </div>
@@ -1199,6 +1216,11 @@ export default function App() {
         onOpenAccounts={() => {
           setSection("contas");
           setView("settings");
+        }}
+        onOpenContext={() => {
+          setView("term");
+          setInspectorOpen(true);
+          setInspectorTab("context");
         }}
       />
       {palette && <Palette items={paletteItems} onClose={() => setPalette(null)} placeholder={palette === "files" ? "Abrir arquivo…" : undefined} />}

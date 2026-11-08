@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import type { CoreClient } from "../lib/core";
 import { shortPath } from "../lib/format";
 import { renderInline } from "../lib/obsidian";
-import type { Agent, Approval, Routine, RoutineDraft, RoutineRun, Session, TodayData } from "../types";
+import type { Agent, Approval, Routine, RoutineDraft, RoutineRun, Session, Suggestion, TodayData } from "../types";
 import { AgentSprite } from "./AgentSprite";
 import { ApprovalCard, ReminderTry } from "./ConnectorsView";
+import { SuggestionCard } from "./SuggestionCard";
 
 interface Props {
   client: CoreClient | null;
@@ -17,6 +18,9 @@ interface Props {
   onOpenTasks: (project: string) => void;
   onDecide: (id: string, approve: boolean) => void;
   onToast: (message: string) => void;
+  /** v0.8: sugestões de precedente esperando o Pedro, de todos os projetos. */
+  suggestionsTick: number;
+  onOpenNote: (title: string) => void;
 }
 
 const DAY_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
@@ -281,6 +285,8 @@ export function TodayView(props: Props) {
           </>
         )}
 
+        <TodaySuggestions client={client} tick={props.suggestionsTick} onOpenNote={props.onOpenNote} onToast={props.onToast} />
+
         <div className="section-title">Em andamento</div>
         {today?.doing.length ? (
           <ul className="today-doing">
@@ -357,5 +363,28 @@ export function TodayView(props: Props) {
         )}
       </aside>
     </div>
+  );
+}
+
+/** Sugestões de precedente pendentes (de todos os projetos): aceitar vira decisão no projeto alvo. */
+function TodaySuggestions(props: { client: CoreClient; tick: number; onOpenNote: (title: string) => void; onToast: (message: string) => void }) {
+  const { client, tick } = props;
+  const [items, setItems] = useState<Suggestion[]>([]);
+  useEffect(() => {
+    void client
+      .suggestions()
+      .then(setItems)
+      .catch(() => setItems([]));
+  }, [client, tick]);
+  if (!items.length) return null;
+  return (
+    <>
+      <div className="section-title">Sugestões do Brain ({items.length})</div>
+      <div className="today-suggestions">
+        {items.slice(0, 6).map((item) => (
+          <SuggestionCard key={item.id} client={client} item={item} showTarget compact onOpenNote={props.onOpenNote} onDone={props.onToast} onError={props.onToast} />
+        ))}
+      </div>
+    </>
   );
 }

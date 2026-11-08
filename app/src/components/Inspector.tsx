@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, fold } from "../lib/format";
 import { openExternal } from "../lib/browser";
 import { buildTree, type TreeNode } from "../lib/tree";
 import { TYPE_ICON, renderInline } from "../lib/obsidian";
-import type { BrainPlace, GitFile, GitStatus, ReviewNote, Session } from "../types";
+import type { BrainPlace, ContextWindow, GitFile, GitStatus, ReviewNote, Session, Suggestion } from "../types";
 import { worktreeLabel, type Place } from "../useWorktrees";
+import { SuggestionCard } from "./SuggestionCard";
 
-export type InspectorTab = "changes" | "files" | "ports" | "brain";
+export type InspectorTab = "changes" | "files" | "ports" | "brain" | "context";
 
 interface Props {
   client: CoreClient | null;
@@ -30,6 +31,10 @@ interface Props {
   brainTick: number;
   onOpenNote: (title: string) => void;
   onOpenTasks: (project: string) => void;
+  /** v0.8: sugestões de precedente e a janela de contexto da sessão em foco. */
+  suggestionsTick: number;
+  contextSession: Session | null;
+  onNotice: (message: string) => void;
 }
 
 /** Letra e cor do estado de um arquivo no git, no estilo do VS Code. */
@@ -69,15 +74,22 @@ export function Inspector(props: Props) {
     return () => window.clearInterval(timer);
   }, [load, props.tick]);
 
+  // Cinco abas não cabem em 330 px: a barra rola de lado e a aba escolhida aparece sempre.
+  const tabs = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabs.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab]);
+
   return (
     <aside className="inspector" aria-label="Painel da worktree">
-      <div className="inspector-tabs" role="tablist">
+      <div className="inspector-tabs" role="tablist" ref={tabs}>
         {(
           [
             ["changes", "Mudanças", status?.files.length],
             ["files", "Arquivos", undefined],
             ["ports", "Portas", props.sessions.reduce((n, s) => n + s.ports.length, 0) || undefined],
             ["brain", "Brain", undefined],
+            ["context", "Contexto", undefined],
           ] as [InspectorTab, string, number | undefined][]
         ).map(([key, label, count]) => (
           <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => props.onTab(key)}>
@@ -89,7 +101,9 @@ export function Inspector(props: Props) {
           <Icon d={ICON.close} size={12} strokeWidth={2} />
         </button>
       </div>
-      {!place ? (
+      {tab === "context" ? (
+        <ContextPanel client={client} session={props.contextSession} />
+      ) : !place ? (
         <p className="inspector-empty small">
           Escolha uma worktree na barra lateral, ou foque um terminal dentro de um projeto, para ver as mudanças, os arquivos e
           as portas dela.
@@ -99,7 +113,15 @@ export function Inspector(props: Props) {
       ) : tab === "files" ? (
         <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
       ) : tab === "brain" ? (
-        <BrainPanel client={client} cwd={place.worktree.path} tick={props.brainTick} onOpenNote={props.onOpenNote} onOpenTasks={props.onOpenTasks} />
+        <BrainPanel
+          client={client}
+          cwd={place.worktree.path}
+          tick={props.brainTick + props.suggestionsTick}
+          onOpenNote={props.onOpenNote}
+          onOpenTasks={props.onOpenTasks}
+          onNotice={props.onNotice}
+          onError={props.onError}
+        />
       ) : (
         <Ports sessions={props.sessions} onOpenUrl={props.onOpenUrl} />
       )}
@@ -397,16 +419,30 @@ const STATE_DOT: Record<string, string> = { pendente: "var(--fnt)", "em-andament
 const STATE_NAME: Record<string, string> = { pendente: "pendente", "em-andamento": "em andamento", "em-teste": "em teste" };
 
 /** O projeto do Brain desta worktree: tarefas abertas e precedentes de outros projetos. */
-function BrainPanel(props: { client: CoreClient | null; cwd: string; tick: number; onOpenNote: (title: string) => void; onOpenTasks: (project: string) => void }) {
+function BrainPanel(props: {
+  client: CoreClient | null;
+  cwd: string;
+  tick: number;
+  onOpenNote: (title: string) => void;
+  onOpenTasks: (project: string) => void;
+  onNotice: (message: string) => void;
+  onError: (message: string) => void;
+}) {
   const { client, cwd } = props;
   const [place, setPlace] = useState<BrainPlace | null>(null);
+  const [pending, setPending] = useState<Suggestion[]>([]);
 
   useEffect(() => {
     if (!client) return;
     let alive = true;
     void client
       .brainPlace(cwd)
-      .then((found) => alive && setPlace(found))
+      .then(async (found) => {
+        if (!alive) return;
+        setPlace(found);
+        const name = found.project?.name;
+        setPending(name ? await client.suggestions({ project: name }).catch(() => []) : []);
+      })
       .catch(() => alive && setPlace({ project: null }));
     return () => {
       alive = false;
@@ -442,6 +478,14 @@ function BrainPanel(props: { client: CoreClient | null; cwd: string; tick: numbe
         </button>
         {project.stage && <span className="chip">{project.stage}</span>}
       </div>
+      {pending.length > 0 && (
+        <>
+          <div className="section-title brain-panel-section">Sugestões de outros projetos ({pending.length})</div>
+          {pending.map((item) => (
+            <SuggestionCard key={item.id} client={client} item={item} onOpenNote={props.onOpenNote} onDone={props.onNotice} onError={props.onError} />
+          ))}
+        </>
+      )}
       <div className="section-title brain-panel-section">
         Tarefas abertas ({open.length})
         <button type="button" className="link-btn" onClick={() => props.onOpenTasks(project.name)}>
@@ -464,11 +508,103 @@ function BrainPanel(props: { client: CoreClient | null; cwd: string; tick: numbe
           <span className="small mono">
             {hit.projeto}
             {hit.status ? ` · ${hit.status}` : ""}
+            {hit.via?.length ? ` · por ${hit.via.join(" e ")}` : ""}
           </span>
         </button>
       ))}
-      {!place.precedents?.length && <p className="small brain-panel-none">Nada de outro projeto bateu com as tarefas abertas.</p>}
-      <p className="small brain-panel-note">Busca por palavra: confira antes de seguir. Os agentes recebem esta lista ao abrir.</p>
+      {!place.precedents?.length && <p className="small brain-panel-none">Nada de outro projeto bateu com o momento do projeto.</p>}
+      <p className="small brain-panel-note">
+        Por significado e por palavra: confira antes de seguir. Os agentes recebem esta lista ao abrir e consultam o resto pelo MCP
+        (brain_conflitos antes de decidir).
+      </p>
+    </div>
+  );
+}
+
+const CATEGORY_COLOR: Record<string, string> = {
+  sistema: "var(--fnt)",
+  conversa: "var(--acc)",
+  respostas: "var(--acct)",
+  raciocinio: "var(--wait)",
+  leituras: "var(--run)",
+  comandos: "var(--warn)",
+  edicoes: "var(--err)",
+  mcp: "var(--acc)",
+  outras: "var(--mut)",
+  injetado: "var(--wait)",
+  resumo: "var(--mut)",
+};
+
+const kTokens = (n: number) =>
+  n >= 1_000_000
+    ? `${(n / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}M`
+    : n >= 1000
+      ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(".", ",")}k`
+      : String(n);
+
+/** Janela de contexto da sessão do Claude em foco: o que está ocupando o contexto agora. */
+function ContextPanel({ client, session }: { client: CoreClient | null; session: Session | null }) {
+  const [data, setData] = useState<ContextWindow | null>(null);
+  const id = session?.id ?? null;
+  const used = session?.statusline?.context?.used_tokens ?? null;
+
+  useEffect(() => {
+    if (!client || !id || session?.kind !== "claude") return setData(null);
+    let alive = true;
+    void client
+      .contextWindow(id)
+      .then((found) => alive && setData(found))
+      .catch(() => alive && setData({ available: false, reason: "o núcleo não respondeu" }));
+    return () => {
+      alive = false;
+    };
+    // used muda a cada resposta do Claude: é a hora de reler o transcript.
+  }, [client, id, used, session?.kind]);
+
+  if (!session) return <p className="inspector-empty small">Foque um terminal do Claude para ver o que ocupa a janela de contexto dele.</p>;
+  if (session.kind !== "claude") return <p className="inspector-empty small">A janela de contexto por enquanto é só das sessões do Claude.</p>;
+  if (!data) return <p className="inspector-empty small">Lendo o transcript…</p>;
+  if (!data.available) return <p className="inspector-empty small">Sem dados ainda: {data.reason}.</p>;
+  const size = data.size ?? 200000;
+  return (
+    <div className="inspector-body context-panel">
+      <div className="context-head">
+        <span className="context-total">{kTokens(data.used ?? 0)}</span>
+        <span className="small mono">
+          / {kTokens(size)} · {data.pct?.toLocaleString("pt-BR")}% · livre {kTokens(data.free ?? 0)}
+        </span>
+      </div>
+      <div className="context-bar" role="img" aria-label="Divisão da janela de contexto">
+        {data.categories?.map((c) => (
+          <span key={c.key} style={{ width: `${(100 * c.tokens) / size}%`, background: CATEGORY_COLOR[c.key] ?? "var(--mut)" }} title={`${c.label}: ${kTokens(c.tokens)}`} />
+        ))}
+      </div>
+      <ul className="context-cats">
+        {data.categories?.map((c) => (
+          <li key={c.key}>
+            <span className="context-swatch" style={{ background: CATEGORY_COLOR[c.key] ?? "var(--mut)" }} />
+            <span className="context-label">{c.label}</span>
+            <span className="mono small">{kTokens(c.tokens)}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="section-title brain-panel-section">O que mais pesa</div>
+      <ul className="context-top">
+        {data.top?.map((item) => (
+          <li key={item.label} title={item.label}>
+            <span className="context-label">{item.label}</span>
+            <span className="mono small">
+              {item.times > 1 ? `${item.times}× · ` : ""}
+              {kTokens(item.tokens)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="small brain-panel-note">
+        O total é o da última resposta do Claude. A divisão é estimada pelo tamanho do texto desde a
+        {data.compacted ? " última compactação" : "s primeiras mensagens"}; o fixo inclui o prompt do Claude Code, as definições de ferramentas e o
+        CLAUDE.md.
+      </p>
     </div>
   );
 }

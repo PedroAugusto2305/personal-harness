@@ -57,9 +57,11 @@ interface Props {
   active: Session | null;
   connection: Connection;
   onOpenAccounts: () => void;
+  /** Abre a aba Contexto do painel (o que ocupa a janela de contexto). */
+  onOpenContext?: () => void;
 }
 
-export function StatusBar({ usage, accounts, active, connection, onOpenAccounts }: Props) {
+export function StatusBar({ usage, accounts, active, connection, onOpenAccounts, onOpenContext }: Props) {
   const line = active?.statusline;
   const context = line?.context;
   return (
@@ -67,10 +69,10 @@ export function StatusBar({ usage, accounts, active, connection, onOpenAccounts 
       <Plan provider="claude" usage={usage} accounts={accounts} onOpen={onOpenAccounts} />
       <Plan provider="codex" usage={usage} accounts={accounts} onOpen={onOpenAccounts} />
       {context && (
-        <span className="mono" title="Janela de contexto do terminal em foco">
+        <button type="button" className="mono statusbar-context" title="Janela de contexto do terminal em foco: clique para ver o que ocupa" onClick={onOpenContext}>
           contexto {tokens(context.used_tokens)} / {tokens(context.size)}
           {context.used_pct != null && ` · ${pct(context.used_pct)}`}
-        </span>
+        </button>
       )}
       {line?.cost_usd != null && line.cost_usd > 0 && <span className="mono">{money(line.cost_usd)}</span>}
       <span className="right">

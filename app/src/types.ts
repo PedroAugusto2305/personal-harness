@@ -17,6 +17,7 @@ export interface Statusline {
   context: { used_pct: number | null; size: number | null; used_tokens: number | null };
   cost_usd: number | null;
   rate_limits: RateLimits;
+  transcript?: string | null;
 }
 
 export interface Session {
@@ -168,7 +169,10 @@ export type CoreEvent =
   | { type: "connector.error"; account: string; error: string }
   | { type: "routines"; routines: Routine[] }
   | { type: "routine.run"; routine: Routine; run: RoutineRun; session?: string }
-  | { type: "study"; summary: StudySummary };
+  | { type: "study"; summary: StudySummary }
+  | { type: "suggestions"; created?: number[]; decided?: number }
+  | { type: "brain.session"; session: string }
+  | { type: "brain.error"; error: string };
 
 export type Connection = "connecting" | "online" | "offline";
 
@@ -297,6 +301,10 @@ export interface BrainHit {
   /** Trecho com \x02 … \x03 em volta das palavras achadas. */
   snippet?: string;
   terms?: string[];
+  /** Como o precedente foi achado (v0.8): "significado", "palavra" ou os dois. */
+  via?: string[];
+  /** Quanto se destaca da média, em desvios-padrão (busca por significado). */
+  z?: number;
 }
 
 export interface BrainNote extends BrainHit {
@@ -357,4 +365,66 @@ export interface BrainPlace {
   project: BoardProject | null;
   tasks?: KanbanTask[];
   precedents?: BrainHit[];
+}
+
+// --- Brain vivo (v0.8) -----------------------------------------------------------------------
+
+export interface Suggestion {
+  id: number;
+  created: number;
+  source_path: string;
+  source_title: string;
+  source_tipo: NoteType;
+  source_project: string;
+  target_project: string;
+  title: string;
+  resumo: string;
+  motivo: string;
+  matches: { title: string; path: string; tipo: NoteType; z: number }[];
+  z: number;
+  status: "pendente" | "aceita" | "recusada";
+  decided: number | null;
+  note: string | null;
+}
+
+export interface SemanticStatus {
+  model: { state: "ausente" | "baixando" | "carregando" | "pronto" | "parado" | "erro"; model: string; url: string; error: string; disk_mb: number; loads: number };
+  index: { notes: number; vectors: number };
+  suggestions: {
+    counts: Record<string, number>;
+    judged_today: number;
+    daily_max: number;
+    watching_since: string | null;
+    last_scan: { at?: number; new?: number; candidates?: number; judged?: number; created?: number[]; errors?: string[] };
+    judge: boolean;
+  };
+}
+
+export interface SessionMapNode {
+  path: string;
+  title: string;
+  tipo: NoteType;
+  projeto: string;
+  status: string;
+  via: string[];
+}
+
+export interface SessionMap {
+  project: string | null;
+  nodes: SessionMapNode[];
+  edges: [number, number][];
+}
+
+export interface ContextWindow {
+  available: boolean;
+  reason?: string;
+  used?: number;
+  size?: number;
+  pct?: number | null;
+  free?: number;
+  categories?: { key: string; label: string; tokens: number; pct: number }[];
+  top?: { label: string; category: string; tokens: number; times: number }[];
+  compacted?: boolean;
+  estimated?: boolean;
+  updated?: number;
 }

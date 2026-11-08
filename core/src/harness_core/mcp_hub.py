@@ -4,8 +4,8 @@ Cada sessão do Claude ou do Codex recebe um token próprio (por `--mcp-config` 
 por `bearer_token_env_var` no Codex). Pelo token a central sabe a sessão, a pasta (o projeto
 do Brain) e o agente, e entrega só as ferramentas liberadas para ele:
 
-- do Brain e do kanban (brain_buscar, brain_ler, brain_precedentes, tarefas, tarefa_mover,
-  tarefa_nova) e o lembrete;
+- do Brain e do kanban (brain_buscar, brain_ler, brain_precedentes, brain_conflitos,
+  brain_sugestoes, tarefas, tarefa_mover, tarefa_nova) e o lembrete;
 - de cada conta de conector, com o id da conta na frente (slack-pessoal__lembrete,
   clickup-seller-pro__<ferramenta do ClickUp>).
 
@@ -27,6 +27,7 @@ from typing import Any, Callable
 from . import __version__
 from .activity import ActivityLog
 from .brain_index import BrainIndex
+from .brain_tools import DESCRIPTIONS, BrainTools
 from .connectors import ConnectorError, ConnectorStore
 from .kanban import Kanban
 from .mcp_client import McpError
@@ -40,8 +41,9 @@ UPSTREAM_TTL = 10 * 60
 MAX_NAME = 52  # o Claude mostra mcp__metis__<nome>, e o total não pode passar de 64
 
 INSTRUCTIONS = (
-    "Central da MÊTIS, o ambiente pessoal do Pedro. Use brain_buscar e brain_precedentes antes de "
-    "decidir algo que outro projeto já pode ter decidido; tarefas e tarefa_mover para o kanban do "
+    "Central da MÊTIS, o ambiente pessoal do Pedro. Use brain_precedentes e brain_buscar para ver o que "
+    "outros projetos já decidiram, e brain_conflitos ANTES de registrar uma decisão (acha repetição e "
+    "contradição no próprio projeto); tarefas e tarefa_mover para o kanban do "
     "projeto desta pasta; lembrete para avisar o Pedro no celular numa hora marcada. Ferramentas "
     "com nome de conta na frente (slack-…, clickup-…) agem nessas contas; as que escrevem para "
     "outras pessoas esperam a aprovação do Pedro."
@@ -119,6 +121,7 @@ class Hub:
         publish: Callable[[dict], None],
         session_info: Callable[[str], dict | None],
         on_brain_change: Callable[[str], None] = lambda _project: None,
+        brain_tools: BrainTools | None = None,
     ) -> None:
         self.connectors = connectors
         self.brain = brain
@@ -128,6 +131,9 @@ class Hub:
         self.publish = publish
         self.session_info = session_info
         self.on_brain_change = on_brain_change
+        self.brain_tools = brain_tools or BrainTools(brain)
+        # Notas do Brain que cada sessão viu pelas ferramentas (mini-mapa): sessão → caminho → nota.
+        self.session_notes: dict[str, dict[str, dict]] = {}
         self.tokens: dict[str, str] = {}
         self.pending: dict[str, Pending] = {}
         self._upstream: dict[str, tuple[float, list[dict]]] = {}
@@ -141,6 +147,23 @@ class Hub:
 
     def forget(self, session_id: str) -> None:
         self.tokens = {t: s for t, s in self.tokens.items() if s != session_id}
+        self.session_notes.pop(session_id, None)
+
+    def touch(self, session_id: str, notes: list[dict], via: str) -> None:
+        """Guarda as notas que a sessão viu, para o mini-mapa, e avisa a tela."""
+        seen = self.session_notes.setdefault(session_id, {})
+        added = False
+        for note in notes[:12]:
+            path = note.get("path")
+            if not path:
+                continue
+            if path not in seen:
+                added = True
+            entry = seen.setdefault(path, {k: note.get(k, "") for k in ("path", "title", "tipo", "projeto", "status")} | {"via": []})
+            if via not in entry["via"]:
+                entry["via"].append(via)
+        if added:
+            self.publish({"type": "brain.session", "session": session_id})
 
     def context(self, token: str | None) -> Context | None:
         session = self.tokens.get(token or "")
@@ -161,32 +184,38 @@ class Hub:
         return note.name
 
     def _builtin(self) -> list[Tool]:
-        def buscar(args: dict, _ctx: Context) -> str:
-            tipo = str(args.get("tipo") or "")
-            hits = self.brain.search(str(args.get("termos", "")), [t for t in tipo.split(",") if t] or None, args.get("projeto") or None, 12)
-            if not hits:
-                return "Nada encontrado no Brain (a busca é por palavra, sem acento)."
-            return "\n".join(
-                f"- {h['title']} ({' · '.join(x for x in (h['tipo'], h['projeto'], h['status'], h['data']) if x)})"
-                + (f"\n  {(h.get('resumo') or '')[:240]}" if h.get("resumo") else "")
-                for h in hits
-            )
+        def buscar(args: dict, ctx: Context) -> str:
+            text, notes = self.brain_tools.buscar(str(args.get("termos", "")), str(args.get("tipo") or ""), str(args.get("projeto") or ""))
+            self.touch(ctx.session, notes[:5], "busca")
+            return text
 
-        def ler(args: dict, _ctx: Context) -> str:
-            note = self.brain.note(title=str(args.get("titulo", "")))
-            cited = "; ".join(b["title"] for b in note["backlinks"][:15])
-            return f"# {note['title']} ({note['path']})\n{note['body'].strip()}" + (f"\n\nCitada por: {cited}" if cited else "")
+        def ler(args: dict, ctx: Context) -> str:
+            text, notes = self.brain_tools.ler(str(args.get("titulo", "")))
+            self.touch(ctx.session, notes, "leitura")
+            return text
 
         def precedentes(args: dict, ctx: Context) -> str:
             try:
                 project = self._project(ctx, args)
             except ToolError:
                 project = ""
-            context = str(args.get("termos") or "") or (self.brain.project_context(project) if project else "")
-            found = self.brain.precedents(project or None, context, 8)
-            if not found:
-                return "Nenhum registro de outro projeto bateu."
-            return "\n".join(f"- {h['title']} ({h['projeto']}{' · ' + h['status'] if h['status'] else ''}): {(h['resumo'] or '')[:240]}" for h in found)
+            text, notes = self.brain_tools.precedentes(project, str(args.get("termos") or ""))
+            self.touch(ctx.session, notes, "precedente")
+            return text
+
+        def conflitos(args: dict, ctx: Context) -> str:
+            try:
+                project = self._project(ctx, args)
+            except ToolError:
+                project = ""
+            text, notes = self.brain_tools.conflitos(str(args.get("decisao", "")), project)
+            self.touch(ctx.session, notes, "conflito")
+            return text
+
+        def sugestoes(args: dict, ctx: Context) -> str:
+            text, notes = self.brain_tools.sugestoes(self._project(ctx, args))
+            self.touch(ctx.session, notes, "sugestão")
+            return text
 
         def tarefas(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
@@ -218,11 +247,14 @@ class Hub:
         estado = {"type": "string", "enum": ["pendente", "em-andamento", "em-teste", "concluida"]}
         projeto = {"type": "string", "description": "Nome do projeto no Brain. Vazio: o projeto desta pasta."}
         return [
-            Tool("brain_buscar", "Busca por palavra nas notas do Brain do Pedro (decisões, incidentes, aprendizados, entregas, projetos, notas).",
+            Tool("brain_buscar", DESCRIPTIONS["brain_buscar"],
                  _schema({"termos": {"type": "string"}, "tipo": {"type": "string", "description": "decisao, incidente, aprendizado, entrega, projeto (vírgula para vários)"}, "projeto": {"type": "string"}}, ["termos"]), buscar),
-            Tool("brain_ler", "Lê uma nota do Brain pelo título, com quem a cita.", _schema({"titulo": {"type": "string"}}, ["titulo"]), ler),
-            Tool("brain_precedentes", "Decisões, incidentes, aprendizados e entregas de OUTROS projetos parecidos com o momento deste projeto (ou com os termos dados).",
-                 _schema({"termos": {"type": "string"}, "projeto": projeto}, []), precedentes),
+            Tool("brain_ler", DESCRIPTIONS["brain_ler"], _schema({"titulo": {"type": "string"}}, ["titulo"]), ler),
+            Tool("brain_precedentes", DESCRIPTIONS["brain_precedentes"],
+                 _schema({"termos": {"type": "string", "description": "Uma frase sobre o assunto. Vazio: o momento do projeto."}, "projeto": projeto}, []), precedentes),
+            Tool("brain_conflitos", DESCRIPTIONS["brain_conflitos"],
+                 _schema({"decisao": {"type": "string", "description": "A decisão numa frase afirmada."}, "projeto": projeto}, ["decisao"]), conflitos),
+            Tool("brain_sugestoes", DESCRIPTIONS["brain_sugestoes"], _schema({"projeto": projeto}, []), sugestoes),
             Tool("tarefas", "Próximas ações (kanban) do projeto desta pasta, com o id de cada uma.",
                  _schema({"projeto": projeto, "todas": {"type": "boolean", "description": "inclui as concluídas"}}, []), tarefas),
             Tool("tarefa_mover", "Move uma tarefa do kanban: pendente, em-andamento, em-teste ou concluida. Mova a sua tarefa para em-teste quando terminar.",

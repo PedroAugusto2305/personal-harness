@@ -23,6 +23,11 @@ from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
 from .brain_index import BrainIndex
+from .brain_tools import BrainTools
+from .claude_print import ClaudePrintError, ask_json
+from .semantic import Embedder
+from .suggestions import SuggestionError, Suggestions, render_pending
+from .transcript import context_breakdown
 from .kanban import Kanban
 from .vault import Vault, VaultError
 from .sprites import SpriteStudio
@@ -208,6 +213,15 @@ class TitlesBody(BaseModel):
     titles: list[str] = Field(default_factory=list, max_length=2000)
 
 
+class EmbedBody(BaseModel):
+    texts: list[str] = Field(min_length=1, max_length=64)
+
+
+class AcceptBody(BaseModel):
+    titulo: str = Field(default="", max_length=200)
+    resumo: str = Field(default="", max_length=1200)
+
+
 def create_app(
     settings: Settings | None = None,
     accounts: AccountStore | None = None,
@@ -217,6 +231,7 @@ def create_app(
     keychain: SecretVault | None = None,
     http=None,
     run_scheduler: bool = True,
+    embedder: Embedder | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     manager = SessionManager(settings, accounts)
@@ -234,7 +249,26 @@ def create_app(
 
     studio = SpriteStudio(settings.home, codex_env)
     vault = Vault(settings.brain)
-    brain = BrainIndex(vault, settings.home / "brain.db")
+    # Busca por significado: o modelo só carrega no núcleo, sob demanda (semantic.py).
+    embedder = embedder or Embedder(settings.home / "modelos")
+    brain = BrainIndex(vault, settings.home / "brain.db", encode=embedder.encode)
+
+    def claude_env() -> dict[str, str]:
+        from .sessions import clean_env
+
+        # BRAIN_REGISTRAR=off: o pedido pontual não dispara os hooks de registro do Brain.
+        return {**clean_env(), **manager.accounts.env("claude", manager.accounts.active("claude")), "BRAIN_REGISTRAR": "off"}
+
+    def judge(prompt: str) -> dict:
+        """O juiz das sugestões: Haiku pelo plano, sem ferramentas; uma segunda tentativa se o JSON quebrar."""
+        try:
+            return ask_json(prompt, claude_env(), settings.home / "juiz", model="haiku", bare=True)
+        except ClaudePrintError as exc:
+            if "JSON" not in str(exc):
+                raise
+            return ask_json(prompt, claude_env(), settings.home / "juiz", model="haiku", bare=True)
+
+    suggestions = Suggestions(settings.home, brain, vault, judge=judge, publish=lambda event: manager.events.publish(event))
     kanban = Kanban(vault)
     connectors = ConnectorStore(settings.home, keychain or Keychain(), http)
     activity = ActivityLog(settings.home / "atividade.db")
@@ -260,6 +294,7 @@ def create_app(
         publish=manager.events.publish,
         session_info=session_info,
         on_brain_change=lambda project: manager.events.publish({"type": "brain.changed", "project": project}),
+        brain_tools=BrainTools(brain, pending=lambda project: suggestions.list(project)),
     )
     manager.mcp_token = hub.register
     manager.mcp_forget = hub.forget
@@ -320,6 +355,18 @@ def create_app(
                     await run_routine(routine, slot, "rodou" if action == "rodar" else "recuperada")
             await asyncio.sleep(20)
 
+    async def brain_worker() -> None:
+        """A cada 2 min: vetores das notas novas, sugestões dos registros novos e o modelo parado sai da memória."""
+        await asyncio.sleep(8)
+        while True:
+            try:
+                await asyncio.to_thread(brain.sync_vectors, 60.0)
+                await asyncio.to_thread(suggestions.scan)
+            except Exception as exc:  # o Brain nunca derruba o núcleo
+                manager.events.publish({"type": "brain.error", "error": str(exc)})
+            embedder.tick()
+            await asyncio.sleep(120)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         install_relay(settings.relay_path)
@@ -333,6 +380,7 @@ def create_app(
             pollers.append(asyncio.create_task(manager.poll_ports()))
         if run_scheduler:
             pollers.append(asyncio.create_task(scheduler()))
+            pollers.append(asyncio.create_task(brain_worker()))
         yield
         for poller in pollers:
             poller.cancel()
@@ -343,6 +391,10 @@ def create_app(
     app = FastAPI(title="Harness core", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.manager = manager
+    app.state.brain = brain
+    app.state.suggestions = suggestions
+    app.state.hub = hub
+    app.state.embedder = embedder
     app.state.voice = voice
     app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
@@ -708,16 +760,102 @@ def create_app(
             context = q or (brain.project_context(project) if project else "")
         except VaultError as exc:
             raise brain_fail(exc) from exc
-        return brain.precedents(project or None, context, limit)
+        return brain.precedents(project or None, context, limit, free_text=bool(q), wait=20.0 if q else 0.0)
 
     @app.get("/brain/session-context", dependencies=[Depends(require_token)], response_class=PlainTextResponse)
     def brain_session_context(session: str = "", cwd: str = "") -> str:
         """Texto do hook SessionStart: o Claude Code junta ao contexto o que sair aqui."""
         folder = cwd_of(session or None, cwd or None)
         try:
-            return brain.session_context(folder) if folder else ""
+            project, found = brain.session_precedents(folder) if folder else (None, [])
         except (VaultError, OSError):
             return ""
+        if not project:
+            return ""
+        if session:
+            hub.touch(session, found, "início")
+        pending = render_pending(suggestions.list(project))
+        extra = ([f"Sugestões de precedente esperando o Pedro em [[{project}]] (ele aceita ou recusa na MÊTIS; brain_sugestoes mostra todas):", *pending] if pending else [])
+        return brain.render_context(project, found, extra)
+
+    # --- Brain vivo (v0.8): significado, conflitos, sugestões, mini-mapa ------------------
+
+    @app.get("/brain/semantica", dependencies=[Depends(require_token)])
+    def brain_semantic() -> dict:
+        return {"model": embedder.status(), "index": brain.vector_status(), "suggestions": suggestions.status()}
+
+    @app.post("/brain/semantica/baixar", dependencies=[Depends(require_token)], status_code=202)
+    def brain_semantic_download() -> dict:
+        embedder.download()
+        return embedder.status()
+
+    @app.post("/brain/embed", dependencies=[Depends(require_token)])
+    def brain_embed(body: EmbedBody) -> dict:
+        """Vetores para o MCP de fora (que não carrega o modelo)."""
+        vectors = embedder.encode(body.texts, 20.0)
+        if vectors is None:
+            raise HTTPException(status_code=503, detail=embedder.status()["error"] or "o modelo de significado não está pronto")
+        return {"vectors": [[round(float(x), 5) for x in v] for v in vectors]}
+
+    @app.get("/brain/conflitos", dependencies=[Depends(require_token)])
+    def brain_conflicts(q: str = Query(min_length=3), project: str = "", cwd: str = "") -> dict:
+        if not project and cwd:
+            note = vault.project_for_dir(cwd)
+            project = note.name if note else ""
+        return brain.conflicts(q, project or None)
+
+    @app.get("/brain/sugestoes", dependencies=[Depends(require_token)])
+    def brain_suggestions(project: str = "", status: str = "pendente", nota: str = "") -> list[dict]:
+        if nota:
+            return suggestions.for_note(nota)
+        return suggestions.list(project or None, status or None)
+
+    @app.post("/brain/sugestoes/varrer", dependencies=[Depends(require_token)])
+    async def brain_suggestions_scan() -> dict:
+        return await asyncio.to_thread(suggestions.scan)
+
+    @app.post("/brain/sugestoes/{suggestion_id}/aceitar", dependencies=[Depends(require_token)])
+    def brain_suggestion_accept(suggestion_id: int, body: AcceptBody) -> dict:
+        try:
+            item = suggestions.accept(suggestion_id, body.titulo or None, body.resumo or None)
+        except SuggestionError as exc:
+            raise fail(exc) from exc
+        brain_changed(item["target_project"])
+        return item
+
+    @app.post("/brain/sugestoes/{suggestion_id}/recusar", dependencies=[Depends(require_token)])
+    def brain_suggestion_reject(suggestion_id: int) -> dict:
+        try:
+            return suggestions.reject(suggestion_id)
+        except SuggestionError as exc:
+            raise fail(exc) from exc
+
+    @app.get("/brain/sessao/{session_id}", dependencies=[Depends(require_token)])
+    def brain_session_map(session_id: str) -> dict:
+        """Mini-mapa: o projeto da sessão e as notas do Brain que ela viu (início, leituras, buscas)."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        note = vault.project_for_dir(session.cwd) if session.cwd else None
+        nodes = list(hub.session_notes.get(session_id, {}).values())
+        if note is not None:
+            # Registros deste projeto feitos depois do início da sessão: o que ela deixou no Brain.
+            for item in brain.records_since(note.name, session.created_at):
+                if item["path"] not in {n["path"] for n in nodes}:
+                    nodes.append({**item, "via": ["registro"]})
+        return {"project": note.name if note else None, "nodes": nodes[:40], "edges": brain.edges_among([n["path"] for n in nodes[:40]])}
+
+    @app.get("/sessions/{session_id}/contexto", dependencies=[Depends(require_token)])
+    def session_context_window(session_id: str) -> dict:
+        """Janela de contexto do Claude: o que ocupa o contexto da sessão, lido do transcript."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        line = session.statusline or {}
+        transcript = line.get("transcript")
+        if not transcript:
+            return {"available": False, "reason": "o Claude ainda não mandou a statusline desta sessão"}
+        return context_breakdown(transcript, line.get("context") or {})
 
     @app.get("/brain/projects", dependencies=[Depends(require_token)])
     def brain_projects() -> list[dict]:

@@ -63,20 +63,35 @@ class ExecutableNotFound(RuntimeError):
 
 
 class EventBus:
+    """Eventos para a janela. Pode ser chamado de uma thread (ferramenta do MCP, varredura do
+    Brain): aí o evento entra na fila pelo loop dono dela."""
+
     def __init__(self) -> None:
-        self._subscribers: set[asyncio.Queue[dict]] = set()
+        self._subscribers: dict[asyncio.Queue[dict], asyncio.AbstractEventLoop | None] = {}
 
     def subscribe(self) -> asyncio.Queue[dict]:
         queue: asyncio.Queue[dict] = asyncio.Queue()
-        self._subscribers.add(queue)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        self._subscribers[queue] = loop
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue[dict]) -> None:
-        self._subscribers.discard(queue)
+        self._subscribers.pop(queue, None)
 
     def publish(self, event: dict) -> None:
-        for queue in list(self._subscribers):
-            queue.put_nowait(event)
+        try:
+            current = asyncio.get_running_loop()
+        except RuntimeError:
+            current = None
+        for queue, loop in list(self._subscribers.items()):
+            if loop is not None and loop is not current:
+                if not loop.is_closed():
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+            else:
+                queue.put_nowait(event)
 
 
 @dataclass
