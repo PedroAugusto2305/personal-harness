@@ -180,6 +180,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 
 > **`v0.6.0` (2026-11-08):** conectores e avisos. Central de MCP no núcleo (`POST /mcp`, JSON-RPC escrito à mão, um token por terminal) entregue a todo Claude e Codex; ferramentas do Brain, do kanban, `lembrete` e das contas conectadas, com aprovação de escrita e Atividade. Galeria com Slack (bot da MÊTIS por workspace, token colado pelo Pedro, pessoal e Seller Pro) e ClickUp (MCP oficial, OAuth com registro dinâmico e PKCE feito pela MÊTIS, pessoal e Seller Pro); tokens no Keychain. `metis lembrete` agenda a mensagem do bot na DM do Slack. Conectores por agente no editor. Ficou para a 0.6.x: tela de Skills, "Adicionar MCP" genérico, Notion, GitHub e Google.
 
+> **`v0.7.0` (2026-11-08):** rotinas e Hoje, a primeira parte do OS pessoal, escolha do Pedro para chegar logo ao "a rotina da Aurora roda pela MÊTIS". Rotina = agente aberto num terminal na hora marcada com o pedido como primeira mensagem (interativo, pelo plano), aviso no Slack e janela de recuperação para o Mac dormindo. Tela Hoje com as rotinas do dia, tarefas em andamento, aprovações e lembrete; editor de rotinas. Aurora (seg a sáb, 20h50) e Alexandria (sexta, 22h10, trazida do Maestri) já cadastradas. Ficou para a 0.7.x: captura rápida, concierge, criar agente por descrição, sprites animadas por estado e Estudo com Pomodoro.
+
 ## 10. Riscos
 
 | Risco | Como tratar |

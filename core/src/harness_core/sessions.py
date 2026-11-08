@@ -209,6 +209,7 @@ class SessionManager:
         account_id: str | None = None,
         tag: str | None = None,
         agent: Agent | None = None,
+        prompt: str | None = None,
     ) -> Session:
         if agent is not None:
             kind = agent.cli
@@ -227,6 +228,10 @@ class SessionManager:
             token = self.mcp_token(session_id)
             argv = argv + mcp_args(kind, self.settings.url, token)
             env["METIS_MCP_TOKEN"] = token
+        if prompt and kind in ("claude", "codex"):
+            # Primeira mensagem da sessão interativa (rotinas). Vai logo depois do executável:
+            # no Claude, o --mcp-config aceita vários valores e engoliria o que viesse depois.
+            argv = [argv[0], prompt, *argv[1:]]
         pty = PtySession(
             argv=argv,
             cwd=workdir,

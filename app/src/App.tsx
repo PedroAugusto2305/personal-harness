@@ -7,6 +7,7 @@ import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { ApprovalCard, ConnectorsView } from "./components/ConnectorsView";
+import { TodayView } from "./components/TodayView";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
 import { Inspector, type InspectorTab } from "./components/Inspector";
@@ -452,6 +453,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harness.client, view, harness.brainTick]);
 
+  // Rotina que rodou (ou pulou) vira aviso; o terminal dela aparece nas abas.
+  useEffect(() => {
+    const run = harness.routineRun;
+    if (!run) return;
+    if (run.status === "pulou") setToast(`Rotina "${run.name}" pulou: ${run.detail}.`);
+    else if (run.status === "erro") setToast(`Rotina "${run.name}" deu erro: ${run.detail}`);
+    else setToast(`Rotina "${run.name}" abriu num terminal${run.detail ? ` (${run.detail})` : ""}.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [harness.routineRun?.id]);
+
   /** Resposta do Pedro a um pedido de aprovação da central de MCP. */
   const decide = (id: string, approve: boolean) => {
     void harness.client?.decide(id, approve).catch((cause) => setToast(cause instanceof Error ? cause.message : String(cause)));
@@ -802,6 +813,8 @@ export default function App() {
             .filter((a) => !a.active)
             .map((a) => ({ id: `acc-codex-${a.id}`, group: "Contas", label: `Usar a conta ${a.name} no Codex`, run: () => void harness.run((c) => c.activateAccount("codex", a.id)) })),
           ...THEMES.filter((t) => t !== theme).map((t) => ({ id: `theme-${t}`, group: "Aparência", label: `Tema ${THEME_LABEL[t]}`, run: () => setTheme(t) })),
+          { id: "today", group: "Hoje", label: "Hoje", hint: "rotinas do dia, em andamento, aprovações", run: () => setView("today") },
+          { id: "routine-new", group: "Hoje", label: "Rotinas", hint: "agendar um agente", run: () => setView("today") },
           { id: "connectors", group: "Conectores", label: "Conectores", hint: "Slack, ClickUp e lembretes", run: () => setView("connectors") },
           { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
           { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
@@ -865,6 +878,20 @@ export default function App() {
             run={harness.run}
             onLaunch={launchAgent}
             connectors={harness.connectors ?? []}
+          />
+        )}
+        {view === "today" && (
+          <TodayView
+            client={harness.client}
+            tick={harness.routinesTick + harness.brainTick}
+            agents={harness.agents}
+            sessions={harness.sessions}
+            approvals={harness.approvals}
+            hasSlack={(harness.connectors ?? []).some((a) => a.kind === "slack")}
+            onOpenSession={select}
+            onOpenTasks={(project) => openTasks(project)}
+            onDecide={decide}
+            onToast={setToast}
           />
         )}
         {view === "connectors" && (

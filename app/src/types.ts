@@ -164,13 +164,57 @@ export type CoreEvent =
   | { type: "approval"; approval: Approval }
   | { type: "approval.done"; id: string }
   | { type: "activity"; item: ActivityItem }
-  | { type: "connector.error"; account: string; error: string };
+  | { type: "connector.error"; account: string; error: string }
+  | { type: "routines"; routines: Routine[] }
+  | { type: "routine.run"; routine: Routine; run: RoutineRun; session?: string };
 
 export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today";
+
+// --- Rotinas e Hoje (v0.7) ---------------------------------------------------------------
+
+export interface Routine {
+  id: string;
+  name: string;
+  agent: string;
+  cli: "claude" | "codex";
+  folder: string;
+  /** 0 = segunda … 6 = domingo */
+  days: number[];
+  time: string;
+  /** minutos depois da hora em que ainda roda se o Mac estava dormindo */
+  catchup: number;
+  notify: boolean;
+  active: boolean;
+  prompt: string;
+  created: number;
+  updated_at: number;
+  next?: string | null;
+}
+
+export type RoutineDraft = Pick<Routine, "name" | "agent" | "cli" | "folder" | "days" | "time" | "catchup" | "notify" | "active" | "prompt">;
+
+export interface RoutineRun {
+  id: number;
+  routine: string;
+  slot: number;
+  ts: number;
+  status: string;
+  session: string;
+  detail: string;
+}
+
+export interface TodayData {
+  now: string;
+  weekday: string;
+  slots: { routine: Routine; slot: string; run: RoutineRun | null }[];
+  manual: RoutineRun[];
+  doing: (KanbanTask & { project: string })[];
+  approvals: Approval[];
+}
 
 // --- Conectores, aprovação e Atividade (v0.6) ------------------------------------------------
 

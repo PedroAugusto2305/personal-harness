@@ -22,6 +22,9 @@ export function useHarness() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   /** Últimas chamadas da central de MCP, mais nova primeiro (a tela de Atividade completa com a API). */
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  /** Sobe quando uma rotina muda ou roda; a última execução vira aviso na tela. */
+  const [routinesTick, setRoutinesTick] = useState(0);
+  const [routineRun, setRoutineRun] = useState<{ id: number; name: string; status: string; session?: string; detail: string } | null>(null);
   /** Sobe quando uma nota do Brain muda pela MÊTIS (kanban, `metis tarefa`), para as telas recarregarem. */
   const [brainTick, setBrainTick] = useState(0);
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
@@ -85,6 +88,13 @@ export function useHarness() {
           break;
         case "activity":
           setActivity((all) => [event.item, ...all.filter((a) => a.id !== event.item.id)].slice(0, 300));
+          break;
+        case "routines":
+          setRoutinesTick((n) => n + 1);
+          break;
+        case "routine.run":
+          setRoutinesTick((n) => n + 1);
+          setRoutineRun({ id: event.run.id, name: event.routine.name, status: event.run.status, session: event.session, detail: event.run.detail });
           break;
         case "brain.changed":
           setBrainTick((n) => n + 1);
@@ -200,6 +210,8 @@ export function useHarness() {
     agents,
     worktreesTick,
     connectors,
+    routinesTick,
+    routineRun,
     approvals,
     activity,
     setActivity,

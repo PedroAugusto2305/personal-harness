@@ -4,7 +4,15 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.6.0)
+## O que já faz (v0.7.0)
+
+**Novo na 0.7, rotinas e Hoje:**
+
+- **Rotinas**: um agente que abre sozinho num terminal na hora marcada, com um pedido como primeira mensagem (`claude "<pedido>"`, interativo e pelo plano). Dias da semana, hora, aviso no Slack (toca no iPhone) e janela de recuperação: se o Mac dormia na hora e acordou dentro dela, roda; depois, pula e fica registrado. Cada rotina é um `.md` em `~/.harness/rotinas/`.
+- **Hoje** (ícone de casa): as rotinas do dia com o que rodou, pulou ou espera, o que está em andamento nos projetos do Brain, o que aguarda a sua aprovação e um lembrete rápido. À direita, todas as rotinas com a próxima execução e o editor (nome, agente, dias, hora, recuperação, pedido, aviso).
+- Já vêm duas: **Check-in de estudo** com a Aurora (seg a sáb, 20h50, aviso no Slack, recupera até 21h50) e **Consolidação semanal do Brain** com a Alexandria (sexta, 22h10, recupera até o dia seguinte).
+
+**Desde a 0.6:**
 
 **Novo na 0.6, conectores e avisos:**
 

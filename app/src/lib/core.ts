@@ -4,6 +4,10 @@ import type {
   BoardProject,
   ConnectorAccount,
   ConnectorCatalog,
+  Routine,
+  RoutineDraft,
+  RoutineRun,
+  TodayData,
   BrainGraphData,
   BrainHit,
   BrainNote,
@@ -390,6 +394,28 @@ export class CoreClient {
 
   decide(id: string, aprovar: boolean): Promise<void> {
     return this.request("POST", `/aprovacoes/${encodeURIComponent(id)}`, { aprovar });
+  }
+
+  // --- rotinas e Hoje ------------------------------------------------------------
+
+  routines(): Promise<{ routines: Routine[]; runs: RoutineRun[] }> {
+    return this.request("GET", "/rotinas");
+  }
+
+  saveRoutine(draft: RoutineDraft, id?: string): Promise<Routine> {
+    return id ? this.request("PUT", `/rotinas/${encodeURIComponent(id)}`, draft) : this.request("POST", "/rotinas", draft);
+  }
+
+  deleteRoutine(id: string): Promise<void> {
+    return this.request("DELETE", `/rotinas/${encodeURIComponent(id)}`);
+  }
+
+  runRoutine(id: string): Promise<RoutineRun> {
+    return this.request("POST", `/rotinas/${encodeURIComponent(id)}/rodar`);
+  }
+
+  today(): Promise<TodayData> {
+    return this.request("GET", "/hoje");
   }
 
   async upload(file: Blob, name: string): Promise<string> {
