@@ -47,7 +47,7 @@ const NAV: { key: keyof typeof ICON; label: string; version: string }[] = [
   { key: "plug", label: "Conectores", version: "v0.6" },
 ];
 
-const READY: Partial<Record<keyof typeof ICON, View>> = { term: "term", graph: "brain", kanban: "kanban", agents: "agents" };
+const READY: Partial<Record<keyof typeof ICON, View>> = { term: "term", graph: "brain", kanban: "kanban", agents: "agents", plug: "connectors" };
 
 /** Faixa de ícones. Terminais, Brain, Kanban, Agentes e Ajustes já existem; o resto mostra quando chega. */
 export function Ribbon({ view, onView }: { view: View; onView: (view: View) => void }) {

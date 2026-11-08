@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { KIND_LABEL, shortPath } from "../lib/format";
-import type { Accounts, Agent, AgentDraft } from "../types";
+import type { Accounts, Agent, AgentDraft, ConnectorAccount } from "../types";
 import { AgentSprite, GreekBust } from "./AgentSprite";
 import { SpriteChat } from "./SpriteChat";
 
 const SWATCHES = ["#82a0ff", "#007AFF", "#5AC8FA", "#8be9fd", "#bd93f9", "#AF52DE", "#FF2D55", "#FF3B30", "#d97757", "#a9aec9"];
-const EMPTY: AgentDraft = { name: "", description: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", prompt: "" };
+const EMPTY: AgentDraft = { name: "", description: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "" };
 const SPRITE_MAX = 256;
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
   accounts: Accounts;
   run: <T>(action: (core: CoreClient) => Promise<T>) => Promise<T | null>;
   onLaunch: (agent: Agent) => void;
+  connectors: ConnectorAccount[];
 }
 
 const toDraft = (agent: Agent): AgentDraft => ({
@@ -25,6 +26,7 @@ const toDraft = (agent: Agent): AgentDraft => ({
   model: agent.model,
   account: agent.account,
   folder: agent.folder,
+  connectors: agent.connectors ?? "",
   color: agent.color,
   prompt: agent.prompt,
 });
@@ -43,7 +45,7 @@ async function toPng(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("não deu para converter"))), "image/png"));
 }
 
-export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
+export function Agents({ client, agents, accounts, run, onLaunch, connectors }: Props) {
   const [selectedId, setSelectedId] = useState<string | "novo" | null>(agents[0]?.id ?? null);
   const [draft, setDraft] = useState<AgentDraft>(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
@@ -249,6 +251,43 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
                 <span className="setting-label">Pasta</span>
                 <input value={draft.folder} onChange={(e) => set("folder", e.target.value)} placeholder="vazio = abre na worktree escolhida" spellCheck={false} />
               </label>
+              <div className="wide">
+                <span className="setting-label">
+                  Conectores
+                  <span className="small">O que este agente pode usar pela central de MCP (Slack, ClickUp). Brain e kanban valem sempre.</span>
+                </span>
+                <div className="agent-connectors">
+                  {(
+                    [
+                      ["", "Todas as contas"],
+                      ["nenhum", "Nenhuma"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <label key={label} className="small">
+                      <input type="radio" checked={draft.connectors === value} onChange={() => set("connectors", value)} />
+                      {label}
+                    </label>
+                  ))}
+                  {connectors.map((account) => {
+                    const chosen = draft.connectors && draft.connectors !== "nenhum" ? draft.connectors.split(",") : [];
+                    const on = chosen.includes(account.id);
+                    return (
+                      <label key={account.id} className="small">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => {
+                            const next = on ? chosen.filter((c) => c !== account.id) : [...chosen, account.id];
+                            set("connectors", next.join(",") || "nenhum");
+                          }}
+                        />
+                        {account.name}
+                      </label>
+                    );
+                  })}
+                  {!connectors.length && <span className="small">Nenhuma conta conectada ainda (tela Conectores).</span>}
+                </div>
+              </div>
               <div className="wide">
                 <span className="setting-label">Cor</span>
                 <div className="swatches">

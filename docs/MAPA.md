@@ -178,6 +178,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 
 > **`v0.5.1` (2026-11-08):** o grafo do Brain, adiantado da `v0.8.0` a pedido do Pedro: notas e `[[links]]` resolvidos do índice, simulação de forças viva como a do Obsidian (d3-force: arrastar nó, painel com força de centro, repulsão, força e distância das ligações) com uma nuvem por área do projeto, ligações entre projetos em acento, filtros, legenda, zoom e a busca acendendo as notas achadas. Também voltou o botão do painel da worktree quando não há abas. Seguem para a `v0.8.0`: mini-mapa na sessão, janela de contexto e precedentes completos.
 
+> **`v0.6.0` (2026-11-08):** conectores e avisos. Central de MCP no núcleo (`POST /mcp`, JSON-RPC escrito à mão, um token por terminal) entregue a todo Claude e Codex; ferramentas do Brain, do kanban, `lembrete` e das contas conectadas, com aprovação de escrita e Atividade. Galeria com Slack (bot da MÊTIS por workspace, token colado pelo Pedro, pessoal e Seller Pro) e ClickUp (MCP oficial, OAuth com registro dinâmico e PKCE feito pela MÊTIS, pessoal e Seller Pro); tokens no Keychain. `metis lembrete` agenda a mensagem do bot na DM do Slack. Conectores por agente no editor. Ficou para a 0.6.x: tela de Skills, "Adicionar MCP" genérico, Notion, GitHub e Google.
+
 ## 10. Riscos
 
 | Risco | Como tratar |

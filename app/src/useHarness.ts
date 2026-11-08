@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CoreClient, getCoreInfo, type NewSessionOptions } from "./lib/core";
-import type { Accounts, Agent, Connection, CoreEvent, Project, Session, SessionKind, Usage } from "./types";
+import type { Accounts, ActivityItem, Agent, Approval, Connection, ConnectorAccount, CoreEvent, Project, Session, SessionKind, Usage } from "./types";
 
 const NO_ACCOUNTS: Accounts = { claude: { active: "padrao", accounts: [] }, codex: { active: "padrao", accounts: [] } };
 
@@ -17,6 +17,11 @@ export function useHarness() {
   const [agents, setAgents] = useState<Agent[]>([]);
   /** Sobe a cada mudança de worktrees num projeto, para quem lista recarregar. */
   const [worktreesTick, setWorktreesTick] = useState(0);
+  /** Contas de conector (galeria) e o que espera aprovação do Pedro. */
+  const [connectors, setConnectors] = useState<ConnectorAccount[] | null>(null);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
+  /** Últimas chamadas da central de MCP, mais nova primeiro (a tela de Atividade completa com a API). */
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
   /** Sobe quando uma nota do Brain muda pela MÊTIS (kanban, `metis tarefa`), para as telas recarregarem. */
   const [brainTick, setBrainTick] = useState(0);
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
@@ -69,6 +74,18 @@ export function useHarness() {
         case "agents":
           setAgents(event.agents);
           break;
+        case "connectors":
+          setConnectors(event.accounts);
+          break;
+        case "approval":
+          setApprovals((all) => [...all.filter((a) => a.id !== event.approval.id), event.approval]);
+          break;
+        case "approval.done":
+          setApprovals((all) => all.filter((a) => a.id !== event.id));
+          break;
+        case "activity":
+          setActivity((all) => [event.item, ...all.filter((a) => a.id !== event.item.id)].slice(0, 300));
+          break;
         case "brain.changed":
           setBrainTick((n) => n + 1);
           break;
@@ -106,6 +123,14 @@ export function useHarness() {
         if (cancelled) return;
         setClient(core);
         listen(core);
+        void core
+          .connectors()
+          .then((c) => !cancelled && setConnectors(c.accounts))
+          .catch(() => undefined);
+        void core
+          .approvals()
+          .then((list) => !cancelled && setApprovals(list))
+          .catch(() => undefined);
       } catch (cause) {
         if (!cancelled) {
           setConnection("offline");
@@ -174,6 +199,10 @@ export function useHarness() {
     projects,
     agents,
     worktreesTick,
+    connectors,
+    approvals,
+    activity,
+    setActivity,
     brainTick,
     bumpBrain: () => setBrainTick((n) => n + 1),
     webRequest,

@@ -3727,3 +3727,337 @@ kbd {
   display: flex;
   justify-content: space-between;
 }
+
+/* --- Conectores, aprovação e Atividade (v0.6) ------------------------------------------- */
+
+.connectors-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.conn-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 980px;
+}
+
+.conn-card {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--side);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conn-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.conn-card-head h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.conn-card-head p {
+  margin: 0;
+  color: var(--mut);
+}
+
+.conn-account {
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.conn-account-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.conn-account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.conn-account-meta {
+  color: var(--fnt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conn-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--mut);
+  white-space: nowrap;
+}
+
+.link-btn.danger {
+  color: var(--err);
+}
+
+.conn-confirm {
+  color: var(--mut);
+  white-space: nowrap;
+}
+
+.conn-setup {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--line2);
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.conn-setup > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--mut);
+}
+
+.conn-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--mut);
+}
+
+.conn-steps code,
+.conn-note code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--elev);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 11.5px;
+}
+
+.conn-manifest {
+  margin: 6px 0 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--term);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 11px;
+  user-select: text;
+}
+
+.conn-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conn-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--mut);
+}
+
+.conn-form input,
+.conn-reminder input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  color: var(--tx);
+  outline: none;
+}
+
+.conn-form input:focus,
+.conn-reminder input:focus {
+  border-color: var(--acc);
+}
+
+.conn-form .btn {
+  align-self: flex-start;
+}
+
+.conn-error {
+  margin: 0;
+  color: var(--err);
+}
+
+.conn-note {
+  margin: 0;
+  color: var(--fnt);
+  line-height: 1.45;
+}
+
+.conn-later {
+  margin-top: 6px;
+}
+
+.conn-reminder {
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conn-reminder-row {
+  display: flex;
+  gap: 8px;
+}
+
+.conn-reminder-row input:first-child {
+  flex: 1;
+}
+
+.conn-when {
+  width: 160px;
+}
+
+/* Cartão de aprovação: na Atividade e flutuando no canto quando um agente pede. */
+.approval {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--acc);
+  background: var(--side);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+  font-size: 13px;
+}
+
+.approval-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.approval-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--wait);
+}
+
+.approval-what {
+  color: var(--tx);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.approval-tool {
+  color: var(--fnt);
+}
+
+.approval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.approval-float {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  width: 380px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.approval-more {
+  padding: 2px 6px;
+}
+
+table.activity {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+table.activity th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--fnt);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+table.activity td {
+  vertical-align: top;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.activity-status {
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--elev);
+  color: var(--mut);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.activity-status[data-status="ok"] {
+  color: var(--run);
+}
+
+.activity-status[data-status="erro"],
+.activity-status[data-status="recusado"],
+.activity-status[data-status="expirou"] {
+  color: var(--err);
+}
+
+.activity-status[data-status="aguardando você"] {
+  color: var(--wait);
+}
+
+.activity-detail {
+  margin-top: 3px;
+  color: var(--fnt);
+}
+
+.agent-connectors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 4px;
+}
+
+.agent-connectors label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}

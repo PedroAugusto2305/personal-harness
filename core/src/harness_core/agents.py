@@ -26,7 +26,7 @@ from pathlib import Path
 from .accounts import slugify
 
 CLIS = ("claude", "codex")
-FIELDS = ("nome", "descricao", "cli", "modelo", "conta", "pasta", "cor", "origem")
+FIELDS = ("nome", "descricao", "cli", "modelo", "conta", "pasta", "cor", "origem", "conectores")
 MAX_SPRITE_BYTES = 2 * 1024 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -46,6 +46,8 @@ class Agent:
     folder: str = ""
     color: str = "#82a0ff"
     origin: str = ""
+    #: Contas de conector que o agente usa pela central de MCP: vazio = todas; "nenhum" = nenhuma.
+    connectors: str = ""
     prompt: str = ""
     sprite: bool = False
     updated_at: float = 0.0
@@ -112,6 +114,7 @@ class AgentStore:
             folder=meta.get("pasta", ""),
             color=meta.get("cor") or "#82a0ff",
             origin=meta.get("origem", ""),
+            connectors=meta.get("conectores", ""),
             prompt=body.strip(),
             sprite=sprite.is_file(),
             # A sprite conta: trocar só a imagem também muda a versão (a URL da imagem usa isso).
@@ -158,6 +161,7 @@ class AgentStore:
             "pasta": str(data.get("folder", "")).strip(),
             "cor": str(data.get("color", "") or "#82a0ff").strip(),
             "origem": previous.get("origem", "") or str(data.get("origin", "")).strip(),
+            "conectores": str(data.get("connectors", "") or "").strip(),
         }
         self.dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -268,3 +272,12 @@ def agent_args(agent: Agent) -> list[str]:
             text = json.dumps(agent.prompt.replace("\x7f", ""), ensure_ascii=False)
             args += ["-c", f"developer_instructions={text}"]
     return args
+
+
+def allowed_connectors(agent: Agent | None) -> set[str] | None:
+    """Contas de conector liberadas para o agente; None = todas (sessão sem agente também)."""
+    if agent is None or not agent.connectors.strip():
+        return None
+    if agent.connectors.strip() == "nenhum":
+        return set()
+    return {c.strip() for c in agent.connectors.split(",") if c.strip()}

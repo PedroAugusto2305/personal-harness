@@ -109,6 +109,8 @@ export interface Agent {
   prompt: string;
   sprite: boolean;
   updated_at: number;
+  /** Contas de conector liberadas pela central: "" = todas; "nenhum" = nenhuma; senão ids separados por vírgula. */
+  connectors: string;
 }
 
 export interface SpriteJob {
@@ -122,7 +124,7 @@ export interface SpriteJob {
   finished_at: number | null;
 }
 
-export type AgentDraft = Pick<Agent, "name" | "description" | "cli" | "model" | "account" | "folder" | "color" | "prompt">;
+export type AgentDraft = Pick<Agent, "name" | "description" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt">;
 
 export interface TextFile {
   path: string;
@@ -157,13 +159,59 @@ export type CoreEvent =
   | { type: "agents"; agents: Agent[] }
   | { type: "ports"; ports: Record<string, number[]> }
   | { type: "open-web"; url: string; cwd: string | null }
-  | { type: "brain.changed"; project: string };
+  | { type: "brain.changed"; project: string }
+  | { type: "connectors"; accounts: ConnectorAccount[] }
+  | { type: "approval"; approval: Approval }
+  | { type: "approval.done"; id: string }
+  | { type: "activity"; item: ActivityItem }
+  | { type: "connector.error"; account: string; error: string };
 
 export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings" | "brain" | "kanban";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors";
+
+// --- Conectores, aprovação e Atividade (v0.6) ------------------------------------------------
+
+export interface ConnectorAccount {
+  id: string;
+  kind: "slack" | "clickup";
+  service: string;
+  name: string;
+  created: number;
+  meta: Record<string, string | number>;
+  approve_writes: boolean;
+  reminders: boolean;
+}
+
+export interface ConnectorCatalog {
+  [kind: string]: { name: string; auth: "token" | "oauth"; description: string; url?: string };
+}
+
+export interface Approval {
+  id: string;
+  session: string;
+  who: string;
+  tool: string;
+  account: string;
+  summary: string;
+  args: Record<string, unknown>;
+  created: number;
+}
+
+export interface ActivityItem {
+  id: number;
+  ts: number;
+  session: string;
+  who: string;
+  tool: string;
+  account: string;
+  args: Record<string, unknown> | string;
+  status: string;
+  detail: string;
+  ms: number;
+}
 
 // --- Brain e kanban (v0.5) ---------------------------------------------------------
 
