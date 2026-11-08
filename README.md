@@ -4,7 +4,11 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.7.1)
+## O que já faz (v0.7.2)
+
+**Novo na 0.7.2:** a barra de baixo (Ditar, Anexar) é a única entrada dos terminais do Claude e do Codex. O terminal fica só para ler: o que você digita ou cola nele vai para a barra, e a caixa de entrada vazia do Claude some atrás de um véu (a linha de modo, como "auto mode on", vai para o cabeçalho do terminal). Com a barra vazia, ↑↓, Enter, Esc, ⇧Tab e ⌃C vão para o agente, para escolher opções de menus e perguntas, confirmar e interromper. O shell segue um terminal normal.
+
+**Na 0.7.1, o resto do OS pessoal:**
 
 **Novo na 0.7.1, o resto do OS pessoal:**
 

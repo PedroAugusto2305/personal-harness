@@ -1038,6 +1038,12 @@ export default function App() {
                       dropping={drop === session.id}
                       onLink={(url, external) => (external ? void openExternal(url) : openWeb(url, { root: place?.worktree.path }))}
                       onFocus={() => focusSlot(session.id)}
+                      readOnly={session.kind !== "shell"}
+                      onTyped={(text) => {
+                        focusSlot(session.id);
+                        window.setTimeout(() => dock.current?.type(text), 0);
+                      }}
+                      onFocusInput={() => dock.current?.focus()}
                       onHide={
                         slot === "float"
                           ? () => setFloatOpen(false)
