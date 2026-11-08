@@ -16,6 +16,8 @@ export interface DockHandle {
   insert(text: string): void;
   toggleVoice(): void;
   focus(): void;
+  /** Acrescenta o texto como foi digitado (sem espaço extra) e foca a barra. */
+  type(text: string): void;
 }
 
 interface Props {
@@ -43,6 +45,18 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
   voiceRef.current = voice;
   const recRef = useRef(recording);
   recRef.current = recording;
+
+  /** Texto cru digitado ou colado num terminal só para ler: entra como foi escrito. */
+  const type = (value: string) => {
+    if (!value) return;
+    setText((current) => current + value);
+    requestAnimationFrame(() => {
+      const el = field.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
 
   const insert = (value: string) => {
     const clean = value.trim();
@@ -100,7 +114,7 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
     else if (voiceRef.current === "recording") void stop();
   };
 
-  useImperativeHandle(ref, () => ({ insert, toggleVoice, focus: () => field.current?.focus() }));
+  useImperativeHandle(ref, () => ({ insert, type, toggleVoice, focus: () => field.current?.focus() }));
 
   // Esc cancela a gravação; a gravação para sozinha em 5 minutos.
   useEffect(() => {
@@ -181,6 +195,18 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
             spellCheck={false}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
+              // Barra vazia num terminal de agente: as teclas de menu vão para ele
+              // (escolher opção, confirmar, interromper, trocar de modo).
+              if (target && target.kind !== "shell" && !text && !event.nativeEvent.isComposing) {
+                const keys: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", Enter: "\r", Escape: "\x1b" };
+                const seq =
+                  event.key === "Tab" && event.shiftKey ? "\x1b[Z" : event.ctrlKey && event.key.toLowerCase() === "c" ? "\x03" : event.metaKey || event.altKey ? undefined : keys[event.key];
+                if (seq && !(event.key === "Enter" && event.shiftKey)) {
+                  event.preventDefault();
+                  terminals.get(target.id)?.send(seq);
+                  return;
+                }
+              }
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 deliver(!event.altKey);

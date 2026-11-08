@@ -43,9 +43,9 @@ Legenda: 🟦 a régua do Orca já tem · 🟩 diferencial do Harness · ⭐ voc
 | **Conectores** | Galeria com botão "Conectar" (ClickUp, Slack, Notion, GitHub, Google…), várias contas por ferramenta, central de MCP com permissão por agente, aprovação e log, busca no catálogo oficial de MCP, teste de conexão, copiar um MCP entre Claude e Codex | 🟩 + Alethe |
 | **Agentes com papel** | Galeria e botão "Novo agente" (por formulário ou descrevendo em uma frase), "testar antes de salvar", campo "qual dor resolve?", agentes padrão e concierge. Cada agente tem um **sprite em pixel art** gerado pelo Codex, que se anima conforme o estado (trabalhando, esperando você, dormindo, concluiu, erro) | 🟩 |
 | **Skills** | Ver, instalar e compartilhar as skills do Claude e do Codex num lugar só | Alethe |
-| **Orquestração** | Estratégias reutilizáveis num canvas (explorar e construir, planejar grande e executar pequeno, melhor de N, portão de revisão), com alternativa de provedor por cota | 🟦 + Alethe |
+| **Orquestração** | Estratégias reutilizáveis num canvas (explorar e construir, planejar grande e executar pequeno, melhor de N, portão de revisão), com alternativa de provedor por cota. Na `v0.9.1`, no mesmo canvas e motor das Automações | 🟦 + Alethe |
 | **Estudo** | Modo de estudo do AI Engineer 2027: medir o que você sabe, planejar, ensinar com perguntas de previsão e grau de confiança, praticar; o que você aprende vira grafo no Brain; foco com Pomodoro. Casa do Sócrates e da Aurora | 🟩 LearnHarness + Alethe |
-| **Rotinas e automações** | Prompt agendado que abre um terminal; recupera o que perdeu com o Mac dormindo | 🟦 + 🟩 |
+| **Rotinas e automações** | Rotinas (`v0.7`): prompt agendado que abre um terminal; recupera o que perdeu com o Mac dormindo. **Automações (`v0.9.0`):** o "n8n da MÊTIS", canvas visual de passos com ferramenta pela central de MCP, agente em terminal pelo plano, versões, teste com ensaio, aprovação e execuções; as rotinas viram automações de um gatilho e um agente. Especificação na seção 13 | 🟦 + 🟩 |
 | **Hoje** | Painel do dia: tarefas, rotinas, cota dos planos, sugestões do Brain | 🟩 |
 | **Captura rápida** | Atalho global em qualquer app: "anota tarefa X", "me lembra de Y amanhã", que vai para o concierge | 🟩 |
 | **Atividade** | O que cada agente fez nos conectores, as aprovações pendentes e os agentes em segundo plano com tempo e custo | 🟩 + LearnHarness |
@@ -146,7 +146,7 @@ Todas em `01-PROJETOS/Personal Harness/decisoes/` no Brain:
 
 ## 9. Roadmap por versão
 
-Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu uso diário e vêm primeiro.
+Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu uso diário e vêm primeiro. Exceção combinada com o Pedro em 2026-11-08: as Automações entraram como `v0.9.0` e a paridade restante, que era a `v0.9.0`, passou a ser a `v0.9.1`.
 
 | Versão | Entrega | Pronto quando |
 |---|---|---|
@@ -158,7 +158,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 | `v0.6.0` | **Conectores e avisos:** galeria, central de MCP, ClickUp e Slack, aprovações, atividade, Skills | Um lembrete pedido no Mac toca no iPhone |
 | `v0.7.0` | **OS pessoal:** Hoje, captura rápida, concierge, rotinas com recuperação, criar agente por formulário e por descrição, sprites dos agentes com animação por estado, Estudo com Pomodoro | A rotina da Aurora roda pelo Harness |
 | `v0.8.0` | **Brain vivo:** grafo, mini-mapa, janela de contexto, precedentes completos (os três momentos e o MCP para fora), sugestões entre projetos | Uma sugestão de precedente vira decisão aceita |
-| `v0.9.0` | **Paridade restante:** orquestração em canvas e o que faltar da [`PARIDADE-ORCA.md`](PARIDADE-ORCA.md) para a régua da 1.0 | A checklist da 1.0 está toda marcada |
+| `v0.9.0` | **Automações**, o "n8n da MÊTIS": canvas visual de passos, ferramenta pela central de MCP sem gastar cota, agente em terminal pelo plano, arquivo com rascunho e publicada, testar com ensaio, aprovação antes de falar com outras pessoas, histórico de execuções. Especificação na seção 13 | O briefing comercial da manhã (ou outra automação real do Pedro) roda pela MÊTIS por uma semana, com teste em ensaio, aprovação e histórico |
+| `v0.9.1` | **Paridade restante:** orquestração em canvas (no canvas e no motor das Automações), importar do n8n e o que faltar da [`PARIDADE-ORCA.md`](PARIDADE-ORCA.md) para a régua da 1.0 | A checklist da 1.0 está toda marcada |
 | **`v1.0.0`** | **Substituiu o Orca** | Uma semana sem abrir o Orca nem o Maestri |
 | depois | Celular, SSH e remoto, tela de chat, catálogo de plugins, outros provedores | Quando fizer falta |
 
@@ -183,6 +184,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 > **`v0.7.0` (2026-11-08):** rotinas e Hoje, a primeira parte do OS pessoal, escolha do Pedro para chegar logo ao "a rotina da Aurora roda pela MÊTIS". Rotina = agente aberto num terminal na hora marcada com o pedido como primeira mensagem (interativo, pelo plano), aviso no Slack e janela de recuperação para o Mac dormindo. Tela Hoje com as rotinas do dia, tarefas em andamento, aprovações e lembrete; editor de rotinas. Aurora (seg a sáb, 20h50) e Alexandria (sexta, 22h10, trazida do Maestri) já cadastradas. Ficou para a 0.7.x: captura rápida, concierge, criar agente por descrição, sprites animadas por estado e Estudo com Pomodoro.
 
 > **`v0.7.1` (2026-11-08):** o resto do OS pessoal da v0.7. Captura rápida no ⌥Espaço (plugin de atalho global do Tauri e uma janela pequena por cima de tudo): lembrete, tarefa e anotação na hora, o resto para o Hermes, concierge novo. Agente por descrição (`claude -p` rascunha, o Pedro revisa) com "Testar sem salvar" e o campo "Qual dor resolve?". Sprites animadas por estado. Estudo com Pomodoro, placar das regras da Aurora e uma linha por bloco na nota do dia. Escolhas do Pedro: ⌥Espaço, ações diretas mais concierge, nome Hermes, minutos na MÊTIS e na nota do dia.
+
+> **`v0.7.2` (2026-11-08):** a barra de baixo vira a única entrada dos agentes, pedido do Pedro. O Claude Code não deixa esconder a caixa de entrada dele, e a entrada por fluxo de mensagens só existe no modo sem tela; mantivemos o terminal interativo, só para ler: teclas e colagem vão para a barra, a caixa vazia do Claude é coberta (achada na tela: linha "❯" entre traços, com o resto apagado) e, com a barra vazia, ↑↓, Enter, Esc, ⇧Tab e ⌃C passam para o agente. A caixa do Codex ainda não é coberta. Uma tela de chat própria foi a alternativa descartada por enquanto.
 
 ## 10. Riscos
 
@@ -221,3 +224,70 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 | [CodeAgentSwarm](https://www.codeagentswarm.com/en/guides/claude-code-task-management) | Kanban que os agentes atualizam sozinhos por MCP |
 
 Lista original das referências: [`../refs.md`](../refs.md).
+
+## 13. Automações (`v0.9.0`)
+
+> **Decidido em 2026-11-08.** O Pedro avaliou o protótipo e aprovou: entra na `v0.9.0`, e a paridade restante passa para a `v0.9.1`. Decisão no Brain: `[[MÊTIS ganha automações visuais próprias para o uso pessoal e o n8n fica com a produção 24 h]]`.
+
+**O que é.** Um "n8n" dentro da MÊTIS: um canvas de passos ligados em que **ferramenta é determinística e não gasta cota**, **agente é um terminal de verdade do Claude ou do Codex pelo plano**, e tudo mora num **arquivo versionado**, com rascunho e publicada sempre explícitos. Escopo: automações pessoais e de IA, com o Mac acordado. O n8n continua com a produção 24 h com webhook (Manu 2.0, funil de leads, Guru e Hotmart); a ponte entre os dois é a ferramenta do MCP do n8n e o Slack.
+
+**Por que não só o n8n.** As dores já registradas no Brain: sub-fluxo que só roda publicado e devolve o erro calado ao AI Agent (Manu 2.0), edição de workflow ativo que publica na hora (Base de Leads), API que não enxerga pastas, IA como nó avulso pago por API e teste que manda de verdade.
+
+### 13.1 Protótipo de referência
+
+- Branch `ideia/automacoes`, worktree `~/orca/workspaces/personal-harness/ideia-automacoes`. Tela só de frente, com dados de exemplo na memória: `app/src/components/AutomationsView.tsx` e `app/src/components/automations.css`. A ligação no app é a View `automations`, o ícone `flow` em `icons.tsx` e o item "Automações" na faixa (`Chrome.tsx`). A proposta completa está em `docs/AUTOMACOES.md` do mesmo branch.
+- O branch saiu da `v0.5.1` (commit `6dc428f`). **Não junte o branch:** leve a tela e o CSS para a versão atual e ligue no núcleo de verdade. O protótipo é a referência do visual e das interações, não do código final.
+- Para ver: `cd ~/orca/workspaces/personal-harness/ideia-automacoes/app && npx vite --port 1430 --host 127.0.0.1` e abrir `http://127.0.0.1:1430`. Use `127.0.0.1`: os cookies de `localhost` no Chrome do Pedro passam do limite do Vite (erro 431).
+
+### 13.2 Visual aprovado
+
+A gramática de editor de nós do n8n com a identidade da MÊTIS. Só tokens do tema; vale nos três temas.
+
+| Elemento | Como é |
+|---|---|
+| Canvas | Fundo `--term` com grade de pontinhos que anda e escala junto com o canvas; arrastar move, ⌘ + rolar dá zoom, botão de enquadrar |
+| Passo comum | Bloco quadrado de 84 px, cantos arredondados, ícone grande no centro e uma faixa na cor do tipo na base. Nome e ferramenta embaixo, fora do bloco |
+| Gatilho | Lado esquerdo arredondado, com selo de raio na cor `--wait` e sem entrada |
+| Condição | Bloco com o lado direito arredondado e duas saídas, `sim` (linha cheia e verde) e `não` (tracejada) |
+| Agente | Bloco largo de 240 px com a sprite greco-romana do agente da galeria (ou ✻ do Claude, ◇ do Codex), o nome e o custo médio. Embaixo, três peças penduradas por losangos: **Modelo** (anel tracejado quando há troca por cota), **Ferramentas** liberadas e **Saída** combinada |
+| Conectores | "Elementos" de duas letras na cor do conector, como numa tabela periódica (Sl, Cu, Pd, Sb, Gh, Br, n8); a MÊTIS usa a própria marca. Sem logo de marca de terceiros |
+| Ligações | Curvas com seta. Saída livre ganha um "+" na ponta. Ao passar o mouse na ligação, "+" (pôr um passo no meio) e lixeira. Depois de rodar, ficam verdes com a contagem de itens ("6 itens") |
+| Estados | Selo no canto: girando (rodando), ✓ verde (ok), ! vermelho (erro), ‖ roxo pulsando (esperando você). O contorno muda de cor junto. Pulado fica apagado; desligado ganha um risco diagonal |
+| Ao passar o mouse no passo | Testar só ele, desligar (os dados passam direto) e tirar. Delete tira o passo escolhido; Esc fecha o que estiver por cima |
+| Notas no canvas | Callout do Obsidian, arrastáveis |
+| Cores por tipo | Gatilho `--wait`, ferramenta `--run`, agente Claude `#d97757`, condição `--acct`, aprovação `--warn`, Brain `--g-brain`, código `--mut`. Verde de sucesso = `--g-brain` |
+| Tela | Lista de automações à esquerda (ícones dos conectores usados, estado, última execução); barra com nome, estado e versão, abas **Editor** e **Execuções** no centro, Detalhes, Publicar e o interruptor Ativa (só depois de publicar); "Testar automação" e "Pedir ao Claude" embaixo do canvas; "+" e nota no canto de cima |
+| Painel do passo | Dois cliques abrem **Entrada \| Parâmetros (e Ajustes) \| Saída**, com Tabela ou JSON, fixar dados e "Testar passo"; expressões `{{…}}` aparecem como peças verdes |
+| Gaveta de passos | "O que acontece depois?" (ou "Quando ela começa?") com busca: gatilhos, agentes da galeria com a sprite, conectores com as ferramentas de cada um (cadeado em quem fala com outras pessoas), lógica e dados |
+| Execuções | Lista à esquerda; o canvas mostra aquela execução, com "Copiar para o editor" |
+
+### 13.3 Como funciona
+
+| Peça | Regra |
+|---|---|
+| Arquivo | Cada automação é um YAML em `~/.harness/automacoes/<id>.yaml`, com histórico num git local. Guarda gatilho, passos (tipo, título, parâmetros, posição no canvas), ligações (com ramo `sim` ou `não`), notas e estado |
+| Versões | O motor só roda a **publicada**. Editar, pela tela ou por um agente, só mexe no rascunho. Publicar grava a versão; voltar é publicar uma versão antiga, sempre por ação do Pedro. Detalhes mostra a diferença entre rascunho e publicada |
+| Motor | No núcleo Python, junto do agendador das rotinas da `v0.7`: fila, camadas pelo caminho mais longo a partir do gatilho (o que está na mesma camada roda junto), ramos, execuções no SQLite com entrada, saída, tempo e cota de cada passo |
+| Gatilhos | Agendado (com a regra de recuperação das rotinas para o Mac dormindo), evento da MÊTIS (nota nova no Brain, tarefa mudou de coluna, agente terminou ou errou, worktree criada), novidade num conector por sondagem, captura rápida e `metis rodar <automação>`. Sem webhook (princípio 3) |
+| Ferramenta | Chamada direta à central de MCP da `v0.6.0`, sem agente e sem cota, com as permissões e o log da Atividade. Cada conta ligada em Conectores vira passo sem configurar |
+| Agente | Terminal interativo do `claude` ou do `codex`, como as rotinas, numa aba do grupo Automações (em segundo plano ou visível), com MCP só com as ferramentas liberadas no passo. O pedido sai montado com as expressões. A resposta volta pela ferramenta `metis saida` da central de MCP e é conferida contra o formato combinado; se faltar campo, a MÊTIS pede de novo no mesmo terminal, até 2 vezes, e depois marca erro |
+| Cota | Cada passo de agente grava tokens e quanto da janela de 5 h gastou. Acima de 80%, roda no outro provedor no mesmo nível, e a troca aparece na execução |
+| Código | Python ou JavaScript local, escrito pelo Claude a partir da descrição e guardado no YAML |
+| Condição | Regra de uma linha, ou pergunta de sim ou não a um agente barato |
+| Aprovação | A mesma da central de MCP (notificação do macOS e DM no Slack). Entra sozinha antes de toda ferramenta marcada como "fala com outras pessoas"; tirar exige ação explícita do Pedro |
+| Expressões | `{{Nome do passo.campo}}` |
+| Testar | Roda o rascunho inteiro, inclusive as sub-automações (nada de "só roda publicado"). Passo que fala com outras pessoas vira **ensaio**: o envio vai para a DM do Pedro. Dados fixados num passo substituem a chamada ao conector |
+| Erros | Nunca calados: execução vermelha, aviso no Mac e no Slack, **Pedir conserto** (abre um Claude com o YAML e o log; a correção vai para o rascunho) e **Reexecutar daqui** (com as entradas guardadas, sem rodar de novo o que veio antes) |
+| Criar por frase | Um Claude rascunha o YAML a partir do catálogo de passos (como o agente por descrição da `v0.7.1`); a tela mostra a proposta tracejada e só aplica ao rascunho com o Pedro |
+| Rotinas | As rotinas da `v0.7` passam a ser automações de um gatilho e um agente, sem perder a recuperação nem o aviso |
+
+### 13.4 Fora da `v0.9.0`
+
+- Importar do n8n (ler o workflow pelo MCP do n8n e traduzir nó a nó; webhook e HTTP solto ficam marcados para revisar): proposta para a `v0.9.1`, depois do motor provado.
+- Orquestração de agentes no canvas (explorar e construir, melhor de N, portão de revisão): `v0.9.1`, no mesmo canvas e motor.
+- **Rodar na nuvem com o Mac fechado:** decidir quando a tela for construída. O que a documentação da Anthropic diz em 2026-11-08 (recurso em prévia, pode mudar; [tarefas agendadas na nuvem](https://code.claude.com/docs/en/routines.md), [ambiente na nuvem](https://code.claude.com/docs/en/cloud-environments.md), [endpoint `/fire`](https://platform.claude.com/docs/en/api/claude-code/routines-fire)):
+  - **A favor:** gasta o plano, como uma sessão normal, sem crédito de API. Gatilhos: agenda (no mínimo de hora em hora), chamada HTTP no `/fire` com texto (serve de webhook) e eventos do GitHub. Usa os conectores do claude.ai (Slack, Google, Linear…) agindo como o Pedro, clona repositórios do GitHub a cada execução, roda Python e Node e guarda segredos sem expô-los ao agente.
+  - **Contra:** não enxerga o Mac (Brain local, terminais, worktrees, central de MCP da MÊTIS, Keychain). Cada execução é uma sessão de agente, então todo passo gasta cota, inclusive os "sem cota". Não há API documentada para criar ou editar a tarefa (só `/schedule` na CLI, por conversa, ou a página do claude.ai) nem para ler o resultado (o `/fire` só devolve o link da sessão). A aprovação no meio fica parada na sessão web, sem aviso nativo. O token do `/fire` é criado só na web.
+  - **Caminho provável:** um campo "Onde roda: Mac ou nuvem" por automação. Na nuvem, a MÊTIS publica o YAML num repositório do GitHub; uma tarefa agendada com prompt fixo roda o fluxo e devolve o resultado pelo Slack e por commit nesse repositório, que a MÊTIS lê quando o Mac acorda. Só vale para automações que usam conectores e agente, sem nada local. Nada de token de sessão do claude.ai guardado pela MÊTIS nem endpoint não documentado (termos de uso).
+  - **Se não servir:** manter o que precisa de 24 h no n8n, como hoje.
+- Webhook e fluxos de produção 24 h: ficam no n8n.

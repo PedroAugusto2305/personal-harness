@@ -4787,3 +4787,38 @@ body.capture-body {
   padding: 0;
   flex: 0 0 auto;
 }
+
+/* --- Terminal só para ler (v0.7.2): a barra de baixo é a única entrada --------------------- */
+
+.term-host {
+  position: relative;
+}
+
+/* Véu sobre a caixa de entrada vazia do Claude (e o status embaixo dela). */
+.term-cover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  background: var(--term);
+  pointer-events: none;
+}
+
+.term-cover span {
+  font-size: 11px;
+  color: var(--fnt);
+  opacity: 0.75;
+}
+
+.pane-mode {
+  color: var(--fnt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 34%;
+}
