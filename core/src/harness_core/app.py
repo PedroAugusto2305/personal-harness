@@ -9,20 +9,26 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from . import __version__
 from . import files as fs
 from . import gitops
 from .accounts import PROVIDERS, AccountStore, UnknownAccount
-from .agents import AgentError, AgentStore
+from .activity import ActivityLog
+from .agents import AgentError, AgentStore, allowed_connectors
 from .brain_index import BrainIndex
 from .kanban import Kanban
 from .vault import Vault, VaultError
 from .sprites import SpriteStudio
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
 from .config import Settings, load_settings
+from .connectors import CATALOG, ConnectorError, ConnectorStore
+from .keychain import Keychain
+from .keychain import Vault as SecretVault
+from .mcp_hub import Hub, ToolError
+from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
 from .relay import install_cli_shim, install_relay
 from .sessions import ExecutableNotFound, SessionManager, UnknownKind
@@ -86,6 +92,7 @@ class AgentBody(BaseModel):
     account: str = ""
     folder: str = ""
     color: str = "#82a0ff"
+    connectors: str = ""
     prompt: str = ""
 
 
@@ -128,6 +135,32 @@ class NotePath(BaseModel):
     path: str = Field(min_length=4)
 
 
+class SlackConnect(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    token: str = Field(min_length=5, max_length=300)
+    email: str = Field(min_length=3, max_length=200)
+
+
+class OAuthConnect(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+class ConnectorPatch(BaseModel):
+    name: str | None = Field(default=None, max_length=40)
+    approve_writes: bool | None = None
+    reminders: bool | None = None
+
+
+class ReminderBody(BaseModel):
+    texto: str = Field(min_length=1, max_length=2000)
+    quando: str = Field(min_length=1, max_length=100)
+    conta: str = ""
+
+
+class Decision(BaseModel):
+    aprovar: bool
+
+
 class TitlesBody(BaseModel):
     titles: list[str] = Field(default_factory=list, max_length=2000)
 
@@ -138,6 +171,8 @@ def create_app(
     transcriber: Transcriber | None = None,
     poll_codex: bool = True,
     poll_ports: bool = True,
+    keychain: SecretVault | None = None,
+    http=None,
 ) -> FastAPI:
     settings = settings or load_settings()
     manager = SessionManager(settings, accounts)
@@ -157,6 +192,33 @@ def create_app(
     vault = Vault(settings.brain)
     brain = BrainIndex(vault, settings.home / "brain.db")
     kanban = Kanban(vault)
+    connectors = ConnectorStore(settings.home, keychain or Keychain(), http)
+    activity = ActivityLog(settings.home / "atividade.db")
+
+    def session_info(session_id: str) -> dict | None:
+        session = manager.get(session_id)
+        if session is None:
+            return None
+        agent = None
+        if session.agent:
+            try:
+                agent = agents.get(session.agent)
+            except AgentError:
+                agent = None
+        return {"who": agent.name if agent else session.title, "cwd": session.cwd, "allowed": allowed_connectors(agent)}
+
+    hub = Hub(
+        connectors=connectors,
+        brain=brain,
+        kanban=kanban,
+        vault=vault,
+        activity=activity,
+        publish=manager.events.publish,
+        session_info=session_info,
+        on_brain_change=lambda project: manager.events.publish({"type": "brain.changed", "project": project}),
+    )
+    manager.mcp_token = hub.register
+    manager.mcp_forget = hub.forget
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -590,6 +652,123 @@ def create_app(
         brain_changed(name)
         return task
 
+    # --- central de MCP (uma por sessão de agente, pelo token dela) ------------------
+
+    @app.post("/mcp")
+    async def mcp_endpoint(request: Request, authorization: str | None = Header(default=None)) -> Response:
+        token = authorization.split(" ", 1)[1].strip() if authorization and authorization.lower().startswith("bearer ") else None
+        if hub.context(token) is None:
+            return JSONResponse({"error": "token da sessão inválido"}, status_code=401)
+        try:
+            body = json.loads(await request.body() or b"null")
+        except json.JSONDecodeError:
+            return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "JSON inválido"}}, status_code=400)
+        reply = await hub.handle_body(token, body)
+        return Response(status_code=202) if reply is None else JSONResponse(reply)
+
+    @app.get("/mcp")
+    def mcp_stream() -> Response:
+        return Response(status_code=405)  # sem fluxo de eventos: toda resposta vem na própria chamada
+
+    @app.delete("/mcp")
+    def mcp_close() -> Response:
+        return Response(status_code=200)
+
+    # --- conectores, lembretes, atividade e aprovações --------------------------------
+
+    def connectors_changed() -> None:
+        manager.events.publish({"type": "connectors", "accounts": [a.to_dict() for a in connectors.list()]})
+
+    @app.get("/conectores", dependencies=[Depends(require_token)])
+    def list_connectors() -> dict:
+        return {"catalog": CATALOG, "accounts": [a.to_dict() for a in connectors.list()]}
+
+    @app.post("/conectores/slack", dependencies=[Depends(require_token)], status_code=201)
+    def connect_slack(body: SlackConnect) -> dict:
+        try:
+            account = connectors.add_slack(body.name, body.token, body.email)
+        except ConnectorError as exc:
+            raise fail(exc) from exc
+        connectors_changed()
+        return account.to_dict()
+
+    @app.get("/conectores/slack/manifesto", dependencies=[Depends(require_token)], response_class=PlainTextResponse)
+    def slack_manifest() -> str:
+        return MANIFEST
+
+    @app.post("/conectores/oauth/{kind}", dependencies=[Depends(require_token)])
+    def connect_oauth(kind: str, body: OAuthConnect) -> dict:
+        try:
+            url = connectors.start_oauth(kind, body.name, f"{settings.url}/conectores/oauth/retorno")
+        except ConnectorError as exc:
+            raise fail(exc) from exc
+        return {"url": url}
+
+    @app.get("/conectores/oauth/retorno", response_class=HTMLResponse)
+    def oauth_return(state: str = "", code: str = "", error: str = "", error_description: str = "") -> HTMLResponse:
+        """O navegador volta aqui depois do login (sem token da MÊTIS: quem prova é o state)."""
+        if error or not code:
+            return HTMLResponse(_page("Login não concluído", error_description or error or "o serviço não devolveu o código"), status_code=400)
+        try:
+            account = connectors.finish_oauth(state, code)
+        except ConnectorError as exc:
+            return HTMLResponse(_page("Login não concluído", str(exc)), status_code=400)
+        connectors_changed()
+        return HTMLResponse(_page(f"{account.name} conectado", "Pode fechar esta aba e voltar para a MÊTIS."))
+
+    @app.patch("/conectores/{account_id}", dependencies=[Depends(require_token)])
+    def patch_connector(account_id: str, body: ConnectorPatch) -> dict:
+        try:
+            account = connectors.update(account_id, **body.model_dump())
+        except ConnectorError as exc:
+            raise fail(exc, 404) from exc
+        connectors_changed()
+        return account.to_dict()
+
+    @app.delete("/conectores/{account_id}", dependencies=[Depends(require_token)], status_code=204)
+    def delete_connector(account_id: str) -> None:
+        try:
+            connectors.remove(account_id)
+        except ConnectorError as exc:
+            raise fail(exc, 404) from exc
+        connectors_changed()
+
+    @app.post("/conectores/{account_id}/teste", dependencies=[Depends(require_token)])
+    def test_connector(account_id: str) -> dict:
+        try:
+            account = connectors.get(account_id)
+            if account.kind == "slack":
+                account, slack = connectors.slack(account_id)
+                slack.send(account.meta["dm"], "✅ Teste da MÊTIS: se isto tocou no celular, os avisos estão funcionando.")
+                return {"message": f"Mensagem de teste enviada na sua DM em {account.name}."}
+            tools = connectors.mcp(account_id).tools()
+            return {"message": f"{account.name} respondeu com {len(tools)} ferramentas."}
+        except (ConnectorError, SlackError, RuntimeError, OSError) as exc:
+            raise fail(exc) from exc
+
+    @app.post("/lembretes", dependencies=[Depends(require_token)], status_code=201)
+    def create_reminder(body: ReminderBody) -> dict:
+        account = body.conta or next((a.id for a in connectors.list() if a.reminders), "")
+        if not account:
+            raise HTTPException(status_code=400, detail="nenhuma conta do Slack conectada para lembretes; conecte uma em Conectores")
+        try:
+            return {"message": hub.remind(account, body.texto, body.quando)}
+        except (ToolError, ConnectorError, SlackError) as exc:
+            raise fail(exc) from exc
+
+    @app.get("/atividade", dependencies=[Depends(require_token)])
+    def list_activity(limit: int = Query(default=100, ge=1, le=1000)) -> list[dict]:
+        return activity.recent(limit)
+
+    @app.get("/aprovacoes", dependencies=[Depends(require_token)])
+    def list_approvals() -> list[dict]:
+        return [p.to_dict() for p in hub.pending.values()]
+
+    @app.post("/aprovacoes/{approval_id}", dependencies=[Depends(require_token)], status_code=204)
+    def decide_approval(approval_id: str, body: Decision) -> None:
+        if not hub.decide(approval_id, body.aprovar):
+            raise HTTPException(status_code=404, detail="aprovação não encontrada ou já respondida")
+
     # --- agentes em arquivo --------------------------------------------------
 
     def agents_changed() -> None:
@@ -787,6 +966,16 @@ def create_app(
             manager.events.unsubscribe(queue)
 
     return app
+
+
+def _page(title: str, text: str) -> str:
+    import html
+
+    return (
+        "<!doctype html><meta charset='utf-8'><title>MÊTIS</title>"
+        "<body style='font:15px -apple-system,system-ui;background:#1c1c1f;color:#e8e8ee;display:grid;place-items:center;height:100vh;margin:0'>"
+        f"<div style='max-width:420px;text-align:center'><h2>{html.escape(title)}</h2><p style='color:#a6a6b0'>{html.escape(text)}</p></div>"
+    )
 
 
 def _within(child: str, parent: str) -> bool:

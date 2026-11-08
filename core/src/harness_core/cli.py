@@ -10,6 +10,7 @@
     metis tarefas                      as Próximas ações do projeto desta pasta, com o id
     metis tarefa nova "<texto>"        acrescenta uma tarefa
     metis tarefa mover <id> <estado>   pendente, em-andamento, em-teste ou concluida
+    metis lembrete "<texto>" <quando>  o bot da MÊTIS avisa no Slack na hora (ex.: sexta 9h, em 20 min)
 
 O login acontece sempre no fluxo oficial da CLI, numa pasta só daquela conta.
 """
@@ -210,7 +211,7 @@ def _print_accounts(store: AccountStore) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="metis", description="Contas, navegador, Brain e tarefas da MÊTIS.")
+    parser = argparse.ArgumentParser(prog="metis", description="Contas, navegador, Brain, tarefas e lembretes da MÊTIS.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("contas", help="lista as contas e qual está ativa")
     switch = sub.add_parser("switch", help="troca a conta ativa de uma CLI")
@@ -235,9 +236,25 @@ def main(argv: list[str] | None = None) -> int:
     task.add_argument("resto", nargs="+", help='nova: "texto"; mover: <id> <estado>')
     task.add_argument("--projeto", default="")
     task.add_argument("--estado", default="pendente", help="estado inicial de uma tarefa nova")
+    reminder = sub.add_parser("lembrete", help="agenda um lembrete no Slack (toca no iPhone)")
+    reminder.add_argument("texto")
+    reminder.add_argument("quando", nargs="+", help="ex.: sexta 9h, amanhã 14:30, em 20 min, 13/11 9h")
+    reminder.add_argument("--conta", default="", help="id da conta do Slack (padrão: a de lembretes)")
     args = parser.parse_args(argv)
 
     home = load_settings().home
+
+    if args.command == "lembrete":
+        try:
+            done = _core(home, "POST", "/lembretes", {"texto": args.texto, "quando": " ".join(args.quando), "conta": args.conta})
+        except CoreRefused as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"a MÊTIS não respondeu ({exc}). O app está aberto?", file=sys.stderr)
+            return 1
+        print(done["message"])
+        return 0
 
     if args.command in ("brain", "tarefas", "tarefa"):
         try:

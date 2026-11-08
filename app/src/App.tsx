@@ -6,6 +6,7 @@ import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
+import { ApprovalCard, ConnectorsView } from "./components/ConnectorsView";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
 import { Inspector, type InspectorTab } from "./components/Inspector";
@@ -451,6 +452,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harness.client, view, harness.brainTick]);
 
+  /** Resposta do Pedro a um pedido de aprovação da central de MCP. */
+  const decide = (id: string, approve: boolean) => {
+    void harness.client?.decide(id, approve).catch((cause) => setToast(cause instanceof Error ? cause.message : String(cause)));
+  };
+
   const confirmDelete = async (closeTerminals: boolean) => {
     if (!pendingDelete || !harness.client) return;
     const { project, worktree, force } = pendingDelete;
@@ -796,6 +802,7 @@ export default function App() {
             .filter((a) => !a.active)
             .map((a) => ({ id: `acc-codex-${a.id}`, group: "Contas", label: `Usar a conta ${a.name} no Codex`, run: () => void harness.run((c) => c.activateAccount("codex", a.id)) })),
           ...THEMES.filter((t) => t !== theme).map((t) => ({ id: `theme-${t}`, group: "Aparência", label: `Tema ${THEME_LABEL[t]}`, run: () => setTheme(t) })),
+          { id: "connectors", group: "Conectores", label: "Conectores", hint: "Slack, ClickUp e lembretes", run: () => setView("connectors") },
           { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
           { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
           ...(contextPlace ? [{ id: "brain-panel", group: "Brain", label: "Precedentes desta worktree", hint: "painel da worktree → Brain", run: () => (setInspectorOpen(true), setInspectorTab("brain")) }] : []),
@@ -851,7 +858,25 @@ export default function App() {
           />
         )}
         {view === "agents" && (
-          <Agents client={harness.client} agents={harness.agents} accounts={harness.accounts} run={harness.run} onLaunch={launchAgent} />
+          <Agents
+            client={harness.client}
+            agents={harness.agents}
+            accounts={harness.accounts}
+            run={harness.run}
+            onLaunch={launchAgent}
+            connectors={harness.connectors ?? []}
+          />
+        )}
+        {view === "connectors" && (
+          <ConnectorsView
+            client={harness.client}
+            accounts={harness.connectors}
+            approvals={harness.approvals}
+            activity={harness.activity}
+            onActivity={harness.setActivity}
+            onDecide={decide}
+            onToast={setToast}
+          />
         )}
         {view === "brain" && (
           <BrainView
@@ -1125,6 +1150,16 @@ export default function App() {
           </p>
           {pendingDelete.reason && <div className="error-box">{pendingDelete.reason}</div>}
         </Confirm>
+      )}
+      {harness.approvals.length > 0 && view !== "connectors" && (
+        <div className="approval-float">
+          <ApprovalCard approval={harness.approvals[0]} onDecide={decide} />
+          {harness.approvals.length > 1 && (
+            <button type="button" className="link-btn approval-more" onClick={() => setView("connectors")}>
+              mais {harness.approvals.length - 1} aguardando
+            </button>
+          )}
+        </div>
       )}
       {toast && (
         <div className="toast" role="status" onClick={() => setToast(null)}>

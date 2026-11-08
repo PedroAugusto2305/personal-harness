@@ -10,11 +10,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .accounts import PROVIDERS, AccountStore
 from .agents import Agent, agent_args
-from .claude_settings import claude_argv
+from .claude_settings import claude_argv, mcp_args
 from .codex_usage import read_codex_limits
 from .config import Settings
 from .ports import ports_by_session
@@ -180,6 +180,9 @@ class SessionManager:
         self.sessions: dict[str, Session] = {}
         self.events = EventBus()
         self.usage = Usage()
+        # Central de MCP: dá um token por sessão de agente e esquece ao fechar (ligada pelo app).
+        self.mcp_token: Callable[[str], str] | None = None
+        self.mcp_forget: Callable[[str], None] | None = None
 
     # --- sessões -----------------------------------------------------------
 
@@ -220,6 +223,10 @@ class SessionManager:
         if agent is not None:
             argv = argv + agent_args(agent)
         env, account = self.session_env(kind, session_id, account_id)
+        if kind in ("claude", "codex") and self.mcp_token is not None:
+            token = self.mcp_token(session_id)
+            argv = argv + mcp_args(kind, self.settings.url, token)
+            env["METIS_MCP_TOKEN"] = token
         pty = PtySession(
             argv=argv,
             cwd=workdir,
@@ -259,6 +266,8 @@ class SessionManager:
         if session is None:
             return False
         await session.pty.terminate()
+        if self.mcp_forget is not None:
+            self.mcp_forget(session_id)
         self.events.publish({"type": "session.closed", "id": session_id})
         return True
 

@@ -1,5 +1,9 @@
 import type {
+  ActivityItem,
+  Approval,
   BoardProject,
+  ConnectorAccount,
+  ConnectorCatalog,
   BrainGraphData,
   BrainHit,
   BrainNote,
@@ -339,6 +343,53 @@ export class CoreClient {
 
   moveTask(project: string, id: string, state: TaskState): Promise<KanbanTask> {
     return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}`, { state });
+  }
+
+  // --- conectores, lembretes, aprovações ---------------------------------------
+
+  connectors(): Promise<{ catalog: ConnectorCatalog; accounts: ConnectorAccount[] }> {
+    return this.request("GET", "/conectores");
+  }
+
+  connectSlack(name: string, token: string, email: string): Promise<ConnectorAccount> {
+    return this.request("POST", "/conectores/slack", { name, token, email });
+  }
+
+  async slackManifest(): Promise<string> {
+    const response = await fetch(`${this.info.url}/conectores/slack/manifesto`, { headers: { "X-Harness-Token": this.info.token } });
+    return response.text();
+  }
+
+  startOAuth(kind: string, name: string): Promise<{ url: string }> {
+    return this.request("POST", `/conectores/oauth/${encodeURIComponent(kind)}`, { name });
+  }
+
+  patchConnector(id: string, changes: { name?: string; approve_writes?: boolean; reminders?: boolean }): Promise<ConnectorAccount> {
+    return this.request("PATCH", `/conectores/${encodeURIComponent(id)}`, changes);
+  }
+
+  deleteConnector(id: string): Promise<void> {
+    return this.request("DELETE", `/conectores/${encodeURIComponent(id)}`);
+  }
+
+  testConnector(id: string): Promise<{ message: string }> {
+    return this.request("POST", `/conectores/${encodeURIComponent(id)}/teste`);
+  }
+
+  remind(texto: string, quando: string, conta = ""): Promise<{ message: string }> {
+    return this.request("POST", "/lembretes", { texto, quando, conta });
+  }
+
+  activity(limit = 150): Promise<ActivityItem[]> {
+    return this.request("GET", `/atividade?limit=${limit}`);
+  }
+
+  approvals(): Promise<Approval[]> {
+    return this.request("GET", "/aprovacoes");
+  }
+
+  decide(id: string, aprovar: boolean): Promise<void> {
+    return this.request("POST", `/aprovacoes/${encodeURIComponent(id)}`, { aprovar });
   }
 
   async upload(file: Blob, name: string): Promise<string> {

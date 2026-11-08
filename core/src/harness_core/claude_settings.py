@@ -36,5 +36,19 @@ def build_claude_settings(relay_path: Path) -> dict:
     }
 
 
+def mcp_args(kind: str, core_url: str, token: str) -> list[str]:
+    """A central de MCP da MÊTIS como servidor "metis" da sessão (HTTP, com o token dela)."""
+    url = f"{core_url}/mcp"
+    if kind == "claude":
+        config = {"mcpServers": {"metis": {"type": "http", "url": url, "headers": {"Authorization": f"Bearer {token}"}}}}
+        return ["--mcp-config", json.dumps(config, separators=(",", ":"))]
+    # Codex: o token vem da variável METIS_MCP_TOKEN; a aprovação pode levar minutos.
+    return [
+        "-c", f'mcp_servers.metis.url="{url}"',
+        "-c", 'mcp_servers.metis.bearer_token_env_var="METIS_MCP_TOKEN"',
+        "-c", "mcp_servers.metis.tool_timeout_sec=900",
+    ]  # fmt: skip
+
+
 def claude_argv(executable: str, relay_path: Path) -> list[str]:
     return [executable, "--settings", json.dumps(build_claude_settings(relay_path), separators=(",", ":"))]

@@ -4,7 +4,18 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.5.1)
+## O que já faz (v0.6.0)
+
+**Novo na 0.6, conectores e avisos:**
+
+- **Central de MCP**: todo Claude e todo Codex aberto na MÊTIS já vem com o MCP "metis" (por `--mcp-config` no Claude e `mcp_servers` no Codex, com um token por terminal). Ele traz as ferramentas do Brain e do kanban (`brain_buscar`, `brain_ler`, `brain_precedentes`, `tarefas`, `tarefa_mover`, `tarefa_nova`), o `lembrete` e as ferramentas de cada conta conectada, com o id da conta na frente.
+- **Conectores** (ícone de tomada): **Slack** por um bot da MÊTIS em cada workspace (o passo a passo e o manifesto estão na tela; você cola o token do bot) e **ClickUp** pelo MCP oficial, com login no navegador. Várias contas por ferramenta; tokens no Keychain do Mac.
+- **Lembretes**: `metis lembrete "pagar o boleto" sexta 9h` (ou "amanhã 14:30", "em 20 min", "13/11 9h") agenda a mensagem do bot na sua DM do Slack; o iPhone toca na hora, mesmo com o Mac dormindo. Os agentes fazem o mesmo pela ferramenta `lembrete`.
+- **Aprovação**: mensagem para outras pessoas e escrita no ClickUp esperam o seu "Aprovar" num cartão que aparece em qualquer tela (dá para desligar por conta). Em 10 minutos sem resposta, a ação não acontece.
+- **Atividade**: tudo o que os agentes fizeram pela central, com quem, o quê e o resultado.
+- **Conectores por agente**: no editor de agentes, escolha quais contas cada um pode usar (todas, nenhuma ou algumas).
+
+**Desde a 0.5:**
 
 **Novo na 0.5, Brain e kanban:**
 

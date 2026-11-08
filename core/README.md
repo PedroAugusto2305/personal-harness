@@ -21,6 +21,13 @@ Núcleo do Personal Harness. Roda em `127.0.0.1` e é dono dos terminais dos age
 - `vault.py`: o vault Brain (Obsidian): frontmatter, links, projetos de `01-PROJETOS` e a pasta de cada um (`diretorio:`); grava só o que muda, de forma atômica.
 - `kanban.py`: estágio do projeto (`estagio:` no frontmatter) e tarefas das "Próximas ações" (`#em-andamento`, `#em-teste`, `[x]` com `✅ data`).
 - `brain_index.py`: índice SQLite FTS5 em `~/.harness/brain.db` (cache, refeito do vault), busca, backlinks, precedentes v1 por palavra e o texto do hook de início de sessão.
+- `mcp_hub.py`: a central de MCP (`POST /mcp`): um servidor MCP por HTTP para cada terminal de agente, com as ferramentas do Brain, do kanban, do lembrete e das contas de conector, aprovação de escrita e Atividade.
+- `connectors.py`: contas dos conectores (Slack por token do bot, ClickUp por OAuth), em `~/.harness/conectores.json` sem segredos.
+- `keychain.py`: tokens dos conectores no Keychain do macOS (`keyring`).
+- `slack.py`: Web API do Slack para o bot (DM, mensagem, mensagem agendada) e o manifesto do app.
+- `mcp_client.py` e `oauth.py`: cliente MCP por HTTP e login OAuth com registro dinâmico e PKCE (retorno em `127.0.0.1`).
+- `when.py`: datas em português para lembretes ("sexta 9h", "em 20 min").
+- `activity.py`: Atividade em `~/.harness/atividade.db`.
 - `app.py`: API HTTP e WebSocket.
 
 ```sh
