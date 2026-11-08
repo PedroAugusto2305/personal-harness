@@ -1,4 +1,18 @@
-import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type SimulationNodeDatum } from "d3-force";
+import {
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY,
+  type ForceLink,
+  type ForceManyBody,
+  type ForceX,
+  type ForceY,
+  type Simulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from "d3-force";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CoreClient } from "../lib/core";
 import { TYPE_ICON, TYPE_LABEL } from "../lib/obsidian";
@@ -19,6 +33,10 @@ interface Node extends GraphNodeData, SimulationNodeDatum {
   r: number;
   x: number;
   y: number;
+}
+
+interface Link extends SimulationLinkDatum<Node> {
+  same: boolean;
 }
 
 const FILTERS: { key: string; label: string; tipos: string[] }[] = [
@@ -43,19 +61,51 @@ const GROUP_VAR: Record<string, string> = {
   semarea: "--g-semarea",
 };
 
-/** Layout calculado uma vez por conjunto de notas; voltar ao grafo não recalcula. */
-let layoutCache: { signature: string; xy: Float64Array } | null = null;
+// --- Forças, no jeito do Obsidian: quatro controles de 0 a 100 ----------------------------------
 
-function layout(nodes: Node[], edges: [number, number][]): void {
-  const signature = `${nodes.length}:${edges.length}:${nodes[0]?.path}:${nodes[nodes.length - 1]?.path}`;
-  if (layoutCache?.signature === signature) {
-    nodes.forEach((n, i) => {
-      n.x = layoutCache!.xy[i * 2];
-      n.y = layoutCache!.xy[i * 2 + 1];
-    });
-    return;
+interface Forces {
+  center: number;
+  repel: number;
+  link: number;
+  distance: number;
+}
+
+// O padrão reproduz o layout que o grafo tinha antes dos controles.
+const DEFAULT_FORCES: Forces = { center: 35, repel: 15, link: 45, distance: 18 };
+const FORCES_KEY = "metis.graph.forces";
+
+const FORCE_LABEL: { key: keyof Forces; label: string; hint: string }[] = [
+  { key: "center", label: "Força de centro", hint: "puxa cada nota para a nuvem da área e o centro do projeto" },
+  { key: "repel", label: "Repulsão", hint: "as notas se empurram" },
+  { key: "link", label: "Força das ligações", hint: "quanto uma ligação puxa as duas notas" },
+  { key: "distance", label: "Distância das ligações", hint: "comprimento da ligação em repouso" },
+];
+
+/** Controle (0 a 100) → valor da força. As ligações entre projetos são bem mais frouxas. */
+const physics = (f: Forces) => ({
+  center: (f.center / 100) * 0.2,
+  repel: -(4 + (f.repel / 100) * 120),
+  link: (f.link / 100) * 0.5,
+  distance: 8 + (f.distance / 100) * 90,
+});
+
+function loadForces(): Forces {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FORCES_KEY) ?? "null");
+    if (saved && typeof saved === "object") return { ...DEFAULT_FORCES, ...saved };
+  } catch {
+    // sem armazenamento: fica o padrão
   }
-  // Cada área é uma nuvem num círculo; dentro dela, cada projeto puxa as notas para o próprio centro.
+  return DEFAULT_FORCES;
+}
+
+/** Posições guardadas por conjunto de notas: voltar ao grafo não recomeça do zero. */
+let positions: { signature: string; xy: Float64Array } | null = null;
+const signatureOf = (nodes: Node[], edges: [number, number][]) =>
+  `${nodes.length}:${edges.length}:${nodes[0]?.path}:${nodes[nodes.length - 1]?.path}`;
+
+/** Centro de cada nota: a nuvem da área, e dentro dela o ponto do projeto. */
+function anchors(nodes: Node[]): (n: Node) => { x: number; y: number } {
   const groups = [...new Set(nodes.map((n) => n.group))];
   const groupCenter = new Map(
     groups.map((g, i) => {
@@ -78,34 +128,23 @@ function layout(nodes: Node[], edges: [number, number][]): void {
       center.set(`${group}:${p}`, { x: base.x + Math.cos(angle) * radius, y: base.y + Math.sin(angle) * radius });
     });
   }
-  const target = (n: Node) => center.get(`${n.group}:${n.projeto}`) ?? groupCenter.get(n.group)!;
-  let seed = 7;
-  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 80;
-  for (const n of nodes) {
-    const t = target(n);
-    n.x = t.x + rand();
-    n.y = t.y + rand();
-  }
-  const links = edges.map(([a, b]) => ({ source: a, target: b, same: nodes[a].projeto === nodes[b].projeto }));
-  const sim = forceSimulation<Node>(nodes)
-    .force(
-      "link",
-      forceLink<Node, (typeof links)[number]>(links)
-        .distance((l) => (l.same ? 24 : 70))
-        .strength((l) => (l.same ? 0.22 : 0.015)),
-    )
-    .force("charge", forceManyBody<Node>().strength(-22).distanceMax(220))
-    .force("x", forceX<Node>((n) => target(n).x).strength(0.07))
-    .force("y", forceY<Node>((n) => target(n).y).strength(0.07))
-    .force("collide", forceCollide<Node>((n) => n.r + 1.5))
-    .stop();
-  for (let i = 0; i < 280; i += 1) sim.tick();
-  const xy = new Float64Array(nodes.length * 2);
-  nodes.forEach((n, i) => {
-    xy[i * 2] = n.x;
-    xy[i * 2 + 1] = n.y;
-  });
-  layoutCache = { signature, xy };
+  return (n: Node) => center.get(`${n.group}:${n.projeto}`) ?? groupCenter.get(n.group)!;
+}
+
+interface Sim {
+  simulation: Simulation<Node, Link>;
+  link: ForceLink<Node, Link>;
+  charge: ForceManyBody<Node>;
+  fx: ForceX<Node>;
+  fy: ForceY<Node>;
+}
+
+function applyForces(sim: Sim, f: Forces): void {
+  const p = physics(f);
+  sim.link.distance((l) => (l.same ? p.distance : p.distance * 3)).strength((l) => (l.same ? p.link : p.link * 0.07));
+  sim.charge.strength(p.repel);
+  sim.fx.strength(p.center);
+  sim.fy.strength(p.center);
 }
 
 export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) {
@@ -117,12 +156,38 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set());
   const [cross, setCross] = useState(true);
   const [orphans, setOrphans] = useState(true);
+  const [forces, setForces] = useState<Forces>(loadForces);
+  const [showForces, setShowForces] = useState(false);
+  const forcesNow = useRef(forces);
+  forcesNow.current = forces;
   const [hover, setHover] = useState<{ node: Node; x: number; y: number } | null>(null);
   const view = useRef({ k: 1, x: 0, y: 0 });
   const size = useRef({ w: 0, h: 0 });
+  const touched = useRef(false); // o Pedro já mexeu na vista: não reenquadra sozinho
   const fitted = useRef(false);
-  const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean } | null>(null);
-  const [, redraw] = useState(0);
+  const sim = useRef<Sim | null>(null);
+  const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean; node: Node | null } | null>(null);
+  const paint = useRef<() => void>(() => undefined);
+  const frame = useRef(0);
+
+  /** Um desenho por quadro, no máximo: a simulação chama isto a cada passo. */
+  const schedule = useCallback(() => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      paint.current();
+    });
+  }, []);
+
+  // Zera a marca ao cancelar: no StrictMode o React desmonta e remonta, e uma marca presa
+  // deixava o agendador achando que já havia um quadro a caminho (o grafo nunca desenhava).
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(frame.current);
+      frame.current = 0;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!client) return;
@@ -131,13 +196,14 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
       .brainGraph()
       .then((graph) => {
         if (!alive) return;
-        const nodes: Node[] = graph.nodes.map((n, i) => ({ ...n, i, r: n.tipo === "projeto" ? 7 : 2.6 + Math.min(5, Math.sqrt(n.degree) * 0.75), x: 0, y: 0 }));
-        // Calcula numa folga do navegador, para a tela aparecer antes.
-        window.setTimeout(() => {
-          if (!alive) return;
-          layout(nodes, graph.edges);
-          setData({ nodes, edges: graph.edges, groups: graph.groups });
-        }, 20);
+        const nodes: Node[] = graph.nodes.map((n, i) => ({
+          ...n,
+          i,
+          r: n.tipo === "projeto" ? 7 : 2.6 + Math.min(5, Math.sqrt(n.degree) * 0.75),
+          x: 0,
+          y: 0,
+        }));
+        setData({ nodes, edges: graph.edges, groups: graph.groups });
       })
       .catch((cause) => alive && setError(cause instanceof Error ? cause.message : String(cause)));
     return () => {
@@ -165,20 +231,97 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
     if (!data || !size.current.w) return;
     const shown = data.nodes.filter(visible);
     if (!shown.length) return;
-    const xs = shown.map((n) => n.x);
-    const ys = shown.map((n) => n.y);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    let [x0, x1, y0, y1] = [Infinity, -Infinity, Infinity, -Infinity];
+    for (const n of shown) {
+      x0 = Math.min(x0, n.x);
+      x1 = Math.max(x1, n.x);
+      y0 = Math.min(y0, n.y);
+      y1 = Math.max(y1, n.y);
+    }
     const k = Math.min(size.current.w / (x1 - x0 + 80), size.current.h / (y1 - y0 + 80), 2.5);
     view.current = { k, x: size.current.w / 2 - ((x0 + x1) / 2) * k, y: size.current.h / 2 - ((y0 + y1) / 2) * k };
-    redraw((n) => n + 1);
-  }, [data, visible]);
+    schedule();
+  }, [data, visible, schedule]);
 
-  // O App troca o tema depois que o grafo já desenhou: redesenha quando o data-theme mudar.
+  // A simulação vive enquanto o grafo está na tela, como no Obsidian.
   useEffect(() => {
-    const observer = new MutationObserver(() => redraw((n) => n + 1));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => observer.disconnect();
-  }, []);
+    if (!data) return;
+    const { nodes, edges } = data;
+    const signature = signatureOf(nodes, edges);
+    const target = anchors(nodes);
+    const cached = positions?.signature === signature ? positions.xy : null;
+    let seed = 7;
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 80;
+    nodes.forEach((n, i) => {
+      const t = target(n);
+      n.x = cached ? cached[i * 2] : t.x + rand();
+      n.y = cached ? cached[i * 2 + 1] : t.y + rand();
+      n.vx = 0;
+      n.vy = 0;
+    });
+    const links: Link[] = edges.map(([a, b]) => ({ source: a, target: b, same: nodes[a].projeto === nodes[b].projeto }));
+    const link = forceLink<Node, Link>(links);
+    const charge = forceManyBody<Node>().distanceMax(260).theta(0.9);
+    const fx = forceX<Node>((n) => target(n).x);
+    const fy = forceY<Node>((n) => target(n).y);
+    const simulation = forceSimulation<Node, Link>(nodes)
+      .force("link", link)
+      .force("charge", charge)
+      .force("x", fx)
+      .force("y", fy)
+      .force("collide", forceCollide<Node>((n) => n.r + 1.5))
+      .stop();
+    const current: Sim = { simulation, link, charge, fx, fy };
+    applyForces(current, forcesNow.current);
+    sim.current = current;
+
+    const save = () => {
+      const xy = new Float64Array(nodes.length * 2);
+      nodes.forEach((n, i) => {
+        xy[i * 2] = n.x;
+        xy[i * 2 + 1] = n.y;
+      });
+      positions = { signature, xy };
+    };
+    simulation.on("tick", schedule);
+    simulation.on("end", () => {
+      save();
+      if (!touched.current) fit();
+    });
+    if (cached) {
+      // Já acomodado antes: aparece parado, e só anda quando alguém mexer.
+      simulation.alpha(0);
+      fitted.current = false;
+    } else {
+      // Primeiros passos sem desenhar, para não abrir num emaranhado; o resto anima.
+      simulation.alpha(1);
+      for (let i = 0; i < 60; i += 1) simulation.tick();
+      simulation.restart();
+    }
+    if (size.current.w) {
+      fitted.current = true;
+      fit();
+    }
+    return () => {
+      simulation.stop();
+      save();
+      sim.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  // Mexer num controle das forças rearruma o grafo na hora.
+  useEffect(() => {
+    try {
+      localStorage.setItem(FORCES_KEY, JSON.stringify(forces));
+    } catch {
+      // sem armazenamento: vale só nesta sessão
+    }
+    const s = sim.current;
+    if (!s) return;
+    applyForces(s, forces);
+    s.simulation.alpha(Math.max(s.simulation.alpha(), 0.5)).restart();
+  }, [forces]);
 
   // Tamanho da tela acompanha o painel.
   useEffect(() => {
@@ -190,21 +333,21 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
         fitted.current = true;
         fit();
       }
-      redraw((n) => n + 1);
+      schedule();
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [data, fit]);
+  }, [data, fit, schedule]);
 
+  // O App troca o tema depois que o grafo já desenhou: redesenha quando o data-theme mudar.
   useEffect(() => {
-    if (data && size.current.w && !fitted.current) {
-      fitted.current = true;
-      fit();
-    }
-  }, [data, fit]);
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, [schedule]);
 
-  // Desenho: nuvens, ligações, nós e nomes dos projetos.
-  useEffect(() => {
+  // Desenho: nuvens, ligações, nós e nomes. Sempre com o estado mais recente (hover, filtros, busca).
+  paint.current = () => {
     const el = canvas.current;
     if (!el || !data) return;
     const dpr = window.devicePixelRatio || 1;
@@ -216,11 +359,12 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
     const ctx = el.getContext("2d");
     if (!ctx) return;
     const css = getComputedStyle(document.documentElement);
-    const token = (name: string) => css.getPropertyValue(name).trim() || "#888";
+    const token = (name: string) => css.getPropertyValue(name).trim() || "#888888";
     const color = Object.fromEntries(Object.entries(GROUP_VAR).map(([g, v]) => [g, token(v)]));
     const line = token("--line2");
     const accent = token("--acc");
     const text = token("--mut");
+    const strong = token("--tx");
     const { k, x: vx, y: vy } = view.current;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -235,23 +379,25 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
     const lit = (i: number) => (near ? i === focus || near.has(i) : highlight ? highlight.has(data.nodes[i].path) : true);
 
     // Nuvens: um brilho suave atrás de cada área.
-    const sums = new Map<string, { x: number; y: number; n: number; r: number }>();
+    const sums = new Map<string, { x: number; y: number; n: number }>();
     data.nodes.forEach((n, i) => {
       if (!shown[i]) return;
-      const s = sums.get(n.group) ?? { x: 0, y: 0, n: 0, r: 0 };
+      const s = sums.get(n.group) ?? { x: 0, y: 0, n: 0 };
       s.x += n.x;
       s.y += n.y;
       s.n += 1;
       sums.set(n.group, s);
     });
+    const spread = new Map<string, number>();
+    data.nodes.forEach((n, i) => {
+      if (!shown[i]) return;
+      const s = sums.get(n.group)!;
+      spread.set(n.group, (spread.get(n.group) ?? 0) + Math.hypot(n.x - s.x / s.n, n.y - s.y / s.n));
+    });
     for (const [g, s] of sums) {
       const cx = s.x / s.n;
       const cy = s.y / s.n;
-      let spread = 0;
-      data.nodes.forEach((n, i) => {
-        if (shown[i] && n.group === g) spread += Math.hypot(n.x - cx, n.y - cy);
-      });
-      const radius = Math.max(120, (spread / s.n) * 2.2);
+      const radius = Math.max(120, ((spread.get(g) ?? 0) / s.n) * 2.2);
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
       glow.addColorStop(0, `${color[g]}2e`);
       glow.addColorStop(1, `${color[g]}00`);
@@ -271,7 +417,7 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
         const nb = data.nodes[b];
         const isCross = !!na.projeto && !!nb.projeto && na.projeto !== nb.projeto;
         if ((pass === "cross") !== isCross) continue;
-        const on = near ? (a === focus || b === focus) : lit(a) && lit(b);
+        const on = near ? a === focus || b === focus : lit(a) && lit(b);
         // Com o mouse num nó, as ligações dele acendem; parado, as entre projetos ficam discretas.
         ctx.globalAlpha = on ? (near ? 0.9 : pass === "cross" && cross ? 0.22 : 0.3) : 0.05;
         ctx.beginPath();
@@ -316,11 +462,14 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
       if (sx < -100 || sx > w + 100 || sy < -20 || sy > h + 20) return;
       ctx.globalAlpha = lit(i) ? 1 : 0.25;
       ctx.font = project ? '600 11px "Fira Code", ui-monospace, monospace' : "11px Inter, system-ui, sans-serif";
-      ctx.fillStyle = project ? token("--tx") : text;
+      ctx.fillStyle = project ? strong : text;
       const label = n.title.length > 42 ? `${n.title.slice(0, 40)}…` : n.title;
       ctx.fillText(label, sx, sy);
     });
-  });
+  };
+
+  // Qualquer mudança de estado (hover, filtro, busca) redesenha.
+  useEffect(() => schedule());
 
   const toWorld = (event: React.PointerEvent | React.WheelEvent) => {
     const rect = box.current!.getBoundingClientRect();
@@ -347,10 +496,11 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
   };
 
   const zoomAt = (mx: number, my: number, factor: number) => {
+    touched.current = true;
     const { k, x, y } = view.current;
     const next = Math.min(8, Math.max(0.08, k * factor));
     view.current = { k: next, x: mx - (mx - x) * (next / k), y: my - (my - y) * (next / k) };
-    redraw((n) => n + 1);
+    schedule();
   };
 
   const onWheel = (event: React.WheelEvent) => {
@@ -360,41 +510,61 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
       zoomAt(mx, my, Math.exp(-event.deltaY * 0.01));
     } else {
       // Dois dedos: anda pelo grafo.
+      touched.current = true;
       view.current = { ...view.current, x: view.current.x - event.deltaX, y: view.current.y - event.deltaY };
-      redraw((n) => n + 1);
+      schedule();
     }
   };
 
   const onPointerDown = (event: React.PointerEvent) => {
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
-    drag.current = { x: event.clientX, y: event.clientY, vx: view.current.x, vy: view.current.y, moved: false };
+    const { wx, wy } = toWorld(event);
+    const node = hit(wx, wy);
+    drag.current = { x: event.clientX, y: event.clientY, vx: view.current.x, vy: view.current.y, moved: false, node };
   };
 
   const onPointerMove = (event: React.PointerEvent) => {
     const d = drag.current;
+    const { mx, my, wx, wy } = toWorld(event);
     if (d) {
       const dx = event.clientX - d.x;
       const dy = event.clientY - d.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) d.moved = true;
+      if (!d.moved && Math.abs(dx) + Math.abs(dy) > 3) {
+        d.moved = true;
+        // Arrastar um nó: ele segue o mouse e a simulação acorda, puxando os vizinhos.
+        if (d.node && sim.current) sim.current.simulation.alphaTarget(0.25).restart();
+      }
       if (d.moved) {
-        view.current = { ...view.current, x: d.vx + dx, y: d.vy + dy };
-        setHover(null);
-        redraw((n) => n + 1);
+        if (d.node) {
+          d.node.fx = wx;
+          d.node.fy = wy;
+          setHover({ node: d.node, x: mx, y: my });
+        } else {
+          touched.current = true;
+          view.current = { ...view.current, x: d.vx + dx, y: d.vy + dy };
+          setHover(null);
+        }
+        schedule();
         return;
       }
     }
-    const { mx, my, wx, wy } = toWorld(event);
     const node = hit(wx, wy);
     setHover((last) => (node ? { node, x: mx, y: my } : last ? null : last));
   };
 
-  const onPointerUp = (event: React.PointerEvent) => {
+  const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
-    if (d && !d.moved) {
-      const { wx, wy } = toWorld(event);
-      const node = hit(wx, wy);
-      if (node) onOpen(node.path);
+    if (!d) return;
+    if (d.node && !d.moved) {
+      onOpen(d.node.path);
+      return;
+    }
+    if (d.node) {
+      // Solto, o nó volta a obedecer às forças, como no Obsidian.
+      d.node.fx = null;
+      d.node.fy = null;
+      sim.current?.simulation.alphaTarget(0);
     }
   };
 
@@ -405,6 +575,8 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
     return next;
   };
 
+  const reheat = () => sim.current?.simulation.alpha(1).restart();
+
   const shownCount = data ? data.nodes.filter(visible).length : 0;
 
   return (
@@ -412,12 +584,12 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
       <canvas
         ref={canvas}
         className="graph-canvas"
-        style={{ cursor: hover ? "pointer" : drag.current?.moved ? "grabbing" : "grab" }}
+        style={{ cursor: drag.current?.moved ? "grabbing" : hover ? "pointer" : "grab" }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={() => setHover(null)}
+        onPointerLeave={() => !drag.current && setHover(null)}
         aria-label="Grafo das notas do Brain"
       />
       {!data && <div className="graph-status small">{error ? `Não deu para montar o grafo: ${error}` : "Montando o grafo…"}</div>}
@@ -425,13 +597,7 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
         <>
           <div className="graph-bar" role="group" aria-label="Filtros do grafo">
             {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                className="filter-chip"
-                aria-pressed={!hidden.has(f.key)}
-                onClick={() => setHidden((s) => toggle(s, f.key))}
-              >
+              <button key={f.key} type="button" className="filter-chip" aria-pressed={!hidden.has(f.key)} onClick={() => setHidden((s) => toggle(s, f.key))}>
                 {f.label}
               </button>
             ))}
@@ -442,7 +608,38 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
             <button type="button" className="filter-chip" aria-pressed={orphans} onClick={() => setOrphans((v) => !v)}>
               Notas sem ligação
             </button>
+            <span className="graph-sep" />
+            <button type="button" className="filter-chip" aria-pressed={showForces} aria-expanded={showForces} onClick={() => setShowForces((v) => !v)}>
+              Forças
+            </button>
           </div>
+          {showForces && (
+            <div className="graph-forces" role="group" aria-label="Forças do grafo">
+              {FORCE_LABEL.map(({ key, label, hint }) => (
+                <label key={key} className="graph-force" title={hint}>
+                  <span>
+                    {label}
+                    <span className="mono">{forces[key]}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={forces[key]}
+                    onChange={(event) => setForces((f) => ({ ...f, [key]: Number(event.target.value) }))}
+                  />
+                </label>
+              ))}
+              <div className="graph-forces-actions">
+                <button type="button" className="link-btn" onClick={() => setForces(DEFAULT_FORCES)}>
+                  restaurar padrão
+                </button>
+                <button type="button" className="link-btn" onClick={reheat}>
+                  reorganizar
+                </button>
+              </div>
+            </div>
+          )}
           <div className="graph-legend" aria-label="Áreas">
             {data.groups.map((g) => (
               <button
@@ -469,7 +666,14 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
             <button type="button" className="icon-btn" title="Afastar" aria-label="Afastar" onClick={() => zoomAt(size.current.w / 2, size.current.h / 2, 1 / 1.3)}>
               −
             </button>
-            <button type="button" className="btn graph-fit" onClick={fit}>
+            <button
+              type="button"
+              className="btn graph-fit"
+              onClick={() => {
+                touched.current = false;
+                fit();
+              }}
+            >
               Centralizar
             </button>
           </div>

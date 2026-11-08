@@ -3682,3 +3682,48 @@ kbd {
   height: 30px;
   color: var(--mut);
 }
+
+/* Painel de forças do grafo (como o do Obsidian). */
+.graph-forces {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  width: 260px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--side);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  z-index: 2;
+}
+
+.graph-force {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--tx);
+}
+
+.graph-force > span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.graph-force .mono {
+  color: var(--fnt);
+  font-size: 11px;
+}
+
+.graph-force input[type="range"] {
+  width: 100%;
+  accent-color: var(--acc);
+}
+
+.graph-forces-actions {
+  display: flex;
+  justify-content: space-between;
+}
