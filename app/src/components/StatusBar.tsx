@@ -59,9 +59,11 @@ interface Props {
   onOpenAccounts: () => void;
   /** Abre a aba Contexto do painel (o que ocupa a janela de contexto). */
   onOpenContext?: () => void;
+  /** Abre Ajustes → Recursos (memória e CPU do núcleo e das sessões). */
+  onOpenResources?: () => void;
 }
 
-export function StatusBar({ usage, accounts, active, connection, onOpenAccounts, onOpenContext }: Props) {
+export function StatusBar({ usage, accounts, active, connection, onOpenAccounts, onOpenContext, onOpenResources }: Props) {
   const line = active?.statusline;
   const context = line?.context;
   return (
@@ -76,13 +78,13 @@ export function StatusBar({ usage, accounts, active, connection, onOpenAccounts,
       )}
       {line?.cost_usd != null && line.cost_usd > 0 && <span className="mono">{money(line.cost_usd)}</span>}
       <span className="right">
-        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button type="button" className="statusbar-core" onClick={onOpenResources} title="Memória e CPU do núcleo e das sessões: abrir Recursos">
           <span
             className="dot"
             style={{ background: connection === "online" ? "var(--run)" : connection === "offline" ? "var(--err)" : "var(--fnt)" }}
           />
           {CONNECTION_LABEL[connection]}
-        </span>
+        </button>
         <span>v{__APP_VERSION__}</span>
       </span>
     </footer>

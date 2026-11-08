@@ -70,6 +70,8 @@ export function Sidebar(props: Props) {
   const [adding, setAdding] = useState(false);
   const [newPath, setNewPath] = useState("");
   const [creatingIn, setCreatingIn] = useState<string | null>(null);
+  /** Projeto com o editor de scripts da worktree aberto (v0.9.2). */
+  const [scriptsFor, setScriptsFor] = useState<string | null>(null);
   const [agentMenu, setAgentMenu] = useState(false);
 
   const placeOfSession = (s: Session) => placeOf(s.cwd, projects, worktrees);
@@ -244,6 +246,16 @@ export function Sidebar(props: Props) {
                 <button
                   type="button"
                   className="icon-btn row-action"
+                  title="Scripts da worktree…"
+                  aria-label={`Scripts da worktree em ${project.name}`}
+                  aria-expanded={scriptsFor === project.id}
+                  onClick={() => setScriptsFor(scriptsFor === project.id ? null : project.id)}
+                >
+                  <Icon d={ICON.code} size={13} strokeWidth={1.9} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn row-action"
                   title="Tirar da lista (o repositório fica no disco)"
                   aria-label={`Tirar ${project.name} da lista`}
                   onClick={() => props.onRemoveProject(project)}
@@ -251,6 +263,7 @@ export function Sidebar(props: Props) {
                   <Icon d={ICON.close} size={12} strokeWidth={2} />
                 </button>
               </div>
+              {scriptsFor === project.id && <ProjectScriptsForm client={props.client} project={project} onClose={() => setScriptsFor(null)} />}
               {open && (
                 <div className="project-body">
                   {props.worktreeErrors[project.id] && <div className="tree-hint small">{props.worktreeErrors[project.id]}</div>}
@@ -378,6 +391,92 @@ function NewWorktreeForm({
         </button>
       </div>
       <span className="small">Branch novo com esse nome, em ~/orca/workspaces/{project.path.split("/").pop()}/.</span>
+    </form>
+  );
+}
+
+/**
+ * Scripts da worktree (v0.9.2): o de setup roda num terminal à vista em cada worktree nova
+ * (instalar dependências, copiar segredos…); o de arquivar roda antes de apagar uma, e se
+ * falhar a worktree fica (até você apagar mesmo assim).
+ */
+function ProjectScriptsForm({ client, project, onClose }: { client: CoreClient | null; project: Project; onClose: () => void }) {
+  const [setup, setSetup] = useState("");
+  const [archive, setArchive] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    client
+      .projectScripts(project.id)
+      .then((scripts) => {
+        if (!alive) return;
+        setSetup(scripts.setup);
+        setArchive(scripts.arquivar);
+        setLoaded(true);
+      })
+      .catch((cause) => alive && setError(cause instanceof Error ? cause.message : String(cause)));
+    return () => {
+      alive = false;
+    };
+  }, [client, project.id]);
+
+  return (
+    <form
+      className="inline-form scripts-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!client) return;
+        setBusy(true);
+        setError(null);
+        try {
+          await client.setProjectScripts(project.id, { setup, arquivar: archive });
+          onClose();
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        } finally {
+          setBusy(false);
+        }
+      }}
+      onKeyDown={(event) => event.key === "Escape" && onClose()}
+    >
+      <span className="section-title scripts-title">Scripts da worktree · {project.name}</span>
+      <label className="scripts-field">
+        <span className="small">Ao criar a worktree (roda num terminal à vista)</span>
+        <textarea
+          autoFocus
+          rows={3}
+          value={setup}
+          disabled={!loaded}
+          spellCheck={false}
+          placeholder={loaded ? "ex.: pnpm install && cp ../.env.local ." : "carregando…"}
+          onChange={(event) => setSetup(event.target.value)}
+        />
+      </label>
+      <label className="scripts-field">
+        <span className="small">Antes de apagar a worktree (se falhar, não apaga)</span>
+        <textarea
+          rows={2}
+          value={archive}
+          disabled={!loaded}
+          spellCheck={false}
+          placeholder={loaded ? "ex.: docker compose down" : "carregando…"}
+          onChange={(event) => setArchive(event.target.value)}
+        />
+      </label>
+      {error && <div className="error-box">{error}</div>}
+      <div className="form-buttons">
+        <button type="submit" className="btn primary" disabled={!loaded || busy}>
+          {busy ? "Salvando…" : "Salvar"}
+        </button>
+        <button type="button" className="btn" onClick={onClose}>
+          Cancelar
+        </button>
+      </div>
+      <span className="small">Rodam no zsh, dentro da pasta da worktree. Vazio = nada roda.</span>
     </form>
   );
 }

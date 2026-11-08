@@ -1,4 +1,9 @@
-"""Sobe o núcleo do Harness em 127.0.0.1."""
+"""Sobe o núcleo da MÊTIS em 127.0.0.1.
+
+Desde a v0.9.2 a janela sobe o núcleo fora do grupo de processos dela e não o derruba ao
+fechar: os agentes sobrevivem a fechar, recarregar ou recompilar o app. O endereço e o token
+ficam em ~/.harness/runtime.json (0600), que a próxima janela e o comando `metis` leem.
+HARNESS_PARENT_PID ainda vale para quem quiser o núcleo preso a um processo (testes)."""
 
 from __future__ import annotations
 
@@ -64,7 +69,7 @@ def main() -> None:
             raise SystemExit(3)
         settings = dataclasses.replace(settings, port=free_port(settings.host))
     settings.home.mkdir(parents=True, exist_ok=True)
-    info = json.dumps({"url": settings.url, "token": settings.token, "pid": os.getpid()})
+    info = json.dumps({"url": settings.url, "token": settings.token, "pid": os.getpid(), "version": __version__, "started": time.time()})
     for path in [settings.home / "runtime.json", *([Path(app_file)] if app_file else [])]:
         path.write_text(info, encoding="utf-8")
         path.chmod(0o600)

@@ -1,4 +1,7 @@
-import { windowAction } from "../lib/core";
+import { useEffect, useRef, useState } from "react";
+import { restartCore, windowAction } from "../lib/core";
+import { ago } from "../lib/format";
+import type { Notice, NoticeKind } from "../lib/inbox";
 import { ICON, Icon, MetisMark } from "../icons";
 import type { ThemeName, View } from "../types";
 
@@ -10,6 +13,7 @@ export function TitleBar({
   onPalette,
   pomodoro,
   onPomodoro,
+  bell,
 }: {
   theme: ThemeName;
   onCycleTheme: () => void;
@@ -17,6 +21,8 @@ export function TitleBar({
   /** Relógio do Pomodoro quando está correndo (foco ou pausa). */
   pomodoro?: { label: string; phase: string } | null;
   onPomodoro?: () => void;
+  /** Sino dos avisos (v0.9.2): o menu fica aberto pelo App, que esconde as páginas nativas por baixo. */
+  bell?: BellProps;
 }) {
   return (
     <header className="titlebar" data-tauri-drag-region>
@@ -46,11 +52,160 @@ export function TitleBar({
           🍅 {pomodoro.label}
         </button>
       )}
+      {bell && <Bell {...bell} />}
       <button type="button" className="chip" onClick={onCycleTheme} title="Trocar tema (mais opções em Ajustes)">
         tema: {THEME_LABEL[theme]}
       </button>
       <span className="chip">v{__APP_VERSION__}</span>
     </header>
+  );
+}
+
+interface BellProps {
+  items: Notice[];
+  unread: number;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onPick: (notice: Notice) => void;
+  onMarkAllRead: () => void;
+  onClear: () => void;
+}
+
+const NOTICE_GLYPH: Record<NoticeKind, { glyph: string; color: string }> = {
+  terminou: { glyph: "✓", color: "var(--run)" },
+  espera: { glyph: "●", color: "var(--wait)" },
+  aprovacao: { glyph: "?", color: "var(--warn)" },
+  erro: { glyph: "!", color: "var(--err)" },
+};
+
+/** Sino dos avisos: o número é o que falta ler; o menu lista os últimos 50. */
+function Bell({ items, unread, open, onToggle, onClose, onPick, onMarkAllRead, onClear }: BellProps) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (box.current && !box.current.contains(event.target as Node)) onClose();
+    };
+    const esc = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("mousedown", away);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", away);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open, onClose]);
+  return (
+    <div className="bell-wrap" ref={box}>
+      <button
+        type="button"
+        className="icon-btn bell"
+        aria-label={unread ? `Avisos: ${unread} sem ler` : "Avisos"}
+        aria-expanded={open}
+        title="Avisos dos agentes, aprovações e automações"
+        onClick={onToggle}
+      >
+        <Icon d={ICON.bell} size={15} />
+        {unread > 0 && <span className="bell-count mono">{unread > 99 ? "99+" : unread}</span>}
+      </button>
+      {open && (
+        <div className="inbox-menu" role="menu" aria-label="Avisos">
+          <header className="inbox-head">
+            <span className="section-title">Avisos</span>
+            <span className="grow" />
+            {unread > 0 && (
+              <button type="button" className="link-btn" onClick={onMarkAllRead}>
+                marcar tudo como lido
+              </button>
+            )}
+            {unread === 0 && items.length > 0 && (
+              <button type="button" className="link-btn" onClick={onClear}>
+                limpar
+              </button>
+            )}
+          </header>
+          {items.length === 0 ? (
+            <p className="inbox-empty small">
+              Nada por aqui. Quando um agente terminar, esperar você, pedir aprovação ou uma automação der erro, o aviso aparece aqui.
+            </p>
+          ) : (
+            <ul className="inbox-list">
+              {items.map((notice) => (
+                <li key={notice.id}>
+                  <button type="button" role="menuitem" className="inbox-item" data-unread={notice.lido ? undefined : "true"} onClick={() => onPick(notice)}>
+                    <span className="inbox-glyph mono" style={{ color: NOTICE_GLYPH[notice.kind].color }} aria-hidden="true">
+                      {NOTICE_GLYPH[notice.kind].glyph}
+                    </span>
+                    <span className="inbox-text">
+                      <span className="inbox-title">{notice.titulo}</span>
+                      {notice.texto && <span className="small">{notice.texto}</span>}
+                    </span>
+                    <span className="small mono inbox-time" title={new Date(notice.at).toLocaleString("pt-BR")}>
+                      {ago(notice.at)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Faixa sob a barra de título quando o núcleo em execução é de outra versão. Desde a v0.9.2,
+ * fechar a janela não derruba o núcleo nem os agentes: a janela nova se liga ao que já está
+ * no ar, que pode ser de antes de uma atualização. Reiniciar fecha os terminais.
+ */
+export function CoreVersionBanner({ core, open }: { core: string; open: number }) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const restart = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (await restartCore()) window.location.reload();
+      else setError("Fora do app não dá para reiniciar daqui: pare o núcleo e rode de novo pelo terminal.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const terminals = `${open} termina${open === 1 ? "l" : "is"}`;
+  return (
+    <div className="core-banner" role="status">
+      <Icon d={ICON.info} size={14} />
+      <span>
+        O núcleo em execução é a <b className="mono">v{core}</b> e o app é a <b className="mono">v{__APP_VERSION__}</b>.
+      </span>
+      {confirming ? (
+        <>
+          <span className="core-banner-warn">
+            Fecha {terminals} {open === 1 ? "aberto" : "abertos"}. Continuar?
+          </span>
+          <button type="button" className="btn danger" disabled={busy} onClick={() => void restart()}>
+            {busy ? "Reiniciando…" : "Reiniciar agora"}
+          </button>
+          <button type="button" className="btn" disabled={busy} onClick={() => setConfirming(false)}>
+            Cancelar
+          </button>
+        </>
+      ) : (
+        <>
+          <button type="button" className="btn" disabled={busy} onClick={() => (open > 0 ? setConfirming(true) : void restart())}>
+            {busy ? "Reiniciando…" : "Reiniciar o núcleo"}
+          </button>
+          <span className="small">{open > 0 ? `(fecha ${terminals})` : "(nenhum terminal aberto)"}</span>
+        </>
+      )}
+      {error && <span className="core-banner-error">{error}</span>}
+    </div>
   );
 }
 

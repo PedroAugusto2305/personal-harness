@@ -6,7 +6,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { BoardsView } from "./components/BoardsView";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
-import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
+import { CoreVersionBanner, Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { ApprovalCard, ConnectorsView } from "./components/ConnectorsView";
 import { StudyView } from "./components/StudyView";
@@ -14,6 +14,7 @@ import { TodayView } from "./components/TodayView";
 import { usePomodoro } from "./lib/pomodoro";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
+import { HistoryPanel } from "./components/HistoryPanel";
 import { Inspector, type InspectorTab } from "./components/Inspector";
 import { KanbanView, type KanbanRequest } from "./components/KanbanView";
 import { Palette, type PaletteItem } from "./components/Palette";
@@ -26,8 +27,9 @@ import { MiniMap } from "./components/MiniMap";
 import { browser, describePick, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
 import { CoreError, inTauri, type NewSessionOptions } from "./lib/core";
 import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
+import type { Notice } from "./lib/inbox";
 import { quotePaths, submit, terminals } from "./lib/terminals";
-import type { Agent, BoardProject, GitFile, KanbanTask, Project, ReviewNote, Session, SessionKind, ThemeName, View, Worktree } from "./types";
+import type { Agent, BoardProject, GitFile, HistoryItem, KanbanTask, Project, ReviewNote, Session, SessionKind, ThemeName, View, Worktree } from "./types";
 import { useHarness } from "./useHarness";
 import { placeOf, useWorktrees, worktreeLabel, type Place } from "./useWorktrees";
 
@@ -102,6 +104,9 @@ export default function App() {
   const [kanbanRequest, setKanbanRequest] = useState<KanbanRequest | null>(null);
   const [boardNames, setBoardNames] = useState<string[]>([]);
   const [urlFocusTick, setUrlFocusTick] = useState(0);
+  /** v0.9.2: o menu do sino e o painel "Retomar uma conversa". */
+  const [bellOpen, setBellOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const dock = useRef<DockHandle>(null);
   const lastTerm = useRef<string | null>(null);
 
@@ -381,10 +386,114 @@ export default function App() {
     if (!created) return false;
     await wt.refresh();
     setSelected({ project: project.id, path: created.path });
-    setToast(`Worktree ${created.branch} criada${created.copied.length ? `, com ${created.copied.join(", ")}` : ""}.`);
+    const setup = created.setup
+      ? "; o script de setup roda num terminal à vista"
+      : created.setup_erro
+        ? `; o script de setup não abriu (${created.setup_erro})`
+        : "";
+    setToast(`Worktree ${created.branch} criada${created.copied.length ? `, com ${created.copied.join(", ")}` : ""}${setup}.`);
+    // O terminal do setup entra na lista na hora (o evento do núcleo pode chegar depois da resposta);
+    // ganha o foco só se o Claude não for abrir.
+    if (created.setup) {
+      const id = created.setup;
+      if (!sessionsRef.current.some((s) => s.id === id)) {
+        const found = (await harness.client?.listSessions().catch(() => []))?.find((s) => s.id === id);
+        if (found) harness.adopt(found);
+      }
+      if (!openClaude) select(id);
+    }
     if (openClaude) void create("claude", { cwd: created.path });
     return true;
   };
+
+  // --- sessões: retomar, reiniciar e passar o trabalho (v0.9.2) ------------------------
+
+  /** A conta da conversa: o id que o núcleo manda; núcleo antigo manda só o nome. */
+  const accountFor = (item: HistoryItem): string | undefined => {
+    const list = harness.accounts[item.cli].accounts;
+    if (item.conta_id && list.some((a) => a.id === item.conta_id)) return item.conta_id;
+    const byName = list.find((a) => a.name === item.conta);
+    if (byName) return byName.id;
+    // "padrão" é a pasta de sempre (~/.claude, ~/.codex): a conta sem pasta própria.
+    if (item.conta === "padrão") return list.find((a) => !a.dir)?.id;
+    return undefined;
+  };
+
+  /** Retoma uma conversa do histórico na pasta e na conta dela; devolve o erro para o painel mostrar. */
+  const resumeConversation = async (item: HistoryItem): Promise<string | null> => {
+    const client = harness.client;
+    if (!client) return "O núcleo está fora do ar.";
+    const title = item.titulo.length > 32 ? `${item.titulo.slice(0, 31).trimEnd()}…` : item.titulo;
+    try {
+      const session = await client.createSession(item.cli, item.cwd, { resume: item.id, account: accountFor(item), title: title || undefined });
+      harness.adopt(session);
+      select(session.id);
+      return null;
+    } catch (cause) {
+      return errorText(cause);
+    }
+  };
+
+  /**
+   * O agente saiu: sessão nova na mesma pasta e conta, no mesmo lugar da tela. O núcleo tira a
+   * antiga da lista (fecha, se ainda estiver viva) e a nova nasce com o mesmo nome.
+   * O lugar é guardado antes: o aviso de "fechou" da antiga chega antes da resposta e já
+   * teria passado a tela para outra aba.
+   * O erro (409: conversa não achada) sobe para a faixa do terminal mostrar.
+   */
+  const restartAgent = async (old: Session, continuar: boolean) => {
+    const client = harness.client;
+    if (!client) throw new Error("O núcleo está fora do ar.");
+    const side = slots[0] === old.id ? 0 : slots[1] === old.id ? 1 : null;
+    const wasLast = lastTerm.current === old.id;
+    const session = await client.restartSession(old.id, continuar);
+    harness.adopt(session);
+    if (split && side !== null) {
+      setView("term");
+      setSlots(([a, b]) => (side === 0 ? [session.id, b] : [a, session.id]));
+      setFocus(side);
+    } else {
+      select(session.id);
+    }
+    if (wasLast) lastTerm.current = session.id;
+    setDockOverride((current) => (current === old.id ? session.id : current));
+    void harness.close(old.id);
+  };
+
+  /** Passa o trabalho para a outra CLI; a sessão de origem fica aberta. Na tela dividida, a nova vai para o outro lado. */
+  const handOffAgent = async (old: Session, nota: string) => {
+    const client = harness.client;
+    if (!client) throw new Error("O núcleo está fora do ar.");
+    const para = old.kind === "claude" ? "codex" : "claude";
+    const session = await client.handOff(old.id, para, nota);
+    harness.adopt(session);
+    const side = slots[0] === old.id ? 1 : slots[1] === old.id ? 0 : null;
+    if (split && side !== null) {
+      setView("term");
+      setSlots(([a, b]) => (side === 1 ? [a, session.id] : [session.id, b]));
+      setFocus(side);
+    } else {
+      select(session.id);
+    }
+    setToast(`O trabalho passou para o ${KIND_LABEL[para]}. ${old.title} continua aberto.`);
+  };
+
+  /** Clique num aviso do sino: vai para a sessão, a aprovação ou a automação, quando dá. */
+  const openNotice = (notice: Notice) => {
+    harness.inbox.markRead(notice.id);
+    setBellOpen(false);
+    const sessionOpen = !!notice.sessao && harness.sessions.some((s) => s.id === notice.sessao);
+    if (notice.aprovacao) {
+      // O cartão da aprovação aparece em toda tela menos Conectores: basta ir ao agente que pediu.
+      if (sessionOpen && harness.approvals.some((a) => a.id === notice.aprovacao)) select(notice.sessao!);
+      else setView("connectors");
+      return;
+    }
+    if (sessionOpen) return select(notice.sessao!);
+    if (notice.automacao) return setView("automations");
+    if (notice.sessao) setToast("Essa sessão já foi fechada.");
+  };
+  const closeBell = useCallback(() => setBellOpen(false), []);
 
   // --- Brain e kanban -------------------------------------------------------
 
@@ -517,7 +626,11 @@ export default function App() {
         setPendingDelete({
           ...pendingDelete,
           force: !busy || force,
-          reason: busy ? detail : `${detail}. Apagando mesmo assim, essas mudanças se perdem.`,
+          reason: busy
+            ? detail
+            : /arquivamento/.test(detail)
+              ? `${detail}. Apagando mesmo assim, a worktree sai mesmo com o script falhando.`
+              : `${detail}. Apagando mesmo assim, essas mudanças se perdem.`,
           busyTerminals: busy ? detail.split(": ").pop()!.split(", ") : [],
         });
       } else {
@@ -743,7 +856,20 @@ export default function App() {
   };
 
   // Páginas nativas ficam por cima de tudo; somem quando algo da interface precisa aparecer em cima.
-  const overlayOpen = !!palette || !!pendingDelete || floatOpen;
+  const overlayOpen = !!palette || !!pendingDelete || floatOpen || bellOpen || historyOpen;
+
+  // Ver a sessão é ler o que ela avisou: com a janela em foco, os avisos do terminal em foco saem do número.
+  const markSession = harness.inbox.markSession;
+  const focusedId = view === "term" ? (focusedSession?.id ?? null) : null;
+  useEffect(() => {
+    if (!focusedId) return;
+    const mark = () => document.hasFocus() && markSession(focusedId);
+    mark();
+    window.addEventListener("focus", mark);
+    return () => window.removeEventListener("focus", mark);
+  }, [focusedId, markSession, harness.inbox.unread]);
+
+  const openSessions = harness.sessions.filter((s) => s.status !== "exited").length;
 
   // --- abas e salto rápido -------------------------------------------------
 
@@ -790,6 +916,14 @@ export default function App() {
             glyph: <span style={{ color: KIND_COLOR[kind] }}>{KIND_GLYPH[kind]}</span>,
             run: () => void create(kind),
           })),
+          {
+            id: "history",
+            group: "Abrir",
+            label: "Retomar uma conversa…",
+            hint: "Claude e Codex, todas as contas",
+            glyph: <Icon d={ICON.history} size={14} />,
+            run: () => setHistoryOpen(true),
+          },
           ...harness.agents.map((agent) => ({
             id: `agent-${agent.id}`,
             group: "Agentes",
@@ -826,6 +960,14 @@ export default function App() {
           { id: "float", group: "Tela", label: floatOpen ? "Esconder o terminal flutuante" : "Terminal flutuante", hint: "⌃`", run: () => void toggleFloat() },
           { id: "inspector", group: "Tela", label: inspectorOpen ? "Fechar o painel da worktree" : "Painel da worktree", hint: "⌘⇧B", run: () => setInspectorOpen((v) => !v) },
           { id: "voice", group: "Tela", label: "Ditar para o terminal em foco", hint: "⌘⇧M", run: () => dock.current?.toggleVoice() },
+          {
+            id: "inbox",
+            group: "Tela",
+            label: "Avisos",
+            hint: harness.inbox.unread ? `${harness.inbox.unread} sem ler` : "o sino da barra de título",
+            glyph: <Icon d={ICON.bell} size={14} />,
+            run: () => setBellOpen(true),
+          },
           ...harness.accounts.claude.accounts
             .filter((a) => !a.active)
             .map((a) => ({ id: `acc-claude-${a.id}`, group: "Contas", label: `Usar a conta ${a.name} no Claude Code`, run: () => void harness.run((c) => c.activateAccount("claude", a.id)) })),
@@ -848,6 +990,9 @@ export default function App() {
           ...(contextPlace ? [{ id: "brain-panel", group: "Brain", label: "Precedentes desta worktree", hint: "painel da worktree → Brain", run: () => (setInspectorOpen(true), setInspectorTab("brain")) }] : []),
           { id: "agents", group: "Ajustes", label: "Agentes", run: () => setView("agents") },
           { id: "settings-accounts", group: "Ajustes", label: "Contas e uso", hint: "⌘,", run: () => (setSection("contas"), setView("settings")) },
+          { id: "settings-agents", group: "Ajustes", label: "Agentes e avisos", hint: "permissões, Mac acordado, avisos, desligar", run: () => (setSection("agentes"), setView("settings")) },
+          { id: "settings-skills", group: "Ajustes", label: "Skills", run: () => (setSection("skills"), setView("settings")) },
+          { id: "settings-resources", group: "Ajustes", label: "Recursos", hint: "memória e CPU do núcleo e das sessões", run: () => (setSection("recursos"), setView("settings")) },
           { id: "settings-voice", group: "Ajustes", label: "Voz", run: () => (setSection("voz"), setView("settings")) },
           { id: "settings-about", group: "Ajustes", label: "Atalhos", run: () => (setSection("sobre"), setView("settings")) },
         ];
@@ -878,7 +1023,18 @@ export default function App() {
         onPalette={() => setPalette("all")}
         pomodoro={pomodoro.state.phase !== "idle" ? { label: pomodoro.label, phase: pomodoro.state.phase } : null}
         onPomodoro={() => setView("study")}
+        bell={{
+          items: harness.inbox.items,
+          unread: harness.inbox.unread,
+          open: bellOpen,
+          onToggle: () => setBellOpen((v) => !v),
+          onClose: closeBell,
+          onPick: openNotice,
+          onMarkAllRead: harness.inbox.markAllRead,
+          onClear: harness.inbox.clear,
+        }}
       />
+      {harness.coreVersion && harness.coreVersion !== __APP_VERSION__ && <CoreVersionBanner core={harness.coreVersion} open={openSessions} />}
       <div className="body">
         <Ribbon view={view} onView={setView} />
         {view === "settings" && (
@@ -897,6 +1053,13 @@ export default function App() {
               setView("term");
               void create(provider, { account: accountId, title });
             }}
+            prefs={harness.prefs}
+            onSavePrefs={harness.savePrefs}
+            openSessions={openSessions}
+            skillsCwd={contextPlace?.worktree.path ?? ""}
+            skillsCwdLabel={contextPlace ? `${contextPlace.project.name} · ${worktreeLabel(contextPlace.worktree)}` : null}
+            onCloseSession={harness.close}
+            onGoToSession={select}
           />
         )}
         {view === "agents" && (
@@ -1092,6 +1255,10 @@ export default function App() {
                             ? () => unsplitKeeping(slot === "left" ? 1 : 0)
                             : undefined
                       }
+                      onRestart={session.kind !== "shell" ? (continuar) => restartAgent(session, continuar) : undefined}
+                      onHandOff={session.kind !== "shell" ? (nota) => handOffAgent(session, nota) : undefined}
+                      onClose={() => closeTab(session.id)}
+                      onHistory={() => setHistoryOpen(true)}
                     />
                   );
                 })}
@@ -1171,6 +1338,9 @@ export default function App() {
                       ◍ Navegador
                     </button>
                   </div>
+                  <button type="button" className="link-btn empty-history" disabled={!ready} onClick={() => setHistoryOpen(true)}>
+                    <Icon d={ICON.history} size={13} /> Retomar uma conversa…
+                  </button>
                   <span className="small">
                     {!ready
                       ? harness.connection === "offline"
@@ -1249,7 +1419,20 @@ export default function App() {
           setInspectorOpen(true);
           setInspectorTab("context");
         }}
+        onOpenResources={() => {
+          setSection("recursos");
+          setView("settings");
+        }}
       />
+      {historyOpen && (
+        <HistoryPanel
+          client={harness.client}
+          here={contextPlace?.worktree.path ?? ""}
+          hereLabel={contextPlace ? worktreeLabel(contextPlace.worktree) : null}
+          onResume={resumeConversation}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
       {palette && <Palette items={paletteItems} onClose={() => setPalette(null)} placeholder={palette === "files" ? "Abrir arquivo…" : undefined} />}
       {pendingDelete && (
         <Confirm

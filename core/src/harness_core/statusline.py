@@ -58,6 +58,8 @@ def parse_statusline(payload: dict) -> dict:
         },
         "cost_usd": _num(cost.get("total_cost_usd")),
         "transcript": payload.get("transcript_path") if isinstance(payload.get("transcript_path"), str) else None,
+        # Id da conversa no Claude: serve para retomar (`claude --resume <id>`) e continuar depois de sair.
+        "session_id": payload.get("session_id") if isinstance(payload.get("session_id"), str) else None,
         "rate_limits": rate_limits,
     }
 

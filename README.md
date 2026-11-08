@@ -4,9 +4,17 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.1)
+## O que já faz (v0.9.2)
 
-**Novo na 0.9.1, os Quadros** (ícone de quadro na faixa): um quadro livre por projeto, como o Canvas do Obsidian, e é de fato um `.canvas` do Obsidian em `01-PROJETOS/<Projeto>/quadros/` no Brain, que abre lá também.
+**Novo na 0.9.2, sessões, agentes e avisos (paridade com o Orca):**
+
+- **Agentes sobrevivem a fechar o app.** O núcleo roda por conta própria: fechar, recarregar ou atualizar a janela não fecha os terminais, e as rotinas e automações seguem com a janela fechada (Mac acordado). Desligar de vez: Ajustes → Desligar a MÊTIS, ou `metis desligar`. Se o núcleo em execução for de outra versão, a tela oferece reiniciá-lo.
+- **Retomar uma conversa** (⌘K): o histórico do Claude e do Codex de todas as contas, com busca; retomar abre `claude --resume` ou `codex resume` na pasta certa.
+- **Agente que saiu:** Reiniciar, ou Continuar a conversa. **Passar o trabalho** do Claude para o Codex (e o contrário), com o registro da conversa e as últimas mensagens.
+- **Ajustes → Agentes e avisos:** modo de permissão das sessões novas por CLI (padrão, manual, auto, yolo), pastas dos projetos e worktrees como confiáveis, Mac acordado (nunca, com agente trabalhando, sempre), avisos do macOS e som quando o agente termina ou espera você, aprovações e erros. Os avisos do agente seguem os hooks do Claude Code: o `Stop` é "terminou" e o `Notification` (pedido de licença ou pergunta) é "espera você". O Codex não tem esses hooks e por enquanto não avisa.
+- **Sino** na barra de título com os avisos não lidos (e no ícone do Dock); **Recursos** (memória e CPU por sessão); **Skills** (do usuário e do projeto); **scripts da worktree** por projeto (ao criar e antes de apagar).
+
+**Na 0.9.1, os Quadros** (ícone de quadro na faixa): um quadro livre por projeto, como o Canvas do Obsidian, e é de fato um `.canvas` do Obsidian em `01-PROJETOS/<Projeto>/quadros/` no Brain, que abre lá também.
 
 - Cartões: notas do Brain (título, tipo, status e resumo), sessões vivas do Claude, do Codex ou do shell (estado, últimas mensagens, campo para mandar mensagem e abrir o terminal), tarefas do kanban, links (abrem no navegador da MÊTIS, com modo de design para localhost), notas suas e grupos, ligados por setas com rótulo.
 - Arraste uma nota do Brain para cima de uma sessão (ou ligue as duas): a sessão recebe o pedido de ler a nota e ela entra no mini-mapa daquela sessão.
@@ -118,6 +126,10 @@ metis brain conflitos "Webhook passa por fila"  # antes de decidir: repetição,
 metis brain sugestoes              # sugestões de precedente esperando você neste projeto
 metis brain mcp                    # servidor MCP do Brain por stdio (sessões fora da MÊTIS)
 metis brain contexto               # hook SessionStart fora da MÊTIS (lê o JSON do Claude no stdin)
+metis sessoes                      # terminais abertos, com o id (--json para agentes)
+metis sessao ler 6d57ea05          # o fim do terminal ou as últimas mensagens do agente
+metis sessao escrever 6d57ea05 "oi" # manda para o terminal, como a barra de baixo
+metis desligar                     # desliga a MÊTIS de vez (fechar a janela não desliga)
 metis automacoes                   # as automações, com estado e a última execução
 metis rodar "Briefing da manhã"    # roda a versão publicada agora
 metis tarefas                      # Próximas ações do projeto desta pasta, com o id
@@ -154,6 +166,7 @@ app/ (Tauri + React + xterm.js)  ──HTTP/WebSocket em 127.0.0.1──►  cor
                                                        Whisper local    ──► ditado (WAV 16 kHz)
 ```
 
+- O núcleo é dono dos terminais e roda por conta própria (desde a 0.9.2): a janela se liga a ele pelo `~/.harness/runtime.json` e não o derruba ao fechar. A saída dele fica em `~/.harness/nucleo.log`.
 - O núcleo é dono dos terminais. Cada sessão do Claude recebe um `--settings` com a statusline e os hooks apontando para o núcleo. Esse `--settings` tem precedência sobre `~/.claude/settings.json`, então o Orca e o seu Claude Code de sempre não são afetados.
 - O núcleo só escuta em `127.0.0.1` e exige um token novo a cada execução.
 - Variáveis do Orca, marcadores da sessão que abriu o núcleo e o Python do próprio núcleo não passam para os agentes.

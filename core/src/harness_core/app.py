@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 from datetime import datetime
 import secrets
+import subprocess
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +33,10 @@ from .brain_tools import BrainTools
 from .claude_print import ClaudePrintError, ask_json
 from .semantic import Embedder
 from .suggestions import SuggestionError, Suggestions, render_pending
+from .history import codex_rollout_for
+from .history import list_sessions as history_sessions
+from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
+from .prefs import PrefsError
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
 from .vault import Vault, VaultError
@@ -59,6 +66,10 @@ MAX_AUDIO_BYTES = 20 * 1024 * 1024  # ~10 min de WAV 16 kHz mono
 
 class NewSession(BaseModel):
     kind: str = Field(pattern="^(claude|codex|shell)$")
+    #: Retomar uma conversa (`claude --resume <id>`, `codex resume <id>`).
+    resume: str | None = Field(default=None, pattern="^[A-Za-z0-9-]{8,80}$")
+    #: Modo de permissão só desta sessão (padrao, manual, auto, yolo).
+    permissao: str | None = Field(default=None, pattern="^(padrao|manual|auto|yolo)$")
     cwd: str | None = None
     cols: int = Field(default=120, ge=20, le=500)
     rows: int = Field(default=32, ge=5, le=300)
@@ -216,6 +227,25 @@ class TitlesBody(BaseModel):
     titles: list[str] = Field(default_factory=list, max_length=2000)
 
 
+class MacNotice(BaseModel):
+    titulo: str = Field(min_length=1, max_length=120)
+    texto: str = Field(default="", max_length=240)
+
+
+class ScriptsBody(BaseModel):
+    setup: str | None = Field(default=None, max_length=4000)
+    arquivar: str | None = Field(default=None, max_length=4000)
+
+
+class RestartBody(BaseModel):
+    continuar: bool = False
+
+
+class HandOffBody(BaseModel):
+    para: str | None = Field(default=None, pattern="^(claude|codex)$")
+    nota: str = Field(default="", max_length=2000)
+
+
 class NewBoard(BaseModel):
     projeto: str = Field(min_length=1)
     nome: str = Field(min_length=1, max_length=120)
@@ -287,6 +317,8 @@ def create_app(
     manager = SessionManager(settings, accounts)
     voice = transcriber or Transcriber(settings.home)
     projects = ProjectStore(settings.home)
+    # Pastas confiáveis para a CLI: os repositórios cadastrados e as worktrees da MÊTIS.
+    manager.trusted_roots = lambda: [p["path"] for p in projects.list()] + [str(settings.worktrees)]
     agents = AgentStore(settings.home)
 
     def codex_env() -> tuple[str | None, dict[str, str]]:
@@ -364,6 +396,31 @@ def create_app(
         return ""
 
     boards = BoardStore(vault, brain)
+    awake = Awake()
+
+    def hook_notice(name: str, message: str | None) -> str | None:
+        """Qual aviso o hook pede: Stop = terminou; Notification = espera você, menos o "estou
+        esperando sua resposta" que o Claude manda depois de um minuto parado (já avisou no Stop)."""
+        if name == "Stop":
+            return "terminou"
+        if name == "Notification" and not (message or "").lower().startswith("claude is waiting for your input"):
+            return "espera"
+        return None
+
+    def on_hook(session, name: str, message: str | None) -> None:
+        """Sem janela aberta, o núcleo mesmo avisa no macOS quando o agente termina ou espera você."""
+        if manager.events.listeners or session.kind not in ("claude", "codex"):
+            return
+        kind = hook_notice(name, message)
+        notices = manager.prefs.get()["avisos"]
+        if kind is None or notices["silencio"]:
+            return
+        if kind == "espera" and notices["espera"]:
+            mac_notify(f"{session.title} espera você", message or Path(session.cwd).name, notices["som"])
+        elif kind == "terminou" and notices["terminou"]:
+            mac_notify(f"{session.title} terminou", Path(session.cwd).name, notices["som"])
+
+    manager.on_hook = on_hook
     automations = AutomationStore(settings.home)
     engine = Engine(settings.home, automations, hub, manager, brain, kanban, vault, agents, notify=dm_pedro, publish=lambda event: manager.events.publish(event))
 
@@ -423,6 +480,9 @@ def create_app(
                 await engine.tick(now)
             except Exception as exc:  # o agendador das rotinas nunca para por causa de uma automação
                 manager.events.publish({"type": "automation.error", "automation": "", "error": str(exc)})
+            working = sum(1 for s in manager.sessions.values() if s.status == "working")
+            if awake.apply(wants_awake(manager.prefs.get()["manter_acordado"], working, len(engine.runs))):
+                manager.events.publish({"type": "awake", "ativo": awake.active})
             await asyncio.sleep(20)
 
     async def brain_worker() -> None:
@@ -457,6 +517,7 @@ def create_app(
             with suppress(asyncio.CancelledError):
                 await poller
         await manager.close_all()
+        awake.stop()
 
     app = FastAPI(title="Harness core", version=__version__, lifespan=lifespan)
     app.state.settings = settings
@@ -466,6 +527,7 @@ def create_app(
     app.state.hub = hub
     app.state.embedder = embedder
     app.state.engine = engine
+    app.state.cli_homes = None  # None = ~/.claude e ~/.codex; os testes apontam para pastas temporárias
     app.state.automations = automations
     app.state.voice = voice
     app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
@@ -494,6 +556,15 @@ def create_app(
     def health() -> dict:
         return {"ok": True, "version": __version__}
 
+    @app.post("/desligar", dependencies=[Depends(require_token)], status_code=202)
+    async def shutdown() -> dict:
+        """Desliga a MÊTIS de vez: fecha os terminais e sai (a janela não derruba o núcleo sozinha)."""
+        import signal
+
+        open_sessions = len(manager.list())
+        asyncio.get_running_loop().call_later(0.3, lambda: os.kill(os.getpid(), signal.SIGTERM))
+        return {"fechando": open_sessions}
+
     # --- sessões -----------------------------------------------------------
 
     @app.get("/sessions", dependencies=[Depends(require_token)])
@@ -508,7 +579,8 @@ def create_app(
             if body.draft is not None:
                 d = body.draft
                 agent = Agent(id="rascunho", name=d.name, cli=d.cli, model=d.model, folder=d.folder, prompt=d.prompt)
-            session = manager.create(body.kind, body.cwd, body.cols, body.rows, body.title, body.account, body.tag, agent)
+            session = manager.create(body.kind, body.cwd, body.cols, body.rows, body.title, body.account, body.tag, agent,
+                                     resume=body.resume, permission=body.permissao)  # fmt: skip
         except AgentError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except UnknownKind as exc:
@@ -520,6 +592,143 @@ def create_app(
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise HTTPException(status_code=400, detail=f"pasta inválida: {body.cwd}") from exc
         return session.to_dict()
+
+    def reopen(old, *, kind: str | None = None, resume: str | None = None, prompt: str | None = None):
+        """Sessão nova no lugar de outra: mesma pasta, conta, agente e etiqueta."""
+        agent = None
+        if old.agent:
+            try:
+                agent = agents.get(old.agent)
+            except AgentError:
+                agent = None
+        if kind and agent is not None and agent.cli != kind:
+            agent = None  # passar o trabalho para a outra CLI: o agente é de uma CLI só
+        same_kind = (kind or old.kind) == old.kind
+        return manager.create(kind or old.kind, old.cwd, title=None if agent else (old.title if same_kind else None),
+                              account_id=old.account if same_kind else None, tag=old.tag, agent=agent, resume=resume, prompt=prompt)  # fmt: skip
+
+    @app.post("/sessions/{session_id}/reiniciar", dependencies=[Depends(require_token)], status_code=201)
+    async def restart_session(session_id: str, body: RestartBody) -> dict:
+        """Reinicia o agente que saiu (ou trava): mesma pasta e conta; `continuar` retoma a conversa do Claude."""
+        old = manager.get(session_id)
+        if old is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        resume = None
+        if body.continuar:
+            if old.kind == "claude":
+                resume = (old.statusline or {}).get("session_id")
+            elif old.kind == "codex":
+                found = await asyncio.to_thread(codex_rollout_for, manager.accounts.list(), old.cwd, old.created_at - 5, app.state.cli_homes)
+                resume = found["id"] if found else None
+            if not resume:
+                raise HTTPException(status_code=409, detail="não achei a conversa desta sessão para continuar; reinicie do zero")
+        if old.pty.alive:
+            await manager.close(session_id)
+        else:
+            manager.forget(session_id)  # já saiu: sai da lista para a nova nascer com o mesmo nome
+        try:
+            session = reopen(old, resume=resume)
+        except (UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
+            raise fail(exc) from exc
+        return session.to_dict()
+
+    @app.post("/sessions/{session_id}/passar", dependencies=[Depends(require_token)], status_code=201)
+    async def hand_off(session_id: str, body: HandOffBody) -> dict:
+        """Passa o trabalho para a outra CLI: sessão nova na mesma pasta, com o transcript e as últimas mensagens."""
+        old = manager.get(session_id)
+        if old is None or old.kind not in ("claude", "codex"):
+            raise HTTPException(status_code=404, detail="só sessões do Claude ou do Codex passam o trabalho")
+        target = body.para or ("codex" if old.kind == "claude" else "claude")
+        transcript = (old.statusline or {}).get("transcript") if old.kind == "claude" else None
+        if old.kind == "codex":
+            found = await asyncio.to_thread(codex_rollout_for, manager.accounts.list(), old.cwd, old.created_at - 5, app.state.cli_homes)
+            transcript = found["arquivo"] if found else None
+        recent = last_messages(transcript, 6) if transcript and old.kind == "claude" else []
+        names = {"claude": "Claude", "codex": "Codex"}
+        lines = [f"Continue o trabalho que estava com o {names[old.kind]} nesta mesma pasta ({old.cwd})."]
+        if transcript:
+            lines.append(f"O registro completo da conversa está em {transcript} (JSONL): leia o fim dele para saber o que foi pedido e feito.")
+        if recent:
+            lines.append("Últimas mensagens:")
+            lines += [f"- {'Pedro' if m['role'] == 'voce' else names[old.kind]}: {m['text']}" for m in recent]
+        lines.append("Confira o estado do repositório (git status e git diff) antes de seguir, diga em duas linhas onde o trabalho parou e continue de onde parou.")
+        if body.nota:
+            lines.append(f"Recado do Pedro: {body.nota}")
+        try:
+            session = reopen(old, kind=target, prompt="\n".join(lines))
+        except (UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
+            raise fail(exc) from exc
+        return session.to_dict()
+
+    # --- histórico de sessões e ajustes (v0.9.2) ---------------------------------------
+
+    @app.get("/historico", dependencies=[Depends(require_token)])
+    async def session_history(q: str = "", cwd: str = "", limit: int = Query(default=60, ge=1, le=300)) -> list[dict]:
+        return await asyncio.to_thread(history_sessions, manager.accounts.list(), q, limit, cwd, app.state.cli_homes)
+
+    @app.get("/recursos", dependencies=[Depends(require_token)])
+    def resources() -> dict:
+        """Memória e CPU do núcleo e de cada sessão (com os processos filhos), o modelo e o Mac acordado."""
+        table = process_table()
+        core = tree_usage({pid: row for pid, row in table.items()}, os.getpid())
+        own = table.get(os.getpid(), (0, 0.0, 0.0, ""))
+        sessions = []
+        for session in manager.sessions.values():
+            pid = session.pty.pid
+            usage = tree_usage(table, pid) if pid else {"mb": 0, "cpu": 0.0, "processos": 0, "comandos": []}
+            sessions.append({"id": session.id, "title": session.title, "kind": session.kind, "status": session.status, "cwd": session.cwd, **usage})
+        sessions.sort(key=lambda item: -item["mb"])
+        return {
+            "nucleo": {"mb": round(own[1]), "cpu": own[2], "com_sessoes_mb": core["mb"]},
+            "sessoes": sessions,
+            "modelo": embedder.status(),
+            "acordado": {"modo": manager.prefs.get()["manter_acordado"], "ativo": awake.active},
+            "janelas": manager.events.listeners,
+        }
+
+    @app.get("/skills", dependencies=[Depends(require_token)])
+    def skills(cwd: str = "") -> list[dict]:
+        """Skills do usuário (Claude de cada conta e Codex) e do projeto da pasta."""
+        dirs = [Path.home() / ".claude" / "skills", Path.home() / ".codex" / "skills"]
+        for provider, entry in manager.accounts.list().items():
+            for account in entry["accounts"]:
+                if account.get("dir"):
+                    dirs.append(Path(account["dir"]).expanduser() / "skills")
+        return list_skills(dirs, cwd or None)
+
+    @app.get("/projects/{project_id}/scripts", dependencies=[Depends(require_token)])
+    def project_scripts(project_id: str) -> dict:
+        try:
+            return projects.scripts(project_id)
+        except ProjectError as exc:
+            raise fail(exc, 404) from exc
+
+    @app.put("/projects/{project_id}/scripts", dependencies=[Depends(require_token)])
+    def set_project_scripts(project_id: str, body: ScriptsBody) -> dict:
+        try:
+            return projects.set_scripts(project_id, body.setup, body.arquivar)
+        except ProjectError as exc:
+            raise fail(exc, 404) from exc
+
+    @app.post("/avisos/mac", dependencies=[Depends(require_token)], status_code=204)
+    def notify_mac(body: MacNotice) -> None:
+        """Aviso do macOS pedido pela janela (aberta, mas sem foco). Respeita o silêncio dos Ajustes."""
+        notices = manager.prefs.get()["avisos"]
+        if not notices["silencio"]:
+            mac_notify(body.titulo, body.texto, notices["som"])
+
+    @app.get("/ajustes", dependencies=[Depends(require_token)])
+    def get_prefs() -> dict:
+        return manager.prefs.get()
+
+    @app.put("/ajustes", dependencies=[Depends(require_token)])
+    def put_prefs(body: dict) -> dict:
+        try:
+            data = manager.prefs.update(body)
+        except (PrefsError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        manager.events.publish({"type": "prefs", "prefs": data})
+        return data
 
     @app.delete("/sessions/{session_id}", dependencies=[Depends(require_token)], status_code=204)
     async def close_session(session_id: str) -> None:
@@ -656,6 +865,15 @@ def create_app(
         except gitops.GitError as exc:
             raise fail(exc) from exc
         manager.events.publish({"type": "worktrees", "project": project_id})
+        script = projects.scripts(project_id).get("setup")
+        if script:
+            # O setup roda num terminal à vista na worktree nova: dá para acompanhar e corrigir.
+            try:
+                setup = manager.create("shell", created["path"], title=f"Setup · {created.get('branch') or body.name}")
+                manager.send_text(setup.id, script, paste=False)
+                created = {**created, "setup": setup.id}
+            except (UnknownKind, ExecutableNotFound, OSError) as exc:
+                created = {**created, "setup_erro": str(exc)}
         return created
 
     @app.delete("/projects/{project_id}/worktrees", dependencies=[Depends(require_token)])
@@ -663,12 +881,25 @@ def create_app(
         busy = [s.title for s in manager.sessions.values() if s.status != "exited" and _within(s.cwd, path)]
         if busy and not force:
             raise HTTPException(status_code=409, detail=f"feche antes os terminais desta worktree: {', '.join(busy)}")
+        archive_note = ""
+        try:
+            script = projects.scripts(project_id).get("arquivar") if Path(path).is_dir() else ""
+        except ProjectError:
+            script = ""
+        if script:
+            # Antes de apagar: o script de arquivamento roda na worktree (até 2 min).
+            done = await asyncio.to_thread(
+                lambda: subprocess.run(["/bin/zsh", "-lc", script], cwd=path, capture_output=True, text=True, timeout=120)
+            )
+            if done.returncode != 0 and not force:
+                raise HTTPException(status_code=409, detail=f"o script de arquivamento falhou: {(done.stderr or done.stdout).strip()[-400:]}")
+            archive_note = (done.stdout or "").strip()[-400:]
         try:
             result = await gitops.remove_worktree(project_path(project_id), path, force)
         except gitops.GitError as exc:
             raise fail(exc) from exc
         manager.events.publish({"type": "worktrees", "project": project_id})
-        return result
+        return {**result, **({"arquivamento": archive_note} if archive_note else {})}
 
     # --- git da revisão ----------------------------------------------------
 
@@ -1613,8 +1844,8 @@ def create_app(
 
     @app.post("/hooks/event", dependencies=[Depends(require_token)], status_code=204)
     async def hook_event(request: Request, session: str = Query(...), name: str = Query(...)) -> None:
-        await _json(request)
-        manager.record_hook(session, name)
+        payload = await _json(request)
+        manager.record_hook(session, name, payload if isinstance(payload, dict) else None)
         if name == "Stop":
             engine.on_stop(session)  # passo de automação que terminou o turno sem devolver a saída
 
@@ -1660,7 +1891,7 @@ def create_app(
                     task.exception()  # desconexão do cliente é o fim normal; não é erro
         finally:
             session.pty.unsubscribe(queue)
-            with suppress(RuntimeError):
+            with suppress(RuntimeError, WebSocketDisconnect):  # o cliente já fechou: nada a fechar
                 await websocket.close()
 
     @app.websocket("/events")
@@ -1674,6 +1905,7 @@ def create_app(
             await websocket.send_json(
                 {
                     "type": "hello",
+                    "version": __version__,
                     "sessions": manager.list(),
                     "usage": manager.usage.to_dict(),
                     "accounts": manager.accounts.list(),

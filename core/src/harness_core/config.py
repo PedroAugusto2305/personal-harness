@@ -12,6 +12,9 @@ DEFAULT_PORT = 47830
 DEFAULT_WORKTREES = Path.home() / "orca" / "workspaces"
 # O vault Obsidian do Pedro; BRAIN_VAULT é a mesma variável que o brain.py usa.
 DEFAULT_BRAIN = Path.home() / "Documents" / "Brain"
+# Onde o Claude Code guarda as pastas confiáveis da conta padrão (as outras contas usam
+# <CLAUDE_CONFIG_DIR>/.claude.json).
+DEFAULT_CLAUDE_JSON = Path.home() / ".claude.json"
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,7 @@ class Settings:
     token: str
     worktrees: Path = DEFAULT_WORKTREES
     brain: Path = DEFAULT_BRAIN
+    claude_json: Path = DEFAULT_CLAUDE_JSON
 
     @property
     def url(self) -> str:
@@ -38,4 +42,5 @@ def load_settings() -> Settings:
     token = os.environ.get("HARNESS_TOKEN") or secrets.token_urlsafe(32)
     worktrees = Path(os.environ.get("HARNESS_WORKTREES_DIR") or DEFAULT_WORKTREES).expanduser()
     brain = Path(os.environ.get("BRAIN_VAULT") or DEFAULT_BRAIN).expanduser()
-    return Settings(home=home, host="127.0.0.1", port=port, token=token, worktrees=worktrees, brain=brain)
+    claude_json = Path(os.environ.get("HARNESS_CLAUDE_JSON") or DEFAULT_CLAUDE_JSON).expanduser()
+    return Settings(home=home, host="127.0.0.1", port=port, token=token, worktrees=worktrees, brain=brain, claude_json=claude_json)

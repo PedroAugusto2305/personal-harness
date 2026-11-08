@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Terminal, type IBufferLine, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
+import { CoreError, type CoreClient } from "../lib/core";
+import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
 import { terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { Session, ThemeName } from "../types";
@@ -139,7 +139,20 @@ interface Props {
   onHide?: () => void;
   /** Canto de cima à direita, sobre o terminal: o mini-mapa do Brain (v0.8). */
   corner?: ReactNode;
+  /**
+   * Agente que saiu (v0.9.2): reinicia na mesma pasta e conta, do zero ou continuando a
+   * conversa. A sessão nova toma o lugar desta na tela; o erro (409: conversa não achada) sobe.
+   */
+  onRestart?: (continuar: boolean) => Promise<void>;
+  /** Passa o trabalho para a outra CLI (Claude ↔ Codex); esta sessão continua aberta. */
+  onHandOff?: (nota: string) => Promise<void>;
+  /** Fecha a sessão (o mesmo × da aba). */
+  onClose?: () => void;
+  /** Abre "Retomar uma conversa" (quando a conversa desta não é achada). */
+  onHistory?: () => void;
 }
+
+const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
 export function TerminalView({
   session,
@@ -159,6 +172,10 @@ export function TerminalView({
   readOnly = false,
   onTyped,
   onFocusInput,
+  onRestart,
+  onHandOff,
+  onClose,
+  onHistory,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -331,6 +348,8 @@ export function TerminalView({
   }, [theme]);
 
   const status = session.status;
+  const agentKind = session.kind === "claude" || session.kind === "codex" ? session.kind : null;
+  const other = agentKind === "claude" ? "codex" : "claude";
   return (
     <section
       className="pane"
@@ -363,6 +382,7 @@ export function TerminalView({
           <span className="dot" style={{ background: STATUS_COLOR[status] }} />
           {STATUS_LABEL[status]}
         </span>
+        {agentKind && onHandOff && <HandOffButton other={other} onHandOff={onHandOff} />}
         {onHide && (
           <button type="button" className="icon-btn" title={slot === "float" ? "Esconder (⌃`)" : "Tirar da divisão"} onClick={onHide}>
             <Icon d={ICON.close} size={13} strokeWidth={2} />
@@ -384,11 +404,181 @@ export function TerminalView({
           </div>
         )}
       </div>
+      {agentKind && status === "exited" && onRestart && (
+        <ExitStrip
+          key={session.id}
+          code={session.exit_code}
+          // O Claude que saiu antes da primeira resposta não tem conversa para continuar.
+          hasConversation={session.kind !== "claude" || !!session.statusline?.session_id}
+          onRestart={onRestart}
+          onClose={onClose}
+          onHistory={onHistory}
+        />
+      )}
       {dropping && (
         <div className="drop-hint">
           <span>Solte para colar o caminho neste terminal</span>
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Faixa no pé do terminal quando o agente sai: reiniciar do zero ou continuar a conversa
+ * (o Claude guarda o id dela; o Codex é achado pela pasta e pela hora). O 409 do núcleo
+ * quer dizer que a conversa não foi achada: aí só resta reiniciar ou procurar no histórico.
+ */
+function ExitStrip({
+  code,
+  hasConversation,
+  onRestart,
+  onClose,
+  onHistory,
+}: {
+  code: number | null;
+  hasConversation: boolean;
+  onRestart: (continuar: boolean) => Promise<void>;
+  onClose?: () => void;
+  onHistory?: () => void;
+}) {
+  const [busy, setBusy] = useState<"reiniciar" | "continuar" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lost, setLost] = useState(!hasConversation);
+
+  const run = async (continuar: boolean) => {
+    setBusy(continuar ? "continuar" : "reiniciar");
+    setError(null);
+    try {
+      await onRestart(continuar);
+    } catch (cause) {
+      if (cause instanceof CoreError && cause.status === 409) {
+        setLost(true);
+        setError("Não achei a conversa desta sessão para continuar. Reinicie do zero ou procure no histórico.");
+      } else {
+        setError(errorText(cause));
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="exit-strip" role="status">
+      <span className="exit-strip-text">
+        <b>O agente saiu.</b>
+        {code != null && code !== 0 && <span className="small mono"> código {code}</span>}
+        {error && <span className="exit-strip-error">{error}</span>}
+      </span>
+      <button type="button" className="btn" disabled={!!busy} onClick={() => void run(false)}>
+        {busy === "reiniciar" ? "Reiniciando…" : "Reiniciar"}
+      </button>
+      {lost ? (
+        onHistory && (
+          <button type="button" className="btn" onClick={onHistory}>
+            Procurar no histórico…
+          </button>
+        )
+      ) : (
+        <button type="button" className="btn primary" disabled={!!busy} onClick={() => void run(true)}>
+          {busy === "continuar" ? "Continuando…" : "Continuar a conversa"}
+        </button>
+      )}
+      {onClose && (
+        <button type="button" className="btn" disabled={!!busy} onClick={onClose}>
+          Fechar
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Passar para o Codex/Claude": abre um campo pequeno para um recado opcional e cria a
+ * sessão na outra CLI, com o registro da conversa e as últimas mensagens desta.
+ */
+function HandOffButton({ other, onHandOff }: { other: "claude" | "codex"; onHandOff: (nota: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [nota, setNota] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (!busy && box.current && !box.current.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", away);
+    return () => window.removeEventListener("mousedown", away);
+  }, [open, busy]);
+
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onHandOff(nota.trim());
+      setOpen(false);
+      setNota("");
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="handoff" ref={box}>
+      <button
+        type="button"
+        className="handoff-btn"
+        aria-label={`Passar para o ${KIND_LABEL[other]}`}
+        title={`Passar para o ${KIND_LABEL[other]}: sessão nova na mesma pasta, com a conversa desta (que continua aberta)`}
+        aria-expanded={open}
+        onClick={() => {
+          setOpen((v) => !v);
+          setError(null);
+        }}
+      >
+        <Icon d={ICON.handoff} size={12} strokeWidth={2} />
+        <span style={{ color: KIND_COLOR[other] }}>{KIND_GLYPH[other]}</span>
+      </button>
+      {open && (
+        <form
+          className="handoff-pop"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!busy) void send();
+          }}
+          onKeyDown={(event) => {
+            // As teclas aqui são do campo, não dos atalhos de terminal.
+            event.stopPropagation();
+            if (event.key === "Escape") setOpen(false);
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <span className="setting-label">
+            Passar para o {KIND_LABEL[other]}
+            <span className="small">Abre o {KIND_LABEL[other]} nesta pasta com a conversa daqui. Esta sessão continua aberta.</span>
+          </span>
+          <input
+            autoFocus
+            value={nota}
+            maxLength={2000}
+            placeholder="Recado (opcional): o que ele deve fazer agora"
+            onChange={(event) => setNota(event.target.value)}
+          />
+          {error && <div className="error-box">{error}</div>}
+          <div className="form-buttons">
+            <button type="submit" className="btn primary" disabled={busy}>
+              {busy ? "Passando…" : "Passar"}
+            </button>
+            <button type="button" className="btn" disabled={busy} onClick={() => setOpen(false)}>
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

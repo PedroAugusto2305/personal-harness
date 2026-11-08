@@ -34,8 +34,10 @@ function save(state: PomodoroState) {
   }
 }
 
-/** Um sino curto, sem arquivo de áudio. */
-export function chime(times = 2) {
+/** Um sino curto, sem arquivo de áudio. `volume` vai de 0 a 1 (os avisos usam o dos Ajustes). */
+export function chime(times = 2, volume = 1) {
+  const peak = 0.25 * Math.max(0, Math.min(1, volume));
+  if (peak < 0.001) return; // volume zero: nada a tocar (a rampa exponencial não chega a 0)
   try {
     const ctx = new AudioContext();
     for (let i = 0; i < times; i += 1) {
@@ -43,7 +45,7 @@ export function chime(times = 2) {
       const gain = ctx.createGain();
       osc.frequency.value = 880 - i * 220;
       gain.gain.setValueAtTime(0.0001, ctx.currentTime + i * 0.35);
-      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + i * 0.35 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(peak, ctx.currentTime + i * 0.35 + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.35 + 0.3);
       osc.connect(gain).connect(ctx.destination);
       osc.start(ctx.currentTime + i * 0.35);
