@@ -294,7 +294,7 @@ export default function App() {
 
   const webCount = useRef(0);
   /** Aba de navegador nova, ligada à worktree em foco (é para o agente dela que o modo de design manda). */
-  const openWeb = (url?: string, options: { root?: string; incognito?: boolean } = {}) => {
+  const openWeb = (url?: string, options: { root?: string; incognito?: boolean; design?: boolean } = {}) => {
     const root = options.root ?? contextPlace?.worktree.path ?? "";
     const port = contextPlace ? harness.sessions.find((s) => placeFor(s.cwd)?.worktree.path === root && s.ports.length)?.ports[0] : undefined;
     const start = url ?? (port ? `http://localhost:${port}` : "about:blank");
@@ -302,7 +302,8 @@ export default function App() {
     const label = `browser-${Date.now().toString(36)}${webCount.current}`;
     const key = `doc:web:${label}`;
     setDocs((all) => [...all, { key, type: "web", root, path: start, label, incognito: options.incognito }]);
-    setWebInfo((all) => ({ ...all, [label]: { url: start, title: null, loading: start !== "about:blank", design: false } }));
+    // design: true pede o modo de design assim que a página nativa nascer (ver BrowserView).
+    setWebInfo((all) => ({ ...all, [label]: { url: start, title: null, loading: start !== "about:blank", design: !!options.design } }));
     select(key);
     if (start === "about:blank") window.setTimeout(() => setUrlFocusTick((n) => n + 1), 50);
   };
@@ -690,6 +691,15 @@ export default function App() {
           ),
           { id: "web", group: "Navegador", label: "Abrir navegador", hint: contextPlace ? worktreeLabel(contextPlace.worktree) : undefined, run: () => openWeb() },
           { id: "web-private", group: "Navegador", label: "Abrir aba anônima", run: () => openWeb(undefined, { incognito: true }) },
+          focusedDoc?.type === "web" && focusedDoc.label
+            ? {
+                id: "design",
+                group: "Navegador",
+                label: webInfo[focusedDoc.label]?.design ? "Sair do modo de design" : "Modo de design",
+                hint: "clique num elemento da página e ele vai para o agente",
+                run: () => setDesign(focusedDoc, !webInfo[focusedDoc.label!]?.design),
+              }
+            : { id: "design", group: "Navegador", label: "Modo de design", hint: "abre uma aba do navegador já no modo", run: () => openWeb(undefined, { design: true }) },
           ...harness.sessions.flatMap((s) =>
             s.ports.map((port) => ({ id: `port-${s.id}-${port}`, group: "Navegador", label: `Abrir localhost:${port}`, hint: s.title, run: () => openWeb(`http://localhost:${port}`, { root: placeFor(s.cwd)?.worktree.path }) })),
           ),

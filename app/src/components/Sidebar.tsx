@@ -143,15 +143,12 @@ export function Sidebar(props: Props) {
         )}
         <div className="new-buttons">
           <button type="button" className="btn primary" disabled={!props.ready} onClick={() => props.onCreate("claude")}>
-            <Icon d={ICON.plus} size={13} strokeWidth={2.2} />
             Claude
           </button>
           <button type="button" className="btn" disabled={!props.ready} onClick={() => props.onCreate("codex")}>
-            <Icon d={ICON.plus} size={13} strokeWidth={2.2} />
             Codex
           </button>
           <button type="button" className="btn" disabled={!props.ready} onClick={() => props.onCreate("shell")}>
-            <Icon d={ICON.plus} size={13} strokeWidth={2.2} />
             Shell
           </button>
           <button type="button" className="btn" onClick={props.onWeb} title="Abrir o navegador da MÊTIS (com modo de design)" aria-label="Abrir navegador">

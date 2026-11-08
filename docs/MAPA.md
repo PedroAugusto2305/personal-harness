@@ -172,6 +172,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 
 > **`v0.4.1` (2026-11-07):** o navegador ficou fácil de achar: botão de globo na barra lateral, botão "Navegador" na tela vazia e rótulo "Design" no modo de design. Entrou o comando `metis web <endereço>`, que abre uma aba da MÊTIS a partir de qualquer terminal, inclusive o de um agente.
 
+> **`v0.4.2` (2026-11-08):** correção do navegador. A página nativa podia ficar presa numa posição velha e cobrir a janela, e abrir uma aba dava o aviso "aba … não existe": o app reposicionava a página antes de ela nascer e marcava a posição como aplicada antes da confirmação. Agora é uma chamada nativa por vez, a posição só conta depois do sucesso e é reaplicada a cada segundo e no foco da janela. Entrou ⌘K → "Modo de design", e os botões da barra lateral pararam de ser cortados.
+
 ## 10. Riscos
 
 | Risco | Como tratar |

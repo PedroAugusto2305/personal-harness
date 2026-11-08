@@ -280,16 +280,20 @@ select:focus {
   border-color: var(--acc);
 }
 
+/* minmax(0, …): sem isso as colunas não encolhem abaixo do texto e o último botão saía da barra. */
 .new-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 32px 32px;
   gap: 5px;
   padding: 0 4px;
 }
 
 .new-buttons .btn {
+  min-width: 0;
   padding: 0 4px;
   gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .btn {

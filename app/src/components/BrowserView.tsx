@@ -32,13 +32,15 @@ const native = browser.available();
  * desenvolvimento, vira um iframe, sem modo de design.
  */
 export function BrowserView(props: Props) {
-  const { label, info, shown } = props;
+  const { label, info } = props;
   const area = useRef<HTMLDivElement>(null);
   const address = useRef<HTMLInputElement>(null);
-  const created = useRef(false);
-  const lastRect = useRef("");
   const [typed, setTyped] = useState<string | null>(null);
   const url = info?.url ?? props.initialUrl;
+
+  // O laço de sincronia lê sempre o valor atual, sem depender de quando o efeito rodou.
+  const live = useRef(props);
+  live.current = props;
 
   const rect = (): Rect | null => {
     const el = area.current;
@@ -48,51 +50,118 @@ export function BrowserView(props: Props) {
     return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
   };
 
-  // Cria a página nativa na primeira vez que a aba aparece; depois só mostra, esconde e reposiciona.
+  // A página nativa é desenhada por cima da interface e não sabe do layout do React. Um laço
+  // por quadro cria a página quando a aba aparece, mostra ou esconde e a põe sobre .web-area.
+  // Uma chamada nativa por vez: nada de reposicionar uma página que ainda está nascendo.
+  // A posição só conta como aplicada depois que a chamada deu certo, e é reaplicada a cada
+  // segundo e quando a janela volta ao foco ou muda de tamanho, para a página nunca ficar
+  // presa num lugar velho (ela chegou a cobrir a janela inteira).
   useEffect(() => {
     if (!native) return;
-    let frame = 0;
     let alive = true;
-    const sync = async () => {
-      if (!alive) return;
-      const r = rect();
-      if (shown && r) {
-        const key = `${r.x},${r.y},${r.width},${r.height}`;
-        try {
-          if (!created.current) {
-            created.current = true;
-            await browser.open(label, normalizeUrl(props.initialUrl), r, props.incognito);
-            lastRect.current = key;
-          } else if (key !== lastRect.current) {
-            lastRect.current = key;
-            await browser.bounds(label, r);
-          }
-        } catch (cause) {
-          props.onError(cause instanceof Error ? cause.message : String(cause));
-        }
+    let frame = 0;
+    const s = { created: false, opening: false, busy: false, visible: true, applied: "", stale: true, warned: "" };
+    const fail = (cause: unknown) => {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (message.includes("não existe")) {
+        // A página sumiu (recarga do código, por exemplo): nasce de novo no próximo quadro.
+        s.created = false;
+        s.applied = "";
+        return;
       }
-      frame = requestAnimationFrame(() => void sync());
+      if (s.warned !== message) {
+        s.warned = message;
+        live.current.onError(message);
+      }
     };
-    if (shown) {
-      if (created.current) void browser.visible(label, true).catch(() => undefined);
-      void sync();
-    } else if (created.current) {
-      void browser.visible(label, false).catch(() => undefined);
-    }
+    const call = (run: () => Promise<void>, done: () => void, failed?: () => void) => {
+      s.busy = true;
+      run()
+        .then(() => alive && done())
+        .catch((cause) => {
+          failed?.();
+          if (alive) fail(cause);
+        })
+        .finally(() => {
+          s.busy = false;
+        });
+    };
+    const tick = () => {
+      if (!alive) return;
+      frame = requestAnimationFrame(tick);
+      if (s.opening || s.busy) return;
+      const want = live.current.shown;
+      if (!s.created) {
+        const r = want ? rect() : null;
+        if (!r) return;
+        s.opening = true;
+        browser
+          // Ao renascer, volta para a página em que estava, não para a inicial.
+          .open(label, normalizeUrl(live.current.info?.url || live.current.initialUrl), r, live.current.incognito)
+          .then(() => {
+            if (!alive) {
+              void browser.close(label).catch(() => undefined);
+              return;
+            }
+            s.created = true;
+            s.visible = true;
+            s.stale = true;
+            s.warned = "";
+            // Pedido de "Modo de design" feito antes de a página existir.
+            if (live.current.info?.design) live.current.onDesign(true);
+          })
+          .catch((cause) => alive && fail(cause))
+          .finally(() => {
+            s.opening = false;
+          });
+        return;
+      }
+      if (s.visible !== want) {
+        call(
+          () => browser.visible(label, want),
+          () => {
+            s.visible = want;
+            s.stale = true;
+          },
+        );
+        return;
+      }
+      if (!want) return;
+      const r = rect();
+      if (!r) return;
+      const key = `${r.x},${r.y},${r.width},${r.height}`;
+      if (key === s.applied && !s.stale) return;
+      s.stale = false;
+      call(
+        () => browser.bounds(label, r),
+        () => {
+          s.applied = key;
+        },
+        () => {
+          s.applied = "";
+        },
+      );
+    };
+    const nudge = () => {
+      s.stale = true;
+    };
+    window.addEventListener("resize", nudge);
+    window.addEventListener("focus", nudge);
+    document.addEventListener("visibilitychange", nudge);
+    const timer = window.setInterval(nudge, 1000);
+    tick();
     return () => {
       alive = false;
       cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+      window.removeEventListener("resize", nudge);
+      window.removeEventListener("focus", nudge);
+      document.removeEventListener("visibilitychange", nudge);
+      // Fechar a aba fecha a página nativa (se ainda estiver nascendo, o open fecha ao terminar).
+      if (s.created) void browser.close(label).catch(() => undefined);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, label]);
-
-  // Fechar a aba fecha a página nativa.
-  useEffect(
-    () => () => {
-      if (native && created.current) void browser.close(label).catch(() => undefined);
-    },
-    [label],
-  );
+  }, [label]);
 
   useEffect(() => {
     if (props.focusUrlSignal && props.focused) {
@@ -178,7 +247,10 @@ export function BrowserView(props: Props) {
       <div className="web-area" ref={area}>
         {!native && <iframe className="frame" src={normalizeUrl(props.initialUrl)} title={info?.title ?? url} />}
         {native && url === "about:blank" && (
-          <div className="web-blank small">Digite um endereço acima. As portas abertas pelos seus terminais aparecem no painel Portas.</div>
+          <div className="web-blank small">
+            Digite um endereço acima. As portas abertas pelos seus terminais aparecem no painel Portas. Com a página aberta, o botão
+            Design (ou ⌘K → Modo de design) manda o elemento clicado para o agente.
+          </div>
         )}
       </div>
     </section>
