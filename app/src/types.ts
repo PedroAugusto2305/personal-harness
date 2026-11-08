@@ -218,6 +218,24 @@ export interface KanbanTask {
   done_on: string;
 }
 
+export interface GraphNodeData {
+  path: string;
+  title: string;
+  tipo: NoteType;
+  projeto: string;
+  status: string;
+  data: string;
+  /** Nuvem da área do projeto: carreira, trabalho, clientes, pessoal, brain ou semarea. */
+  group: string;
+  degree: number;
+}
+
+export interface BrainGraphData {
+  nodes: GraphNodeData[];
+  edges: [number, number][];
+  groups: { key: string; label: string; count: number }[];
+}
+
 export interface BrainPlace {
   project: BoardProject | null;
   tasks?: KanbanTask[];

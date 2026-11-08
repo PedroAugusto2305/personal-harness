@@ -4,6 +4,7 @@ import { openExternal } from "../lib/browser";
 import type { CoreClient } from "../lib/core";
 import { TYPE_ICON, TYPE_LABEL, renderNote, snippetParts } from "../lib/obsidian";
 import type { BrainHit, BrainNote } from "../types";
+import { BrainGraph } from "./BrainGraph";
 
 /** Pedido vindo de fora da tela (kanban, painel da worktree, ⌘K): abrir uma nota ou buscar. */
 export interface BrainRequest {
@@ -72,6 +73,8 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
   const [history, setHistory] = useState<{ path: string }[]>([]);
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [vault, setVault] = useState<{ total: number; available: boolean } | null>(null);
+  /** A última nota aberta continua marcada no grafo ao voltar para ele. */
+  const [lastPath, setLastPath] = useState<string | null>(null);
   const noteRef = useRef(note);
   noteRef.current = note;
   const body = useRef<HTMLElement>(null);
@@ -116,6 +119,7 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
       const current = noteRef.current;
       if (push && current && current.path !== next.path) setHistory((h) => [...h.slice(-30), { path: current.path }]);
       setNote(next);
+      setLastPath(next.path);
       body.current?.scrollTo({ top: 0 });
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause));
@@ -182,6 +186,7 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
   };
 
   const meta = note?.meta ?? {};
+  const found = useMemo(() => (query.trim() ? new Set(hits.map((h) => h.path)) : null), [query, hits]);
   const isProject = note?.tipo === "projeto";
 
   return (
@@ -246,6 +251,9 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
                 <button type="button" className="icon-btn" title="Voltar" aria-label="Voltar" disabled={!history.length} onClick={back}>
                   <Icon d="M15 6l-6 6 6 6" size={15} strokeWidth={2} />
                 </button>
+                <button type="button" className="btn" title="Fechar a nota e ver o grafo" onClick={() => setNote(null)}>
+                  <Icon d={ICON.graph} size={13} /> Grafo
+                </button>
                 <span className="small mono brain-path">{note.path}</span>
                 {isProject && (
                   <button type="button" className="btn" onClick={() => onOpenTasks(note.title)}>
@@ -285,19 +293,13 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
               </section>
             )}
           </>
-        ) : (
+        ) : vault && !vault.available ? (
           <div className="brain-welcome">
             <h2>Brain</h2>
-            <p>
-              Busque por palavra em todas as notas do vault: decisões, incidentes, aprendizados, entregas, projetos e o que você
-              estudou. A busca ignora acento e acha começo de palavra.
-            </p>
-            <p className="small">
-              Os agentes nos terminais da MÊTIS usam o mesmo índice: <code>metis brain buscar</code>, <code>metis brain ler</code>{" "}
-              e <code>metis brain precedentes</code>. Toda sessão do Claude dentro de um projeto do Brain já começa com os
-              precedentes de outros projetos.
-            </p>
+            <p>Não achei o vault em ~/Documents/Brain. Ajuste a variável BRAIN_VAULT e reabra a MÊTIS.</p>
           </div>
+        ) : (
+          <BrainGraph client={client} tick={tick} highlight={found} current={lastPath} onOpen={(path) => void open({ path })} />
         )}
       </article>
     </div>

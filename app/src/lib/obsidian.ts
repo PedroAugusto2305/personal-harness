@@ -60,7 +60,14 @@ export function renderInline(markdown: string): string {
 /** Trecho da busca: o núcleo marca as palavras achadas com \x02 … \x03. */
 export function snippetParts(snippet: string): { text: string; hit: boolean }[] {
   const parts: { text: string; hit: boolean }[] = [];
-  for (const piece of snippet.replace(/\s+/g, " ").split("\x02")) {
+  // O trecho vem do Markdown cru: tira título (#), marca de callout ([!abstract]) e citação (>).
+  const clean = snippet
+    .replace(/\s+/g, " ")
+    .replace(/\[![\w-]+\][+-]?/g, "")
+    .replace(/(^|\s)(#{1,6}|>)(?=\s)/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  for (const piece of clean.split("\x02")) {
     const [hit, rest] = piece.includes("\x03") ? piece.split("\x03", 2) : [null, piece];
     if (hit !== null) parts.push({ text: hit, hit: true });
     if (rest) parts.push({ text: rest, hit: false });

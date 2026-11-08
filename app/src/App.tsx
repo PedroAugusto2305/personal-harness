@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Agents } from "./components/Agents";
+import { ICON, Icon } from "./icons";
 import { AgentSprite } from "./components/AgentSprite";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
@@ -1044,6 +1045,18 @@ export default function App() {
                       : `em ${selectedPlace ? `${selectedPlace.project.name} · ${worktreeLabel(selectedPlace.worktree)}` : folder.trim() || "~"} · ⌘K para tudo`}
                   </span>
                 </div>
+              )}
+              {/* Sem abas não há barra de abas, e era nela o único botão do painel: ele fica aqui, no mesmo canto. */}
+              {tabItems.length === 0 && !inspectorOpen && (
+                <button
+                  type="button"
+                  className="icon-btn panel-reopen"
+                  title="Mudanças, arquivos, portas e Brain da worktree (⌘⇧B)"
+                  aria-label="Abrir o painel da worktree"
+                  onClick={() => setInspectorOpen(true)}
+                >
+                  <Icon d={ICON.panel} size={15} />
+                </button>
               )}
             </div>
             {inspectorOpen && (

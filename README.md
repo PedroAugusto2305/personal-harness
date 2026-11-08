@@ -4,10 +4,11 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.5.0)
+## O que já faz (v0.5.1)
 
 **Novo na 0.5, Brain e kanban:**
 
+- **Grafo do Brain** (v0.5.1): sem nota aberta, o Brain mostra o grafo das notas, com uma nuvem por área do projeto (vinda do `area:` da nota), os projetos com nome e as ligações entre projetos na cor de acento. Pinça aproxima, dois dedos andam, passar o mouse acende as ligações, clicar abre a nota; a busca acende as notas achadas. Filtros por tipo, "Precedentes entre projetos", "Notas sem ligação" e a legenda liga e desliga cada área.
 - **Brain** (ícone de grafo na faixa, ou ⌘K → "Buscar no Brain"): busca por palavra em todo o vault, sem acento e por começo de palavra, com filtro por tipo (decisões, incidentes, aprendizados, entregas, projetos, conhecimento) e por projeto. A nota abre ao lado, com `[[links]]` clicáveis (link para nota que não existe fica tracejado), callouts, "Citada por" e "Abrir no Obsidian".
 - **Kanban** (ícone de colunas, ou ⌘K → "Kanban de projetos"): os projetos de `01-PROJETOS` como cartões nas colunas Ideia, Planejando, Construindo, Em produção e Pausado. Arrastar grava `estagio:` na nota. O cartão abre as tarefas, que são as "Próximas ações" da nota, em Pendente, Em andamento, Em teste e Concluído. Arrastar troca a etiqueta na linha (`#em-andamento`, `#em-teste`) ou marca `[x]` com a data; "+ Adicionar" escreve uma linha nova.
 - **Executar com agente**: numa tarefa, cria uma worktree com o nome dela, abre o Claude, põe a tarefa em "Em andamento" e deixa o pedido na barra de entrada para você revisar.
