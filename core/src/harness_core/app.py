@@ -39,6 +39,8 @@ from .history import codex_rollout_for
 from .history import list_sessions as history_sessions
 from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
 from .prefs import PrefsError
+from . import ghostty
+from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
 from .vault import Vault, VaultError
@@ -299,6 +301,11 @@ class EmbedBody(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=64)
 
 
+class GhosttyText(BaseModel):
+    texto: str = Field(max_length=ghostty.MAX_BYTES)
+    nome: str | None = Field(default=None, max_length=120)
+
+
 class AcceptBody(BaseModel):
     titulo: str = Field(default="", max_length=200)
     resumo: str = Field(default="", max_length=1200)
@@ -322,6 +329,8 @@ def create_app(
     # Pastas confiáveis para a CLI: os repositórios cadastrados e as worktrees da MÊTIS.
     manager.trusted_roots = lambda: [p["path"] for p in projects.list()] + [str(settings.worktrees)]
     agents = AgentStore(settings.home)
+    commands = CommandStore(settings.home)
+    keymap = Keymap(settings.home)
 
     def codex_env() -> tuple[str | None, dict[str, str]]:
         import shutil
@@ -741,6 +750,75 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         manager.events.publish({"type": "prefs", "prefs": data})
         return data
+
+    # --- v0.9.3: comandos salvos, atalhos e temas do Ghostty ------------------------------
+
+    @app.get("/comandos", dependencies=[Depends(require_token)])
+    def list_commands() -> dict:
+        return {"comandos": commands.list()}
+
+    @app.post("/comandos", dependencies=[Depends(require_token)])
+    def add_command(body: dict) -> dict:
+        try:
+            item = commands.add(body)
+        except CommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        manager.events.publish({"type": "comandos"})
+        return item
+
+    @app.put("/comandos/{command_id}", dependencies=[Depends(require_token)])
+    def update_command(command_id: str, body: dict) -> dict:
+        try:
+            item = commands.update(command_id, body)
+        except CommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except UnknownCommand as exc:
+            raise HTTPException(status_code=404, detail="comando não encontrado") from exc
+        manager.events.publish({"type": "comandos"})
+        return item
+
+    @app.delete("/comandos/{command_id}", dependencies=[Depends(require_token)])
+    def delete_command(command_id: str) -> dict:
+        try:
+            commands.delete(command_id)
+        except UnknownCommand as exc:
+            raise HTTPException(status_code=404, detail="comando não encontrado") from exc
+        manager.events.publish({"type": "comandos"})
+        return {"ok": True}
+
+    @app.get("/atalhos", dependencies=[Depends(require_token)])
+    def get_keymap() -> dict:
+        return keymap.get()
+
+    @app.put("/atalhos", dependencies=[Depends(require_token)])
+    def put_keymap(body: dict) -> dict:
+        try:
+            data = keymap.set(body.get("atalhos"))
+        except CommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        manager.events.publish({"type": "atalhos"})
+        return data
+
+    @app.get("/ghostty", dependencies=[Depends(require_token)])
+    def ghostty_themes() -> dict:
+        return {"config": ghostty.config_info(), "temas": ghostty.list_themes()}
+
+    @app.get("/ghostty/tema", dependencies=[Depends(require_token)])
+    def ghostty_theme(nome: str) -> dict:
+        try:
+            return {"nome": nome, "cores": ghostty.load_theme(nome)}
+        except ghostty.ThemeNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"tema não encontrado: {nome}") from exc
+        except ghostty.GhosttyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/ghostty/ler", dependencies=[Depends(require_token)])
+    def ghostty_read(body: GhosttyText) -> dict:
+        try:
+            colors = ghostty.parse_theme(body.texto)
+        except ghostty.GhosttyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"nome": (body.nome or "").strip() or "Tema colado", "cores": colors}
 
     @app.delete("/sessions/{session_id}", dependencies=[Depends(require_token)], status_code=204)
     async def close_session(session_id: str) -> None:

@@ -51,6 +51,9 @@ import type {
   Usage,
   VoiceStatus,
   Worktree,
+  GhosttyInfo,
+  SavedCommand,
+  TerminalTheme,
 } from "../types";
 
 export interface CoreInfo {
@@ -673,6 +676,41 @@ export class CoreClient {
 
   today(): Promise<TodayData> {
     return this.request("GET", "/hoje");
+  }
+
+  // --- terminal e navegação (v0.9.3) ------------------------------------------------
+
+  async commands(): Promise<SavedCommand[]> {
+    return (await this.request<{ comandos: SavedCommand[] }>("GET", "/comandos")).comandos;
+  }
+
+  saveCommand(item: Omit<SavedCommand, "id">, id?: string): Promise<SavedCommand> {
+    return id ? this.request("PUT", `/comandos/${encodeURIComponent(id)}`, item) : this.request("POST", "/comandos", item);
+  }
+
+  deleteCommand(id: string): Promise<void> {
+    return this.request("DELETE", `/comandos/${encodeURIComponent(id)}`);
+  }
+
+  /** Só os atalhos mudados (o resto é o padrão da tela), e o arquivo onde ficam. */
+  keymap(): Promise<{ atalhos: Record<string, string>; arquivo: string }> {
+    return this.request("GET", "/atalhos");
+  }
+
+  saveKeymap(atalhos: Record<string, string>): Promise<{ atalhos: Record<string, string>; arquivo: string }> {
+    return this.request("PUT", "/atalhos", { atalhos });
+  }
+
+  ghostty(): Promise<GhosttyInfo> {
+    return this.request("GET", "/ghostty");
+  }
+
+  ghosttyTheme(nome: string): Promise<TerminalTheme> {
+    return this.request("GET", `/ghostty/tema?${new URLSearchParams({ nome })}`);
+  }
+
+  readGhosttyTheme(texto: string, nome?: string): Promise<TerminalTheme> {
+    return this.request("POST", "/ghostty/ler", nome ? { texto, nome } : { texto });
   }
 
   async upload(file: Blob, name: string): Promise<string> {

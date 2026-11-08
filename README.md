@@ -4,9 +4,22 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.2)
+## O que já faz (v0.9.3)
 
-**Novo na 0.9.2, sessões, agentes e avisos (paridade com o Orca):**
+**Novo na 0.9.3, terminal e navegação (paridade com o Orca):**
+
+- **Divisão da tela por worktree.** Cada worktree guarda a própria divisão (e "fora dos projetos" também), e ela volta como estava ao reabrir a MÊTIS. Escolher uma worktree na barra lateral, ou uma aba dela, mostra a divisão de lá; as abas das outras worktrees ficam em cinza na barra de abas.
+  - ⌘D divide à direita e ⌘⇧D para baixo, quantas vezes quiser; o painel novo ganha a aba mais nova da worktree que não está à vista, ou fica vazio com os botões de abrir.
+  - Arraste uma aba para a borda de um painel para dividir ali, ou para o meio para trocar. Arraste a divisória para mudar o tamanho (dois cliques voltam ao meio).
+  - ⌘⇧W tira o painel da divisão (a aba continua aberta); ⌘⌥ e as setas andam entre os painéis. Fechar uma aba tira o painel dela e o vizinho cresce.
+- **Busca no terminal** (⌘F ou a lupa no cabeçalho): acende todos os achados, também no histórico de rolagem, com contagem, maiúsculas e regex. Enter vai para o próximo, ⇧Enter para o anterior, Esc fecha.
+- **Comandos salvos** (⌘⇧K, ou pelo ⌘K; Ajustes → Comandos salvos): comandos do shell e prompts, para todos os projetos ou só um. O comando roda no shell em foco (ou no mais recente da worktree, ou abre um); o prompt vai para a barra de entrada, para revisar. Ficam em `~/.harness/comandos.json`.
+- **Pular para** (⌘J): as abas pelas mais recentes (Enter volta para a anterior), as worktrees e as telas.
+- **Atalhos remapeáveis** (Ajustes → Atalhos): Mudar grava a próxima tecla; um atalho de outra ação passa para esta e a outra fica sem (com aviso); os do macOS são recusados. O que você muda fica em `~/.harness/atalhos.json`, que também dá para editar à mão.
+- **Busca nos Ajustes:** ⌘, já abre com o foco na busca, que entende português, inglês e espanhol ("shortcuts", "tema", "awake"…), abre a seção e acende a linha.
+- **Tema do terminal** (Ajustes → Aparência): os temas do Ghostty (do Ghostty.app, da sua pasta de temas e do seu config) ou um tema colado no formato do Ghostty. O **Ghostty Default Style Dark**, o tema do seu Orca, vem junto.
+
+**Na 0.9.2, sessões, agentes e avisos (paridade com o Orca):**
 
 - **Agentes sobrevivem a fechar o app.** O núcleo roda por conta própria: fechar, recarregar ou atualizar a janela não fecha os terminais, e as rotinas e automações seguem com a janela fechada (Mac acordado). Desligar de vez: Ajustes → Desligar a MÊTIS, ou `metis desligar`. Se o núcleo em execução for de outra versão, a tela oferece reiniciá-lo.
 - **Retomar uma conversa** (⌘K): o histórico do Claude e do Codex de todas as contas, com busca; retomar abre `claude --resume` ou `codex resume` na pasta certa.
@@ -97,7 +110,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 **Desde a 0.2:**
 
 - **Claude Code e Codex de verdade em terminais**, com a sua conta, do mesmo jeito que no seu terminal. Também abre shell comum. A MÊTIS não lê nem guarda login.
-- **Abas, tela dividida em dois e terminal flutuante** (⌃\`). Os terminais ficam vivos ao trocar de aba, dividir ou abrir os Ajustes.
+- **Abas, tela dividida (em árvore, por worktree, desde a 0.9.3) e terminal flutuante** (⌃\`). Os terminais ficam vivos ao trocar de aba, dividir ou abrir os Ajustes.
 - **Salto rápido** (⌘K): pula para um terminal, abre um novo, divide a tela, troca de conta ou de tema.
 - **Barra de entrada** embaixo dos terminais: escreva com calma, revise e mande para o terminal em foco (⏎ envia, ⌥⏎ só cola).
 - **Ditado com o microfone**: o botão Ditar vira uma onda sonora ao vivo enquanto grava; ao parar, o Whisper transcreve no próprio Mac (sem internet, sem custo) e o texto cai na barra para revisar.

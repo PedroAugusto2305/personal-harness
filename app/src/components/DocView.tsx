@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { ICON, Icon } from "../icons";
@@ -34,7 +34,9 @@ interface DocProps {
   client: CoreClient;
   visible: boolean;
   focused: boolean;
-  slot: "left" | "right" | "hidden";
+  slot: "tile" | "hidden";
+  /** Posição do painel na divisão (v0.9.3). */
+  box?: CSSProperties;
   notes: ReviewNote[];
   onAddNote: (note: Omit<ReviewNote, "id">) => void;
   onRemoveNote: (id: string) => void;
@@ -48,6 +50,7 @@ export function DocView(props: DocProps) {
     <section
       className="pane doc-pane"
       data-slot={props.slot}
+      style={props.slot === "tile" ? props.box : undefined}
       data-focused={props.focused ? "true" : undefined}
       hidden={props.slot === "hidden"}
       onMouseDown={props.onFocus}

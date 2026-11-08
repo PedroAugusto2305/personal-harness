@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ICON, Icon } from "../icons";
 import { browser, normalizeUrl, openExternal, type Rect } from "../lib/browser";
 
@@ -16,7 +16,9 @@ interface Props {
   info: WebInfo | undefined;
   /** Na tela e sem nada por cima (salto rápido, diálogo, terminal flutuante). */
   shown: boolean;
-  slot: "left" | "right" | "hidden";
+  slot: "tile" | "hidden";
+  /** Posição do painel na divisão (v0.9.3). */
+  box?: CSSProperties;
   focused: boolean;
   focusUrlSignal: number;
   onFocus: () => void;
@@ -185,6 +187,7 @@ export function BrowserView(props: Props) {
     <section
       className="pane web-pane"
       data-slot={props.slot}
+      style={props.slot === "tile" ? props.box : undefined}
       data-focused={props.focused ? "true" : undefined}
       hidden={props.slot === "hidden"}
       onMouseDown={props.onFocus}
