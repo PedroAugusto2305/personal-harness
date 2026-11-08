@@ -9,6 +9,7 @@ que sobra é o fixo da sessão: prompt do Claude Code, definições de ferrament
 from __future__ import annotations
 
 import json
+import re
 import os
 from pathlib import Path
 
@@ -252,3 +253,41 @@ def _finish(parsed: dict, context: dict) -> dict:
         "estimated": True,
         "updated": parsed["mtime"],
     }
+
+
+MESSAGE_LINE = re.compile(r'"type":\s*"(?:user|assistant)"')
+
+
+def last_messages(transcript: str, count: int = 2, limit: int = 400) -> list[dict]:
+    """As últimas mensagens da conversa (você e o agente), lidas do fim do transcript."""
+    path = Path(transcript).expanduser()
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - 400_000))
+            chunk = handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    found: list[dict] = []
+    for line in chunk.splitlines()[1:] if len(chunk) >= 400_000 else chunk.splitlines():
+        if not MESSAGE_LINE.search(line):
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("isSidechain") or entry.get("isMeta") or entry.get("isCompactSummary"):
+            continue
+        content = (entry.get("message") or {}).get("content")
+        if entry.get("type") == "user":
+            text = content if isinstance(content, str) else " ".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+            role = "voce"
+        else:
+            text = " ".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+            role = "agente"
+        text = " ".join(str(text).split())
+        if not text or text.startswith("<") and text.endswith(">"):
+            continue  # comandos e lembretes do Claude Code, não conversa
+        found.append({"role": role, "text": text[:limit] + ("…" if len(text) > limit else "")})
+    return found[-count:]

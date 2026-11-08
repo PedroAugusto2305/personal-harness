@@ -182,7 +182,7 @@ export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today" | "study" | "automations";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today" | "study" | "automations" | "boards";
 
 // --- Rotinas e Hoje (v0.7) ---------------------------------------------------------------
 
@@ -583,4 +583,81 @@ export interface AutoDetail extends AutoSummary {
 export interface AutoCatalog {
   ferramentas: { nome: string; descricao: string; conta: string; conta_nome: string; pessoas: boolean; esquema: Record<string, unknown> }[];
   agentes: { id: string; nome: string; cli: "claude" | "codex"; cor: string; descricao: string }[];
+}
+
+// --- Quadros (v0.9.1): .canvas do Obsidian (JSON Canvas 1.0) na pasta do projeto no Brain ---------
+
+export type CanvasSide = "top" | "right" | "bottom" | "left";
+
+/** Nó do JSON Canvas (jsoncanvas.org). Cartões da MÊTIS (sessão, tarefa) são nós "text" com um
+ *  comentário `%%metis {...}%%` no fim: o Obsidian esconde o comentário e guarda o texto ao salvar. */
+export interface CanvasNode {
+  id: string;
+  type: "text" | "file" | "link" | "group";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** "1" a "6" (cores do Obsidian) ou "#rrggbb". */
+  color?: string;
+  text?: string;
+  /** Caminho da nota dentro do vault (nó "file"), ex.: "01-PROJETOS/Alfa/decisoes/X.md". */
+  file?: string;
+  subpath?: string;
+  url?: string;
+  label?: string;
+  background?: string;
+  backgroundStyle?: "cover" | "ratio" | "repeat";
+}
+
+export interface CanvasEdge {
+  id: string;
+  fromNode: string;
+  fromSide?: CanvasSide;
+  fromEnd?: "none" | "arrow";
+  toNode: string;
+  toSide?: CanvasSide;
+  toEnd?: "none" | "arrow";
+  color?: string;
+  label?: string;
+}
+
+export interface CanvasDoc {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+/** O que a MÊTIS guarda no `%%metis {...}%%` de um nó "text". */
+export type BoardCardMeta =
+  | { tipo: "sessao"; sessao: string; titulo: string; kind: SessionKind; cwd: string; agente?: string }
+  | { tipo: "tarefa"; projeto: string; id: string };
+
+export interface BoardSummary {
+  /** Caminho do .canvas dentro do vault. */
+  path: string;
+  nome: string;
+  projeto: string | null;
+  itens: number;
+  /** mtime do arquivo (segundos): muda quando o Obsidian salva. */
+  alterado: number;
+}
+
+export interface BoardFile extends BoardSummary {
+  canvas: CanvasDoc;
+  /** Para cada nó "file": a nota do Brain (título, tipo, projeto, status, resumo) ou null se não existe. */
+  notas: Record<string, BrainHit | null>;
+}
+
+export interface SessionGlance {
+  id: string;
+  title: string;
+  kind: SessionKind;
+  status: SessionStatus;
+  cwd: string;
+  agent: string | null;
+  context_pct: number | null;
+  /** Última troca da conversa (Claude, pelo transcript): quem falou e o texto. */
+  ultimas: { role: "voce" | "agente"; text: string }[];
+  /** Fim do terminal sem cores (Codex, shell, ou Claude sem transcript ainda). */
+  linhas: string[];
 }

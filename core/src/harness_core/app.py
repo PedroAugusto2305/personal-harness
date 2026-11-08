@@ -22,6 +22,7 @@ from .agent_draft import DraftError, draft_agent
 from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
+from .boards import BoardConflict, BoardError, BoardStore
 from .brain_index import BrainIndex
 from .automation_engine import Engine
 from .automations import AutomationError, AutomationStore, blank, connectors_used, validate
@@ -29,7 +30,7 @@ from .brain_tools import BrainTools
 from .claude_print import ClaudePrintError, ask_json
 from .semantic import Embedder
 from .suggestions import SuggestionError, Suggestions, render_pending
-from .transcript import context_breakdown
+from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
 from .vault import Vault, VaultError
 from .sprites import SpriteStudio
@@ -215,6 +216,26 @@ class TitlesBody(BaseModel):
     titles: list[str] = Field(default_factory=list, max_length=2000)
 
 
+class NewBoard(BaseModel):
+    projeto: str = Field(min_length=1)
+    nome: str = Field(min_length=1, max_length=120)
+
+
+class SaveBoard(BaseModel):
+    path: str = Field(min_length=1)
+    canvas: dict
+    base: float = 0
+
+
+class LinkNote(BaseModel):
+    sessao: str = Field(min_length=1)
+    nota: str = Field(min_length=1)
+
+
+class SessionMessage(BaseModel):
+    texto: str = Field(min_length=1, max_length=20000)
+
+
 class NewAutomation(BaseModel):
     nome: str = Field(min_length=1, max_length=120)
     desenho: dict | None = None
@@ -342,6 +363,7 @@ def create_app(
             return f"Slack falhou: {exc}"
         return ""
 
+    boards = BoardStore(vault, brain)
     automations = AutomationStore(settings.home)
     engine = Engine(settings.home, automations, hub, manager, brain, kanban, vault, agents, notify=dm_pedro, publish=lambda event: manager.events.publish(event))
 
@@ -776,15 +798,23 @@ def create_app(
 
     @app.post("/brain/obsidian", dependencies=[Depends(require_token)], status_code=204)
     def brain_obsidian(body: NotePath) -> None:
-        """Abre a nota no Obsidian. Só notas de dentro do vault; o endereço é montado aqui."""
+        """Abre a nota (ou um quadro .canvas) no Obsidian. Só arquivo de dentro do vault; o endereço é montado aqui."""
         import subprocess
         from urllib.parse import quote, urlencode
 
-        try:
-            vault.resolve(body.path)
-        except VaultError as exc:
-            raise brain_fail(exc) from exc
-        url = "obsidian://open?" + urlencode({"vault": vault.root.name, "file": body.path[: -len(".md")]}, quote_via=quote)
+        if body.path.endswith(".canvas"):
+            try:
+                boards.read(body.path)  # confere que o quadro existe e mora num projeto do vault
+            except BoardError as exc:
+                raise board_fail(exc) from exc
+            target = body.path  # arquivo que não é .md vai com a extensão no endereço do Obsidian
+        else:
+            try:
+                vault.resolve(body.path)
+            except VaultError as exc:
+                raise brain_fail(exc) from exc
+            target = body.path[: -len(".md")]
+        url = "obsidian://open?" + urlencode({"vault": vault.root.name, "file": target}, quote_via=quote)
         subprocess.run(["open", url], check=False, timeout=10)
 
     @app.get("/brain/place", dependencies=[Depends(require_token)])
@@ -1061,6 +1091,86 @@ def create_app(
     def decide_approval(approval_id: str, body: Decision) -> None:
         if not hub.decide(approval_id, body.aprovar):
             raise HTTPException(status_code=404, detail="aprovação não encontrada ou já respondida")
+
+    # --- quadros (v0.9.1): .canvas do Obsidian na pasta do projeto ------------------------
+
+    def board_fail(exc: Exception) -> HTTPException:
+        status = 409 if isinstance(exc, BoardConflict) else 404 if "não encontrad" in str(exc) else 400
+        return HTTPException(status_code=status, detail=str(exc))
+
+    @app.get("/quadros", dependencies=[Depends(require_token)])
+    def list_boards() -> list[dict]:
+        return boards.list()
+
+    @app.post("/quadros", dependencies=[Depends(require_token)], status_code=201)
+    def create_board(body: NewBoard) -> dict:
+        try:
+            return boards.create(body.projeto, body.nome)
+        except BoardError as exc:
+            raise board_fail(exc) from exc
+
+    @app.get("/quadros/abrir", dependencies=[Depends(require_token)])
+    def open_board(path: str = Query(min_length=1)) -> dict:
+        try:
+            return boards.read(path)
+        except BoardError as exc:
+            raise board_fail(exc) from exc
+
+    @app.put("/quadros/salvar", dependencies=[Depends(require_token)])
+    def save_board(body: SaveBoard) -> dict:
+        try:
+            return boards.save(body.path, body.canvas, body.base)
+        except BoardError as exc:
+            raise board_fail(exc) from exc
+
+    @app.post("/quadros/ligar", dependencies=[Depends(require_token)])
+    def link_note(body: LinkNote) -> dict:
+        """Nota do Brain ligada a uma sessão no quadro: a sessão recebe o pedido de ler (vira contexto)."""
+        session = manager.get(body.sessao)
+        if session is None:
+            raise HTTPException(status_code=404, detail="essa sessão não está aberta")
+        if session.kind not in ("claude", "codex"):
+            # No shell, o pedido viraria um comando digitado.
+            raise HTTPException(status_code=400, detail="a nota vira contexto só numa sessão do Claude ou do Codex")
+        try:
+            note = brain.note(path=body.nota)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        full = settings.brain / note["path"]
+        text = (
+            f"Nota do Brain ligada a esta sessão no quadro da MÊTIS: «{note['title']}» ({full}). "
+            f"Leia (brain_ler \"{note['title']}\" no MCP metis, ou o arquivo) e leve em conta no que está fazendo; responda só com o que muda para você."
+        )
+        if not manager.send_text(body.sessao, text):
+            raise HTTPException(status_code=404, detail="essa sessão não está aberta")
+        hub.touch(body.sessao, [note], "quadro")
+        return {"mensagem": text}
+
+    @app.get("/sessions/{session_id}/resumo", dependencies=[Depends(require_token)])
+    def session_glance(session_id: str) -> dict:
+        """O cartão da sessão no quadro: estado, contexto, as últimas mensagens e o fim do terminal."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        line = session.statusline or {}
+        transcript = line.get("transcript")
+        recent = last_messages(transcript, 2) if transcript else []
+        return {
+            "id": session.id,
+            "title": session.title,
+            "kind": session.kind,
+            "status": session.status,
+            "cwd": session.cwd,
+            "agent": session.agent,
+            "context_pct": (line.get("context") or {}).get("used_pct"),
+            "ultimas": recent,
+            "linhas": [] if recent else manager.tail_lines(session_id, 8),
+        }
+
+    @app.post("/sessions/{session_id}/mensagem", dependencies=[Depends(require_token)], status_code=204)
+    def session_message(session_id: str, body: SessionMessage) -> None:
+        if not manager.send_text(session_id, body.texto):
+            raise HTTPException(status_code=404, detail="essa sessão não está aberta")
 
     # --- automações (v0.9.0) ---------------------------------------------------------
 

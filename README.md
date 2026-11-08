@@ -4,9 +4,15 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.0)
+## O que já faz (v0.9.1)
 
-**Novo na 0.9.0, as Automações (o "n8n da MÊTIS"):**
+**Novo na 0.9.1, os Quadros** (ícone de quadro na faixa): um quadro livre por projeto, como o Canvas do Obsidian, e é de fato um `.canvas` do Obsidian em `01-PROJETOS/<Projeto>/quadros/` no Brain, que abre lá também.
+
+- Cartões: notas do Brain (título, tipo, status e resumo), sessões vivas do Claude, do Codex ou do shell (estado, últimas mensagens, campo para mandar mensagem e abrir o terminal), tarefas do kanban, links (abrem no navegador da MÊTIS, com modo de design para localhost), notas suas e grupos, ligados por setas com rótulo.
+- Arraste uma nota do Brain para cima de uma sessão (ou ligue as duas): a sessão recebe o pedido de ler a nota e ela entra no mini-mapa daquela sessão.
+- Editou no Obsidian? A MÊTIS percebe e recarrega; ela nunca grava por cima do que o Obsidian salvou depois.
+
+**Na 0.9.0, as Automações (o "n8n da MÊTIS"):**
 
 - **Canvas de passos** (ícone de fluxo na faixa): gatilho, Ferramenta, Agente, Condição, Aprovação, Brain e Esperar, ligados por setas, com notas no canvas. Cada automação é um YAML legível em `~/.harness/automacoes/`, com histórico num git local.
 - **Rascunho e publicada sempre explícitos:** editar (pela tela, à mão ou por um agente) só mexe no rascunho; o motor só roda a publicada; voltar é publicar uma versão antiga. Detalhes mostra a diferença.

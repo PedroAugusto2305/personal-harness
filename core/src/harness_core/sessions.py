@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import os
 import shutil
 import sys
@@ -60,6 +61,9 @@ class UnknownKind(ValueError):
 
 class ExecutableNotFound(RuntimeError):
     pass
+
+
+ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[@-Z\\\]^_=>78]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class EventBus:
@@ -280,6 +284,42 @@ class SessionManager:
         while title in taken:
             title, n = f"{base} {n}", n + 1
         return title
+
+    def send_text(self, session_id: str, text: str) -> bool:
+        """Mensagem para a sessão como se viesse da barra de baixo: colagem e, logo depois, Enter.
+
+        Pode vir de uma rota síncrona (thread): a escrita vai pelo loop dono do terminal, que é
+        quem pode registrar a espera de escrita do PTY."""
+        session = self.sessions.get(session_id)
+        loop = session.pty._loop if session is not None else None
+        if session is None or not session.pty.alive or loop is None or loop.is_closed():
+            return False
+        payload = b"\x1b[200~" + text.replace("\x1b", "").encode("utf-8") + b"\x1b[201~"
+
+        def enter() -> None:
+            if session.pty.alive:
+                session.pty.write(b"\r")
+
+        def paste() -> None:
+            session.pty.write(payload)
+            loop.call_later(0.15, enter)
+
+        loop.call_soon_threadsafe(paste)
+        return True
+
+    def tail_lines(self, session_id: str, count: int = 8) -> list[str]:
+        """O fim do terminal sem cores nem comandos de tela (aproximado: a TUI redesenha a tela)."""
+        session = self.sessions.get(session_id)
+        if session is None:
+            return []
+        raw = bytes(session.pty._buffer[-24000:]).decode("utf-8", errors="replace")
+        text = ANSI_RE.sub("", raw)
+        lines = []
+        for line in text.replace("\r\n", "\n").split("\n"):
+            line = line.rsplit("\r", 1)[-1].rstrip()
+            if line.strip() and not set(line.strip()) <= set("─━═-_│ "):
+                lines.append(line[:200])
+        return lines[-count:]
 
     async def close(self, session_id: str) -> bool:
         session = self.sessions.pop(session_id, None)

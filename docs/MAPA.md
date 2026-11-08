@@ -43,7 +43,7 @@ Legenda: 🟦 a régua do Orca já tem · 🟩 diferencial do Harness · ⭐ voc
 | **Conectores** | Galeria com botão "Conectar" (ClickUp, Slack, Notion, GitHub, Google…), várias contas por ferramenta, central de MCP com permissão por agente, aprovação e log, busca no catálogo oficial de MCP, teste de conexão, copiar um MCP entre Claude e Codex | 🟩 + Alethe |
 | **Agentes com papel** | Galeria e botão "Novo agente" (por formulário ou descrevendo em uma frase), "testar antes de salvar", campo "qual dor resolve?", agentes padrão e concierge. Cada agente tem um **sprite em pixel art** gerado pelo Codex, que se anima conforme o estado (trabalhando, esperando você, dormindo, concluiu, erro) | 🟩 |
 | **Skills** | Ver, instalar e compartilhar as skills do Claude e do Codex num lugar só | Alethe |
-| **Orquestração** | Estratégias reutilizáveis num canvas (explorar e construir, planejar grande e executar pequeno, melhor de N, portão de revisão), com alternativa de provedor por cota. Na `v0.9.1`, no mesmo canvas e motor das Automações | 🟦 + Alethe |
+| **Orquestração** | Estratégias reutilizáveis num canvas (explorar e construir, planejar grande e executar pequeno, melhor de N, portão de revisão), com alternativa de provedor por cota. Na `v0.9.2`, no mesmo canvas e motor das Automações | 🟦 + Alethe |
 | **Estudo** | Modo de estudo do AI Engineer 2027: medir o que você sabe, planejar, ensinar com perguntas de previsão e grau de confiança, praticar; o que você aprende vira grafo no Brain; foco com Pomodoro. Casa do Sócrates e da Aurora | 🟩 LearnHarness + Alethe |
 | **Rotinas e automações** | Rotinas (`v0.7`): prompt agendado que abre um terminal; recupera o que perdeu com o Mac dormindo. **Automações (`v0.9.0`, núcleo; o resto na `0.9.x`):** o "n8n da MÊTIS", canvas visual de passos com ferramenta pela central de MCP, agente em terminal pelo plano, versões, teste com ensaio, aprovação e execuções; as rotinas viram automações de um gatilho e um agente. Especificação na seção 13 | 🟦 + 🟩 |
 | **Hoje** | Painel do dia: tarefas, rotinas, cota dos planos, sugestões do Brain | 🟩 |
@@ -146,7 +146,7 @@ Todas em `01-PROJETOS/Personal Harness/decisoes/` no Brain:
 
 ## 9. Roadmap por versão
 
-Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu uso diário e vêm primeiro. Exceção combinada com o Pedro em 2026-11-08: as Automações entraram como `v0.9.0` e a paridade restante, que era a `v0.9.0`, passou a ser a `v0.9.1`.
+Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu uso diário e vêm primeiro. Exceções combinadas com o Pedro em 2026-11-08: os Quadros entraram como `v0.9.1` (a paridade passou para a `v0.9.2`); as Automações entraram como `v0.9.0` e a paridade restante, que era a `v0.9.0`, passou a ser a `v0.9.1`.
 
 | Versão | Entrega | Pronto quando |
 |---|---|---|
@@ -159,9 +159,15 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 | `v0.7.0` | **OS pessoal:** Hoje, captura rápida, concierge, rotinas com recuperação, criar agente por formulário e por descrição, sprites dos agentes com animação por estado, Estudo com Pomodoro | A rotina da Aurora roda pelo Harness |
 | `v0.8.0` | **Brain vivo:** grafo, mini-mapa, janela de contexto, precedentes completos (os três momentos e o MCP para fora), sugestões entre projetos | Uma sugestão de precedente vira decisão aceita |
 | `v0.9.0` | **Automações**, o "n8n da MÊTIS": canvas visual de passos, ferramenta pela central de MCP sem gastar cota, agente em terminal pelo plano, arquivo com rascunho e publicada, testar com ensaio, aprovação antes de falar com outras pessoas, histórico de execuções. Especificação na seção 13 | O briefing comercial da manhã (ou outra automação real do Pedro) roda pela MÊTIS por uma semana, com teste em ensaio, aprovação e histórico |
-| `v0.9.1` | **Paridade restante:** orquestração em canvas (no canvas e no motor das Automações), importar do n8n e o que faltar da [`PARIDADE-ORCA.md`](PARIDADE-ORCA.md) para a régua da 1.0 | A checklist da 1.0 está toda marcada |
+| `v0.9.1` | **Quadros:** quadro livre por projeto, `.canvas` do Obsidian na pasta do projeto no Brain, com notas do Brain, sessões vivas (estado, últimas mensagens e campo de mensagem), tarefas, links, notas suas, grupos e ligações; ligar uma nota a uma sessão manda a nota como contexto | Um projeto andando com o quadro aberto ao lado dos terminais |
+| `v0.9.2` | **Paridade restante:** orquestração em canvas (no canvas e no motor das Automações), importar do n8n e o que faltar da [`PARIDADE-ORCA.md`](PARIDADE-ORCA.md) para a régua da 1.0 | A checklist da 1.0 está toda marcada |
 | **`v1.0.0`** | **Substituiu o Orca** | Uma semana sem abrir o Orca nem o Maestri |
 | depois | Celular, SSH e remoto, tela de chat, catálogo de plugins, outros provedores | Quando fizer falta |
+
+**Ideias na fila (sem versão ainda, provavelmente depois da 1.0):**
+
+- **Tokens gastos por projeto** (ideia do Pedro, 2026-11-08): estimativa do total de tokens que cada projeto já consumiu, somando as sessões do Claude e do Codex do projeto e de todas as worktrees dele. Fonte provável: o `usage` de cada resposta nos transcripts, que a MÊTIS já lê para a janela de contexto (`transcript.py`). Mostrar entrada, saída e cache separados, porque a leitura de cache domina a soma.
+- **Terminal próprio com conteúdo rico** (ideia do Pedro, 2026-11-08): a conversa com o Claude Code e com o Codex mostra imagens, fluxogramas, diagramas e afins direto no chat, como o app do Codex faz, valendo para as duas CLIs. É a versão mais completa da "tela de chat" da linha "depois", que foi deixada de lado na `v0.7.2`. Caminho provável, sem mudar o jeito de rodar a CLI: o terminal interativo continua por baixo (pelo plano, com a barra de baixo como entrada) e a tela desenha a conversa a partir do transcript, que a MÊTIS já lê (Claude em `~/.claude/projects`, Codex nas sessões dele), trocando blocos `mermaid`, imagens e arquivos gerados pela versão desenhada.
 
 > **Caminho decidido (2026-11-07): do zero.** O roadmap acima vale como está. A `v0.1.0` é uma fatia vertical: moldura, terminal real do Claude Code, contexto e cota na barra de status.
 >
@@ -190,6 +196,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 > **`v0.8.0` (2026-11-08):** Brain vivo. Escolhas do Pedro: embeddings locais com o julgamento do modelo; sugestão a cada registro novo; MCP e início de sessão também fora da MÊTIS; aceitar a sugestão vira decisão no projeto pelo `brain.py`. Busca por significado com o [potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M) (model2vec, estático, numpy no Mac Intel, ~260 MB em float16). Medido no vault: carregado ocupa ~1,5 GB (630 MB são o tokenizador), então só o núcleo carrega, sob demanda, e solta após 20 min; o MCP de fora e o hook usam os vetores guardados no `brain.db` e pedem ao núcleo o vetor de texto livre. A régua é o z sobre a população de registros (o cosseno cru tem piso diferente por nota): precedentes do projeto com z >= 2,4, texto livre >= 2,0, decisões do mesmo projeto >= 1,8, candidato a sugestão >= 3,3 (cerca de 30% dos registros, uns 9 julgamentos por dia). Os três momentos: início de sessão (híbrido palavra + significado), antes de decidir (`brain_conflitos`, o próprio agente julga) e a cada registro novo (juiz Haiku sem ferramentas, teto de 25 por dia, primeira passada só marca o que já existe). Também: mini-mapa no canto do terminal e janela de contexto lida do transcript (aba Contexto). Testado: 120 testes; no vault real, conflito e hook em menos de 0,5 s; aceitar com o `brain.py` de verdade numa cópia do vault. Fica para depois: julgar sugestões com a cota do Codex, a janela de contexto do Codex, e contexto no início de sessão do Codex fora da MÊTIS (o Codex não tem hook).
 
 > **`v0.9.0` (2026-11-08):** Automações, o núcleo da seção 13, escolha do Pedro: fatia "núcleo na 0.9.0, resto na 0.9.x", e as automações reais ele monta conforme precisar. Arquivo YAML com rascunho e publicada (git local, versões = commits da publicada), canvas do protótipo ligado ao núcleo, gatilhos manual, `metis rodar` e agendado (regra de recuperação das rotinas), passos Ferramenta (central de MCP, sem cota, aprovação de quem fala com outras pessoas), Agente (terminal interativo com MCP só das ferramentas liberadas e a ferramenta `saida`, conferida contra o formato, até 2 correções, pedido de novo no terminal pelo hook Stop), Condição (regra de uma linha, sem `eval`), Aprovação, Brain e Esperar; testar com ensaio; execuções com entrada e saída de cada passo; Pedir conserto e Reexecutar daqui. Ficam para a `0.9.x`: Código, criar por frase, gatilhos por evento e sondagem, troca de provedor por cota e rotinas virando automações.
+
+> **`v0.9.1` (2026-11-08):** Quadros, pedido do Pedro antes da paridade ("sairia na 0.9 também"); a paridade passou para a `v0.9.2`. Escolhas do Pedro: o quadro mora no vault como `.canvas` do Obsidian (JSON Canvas 1.0) em `01-PROJETOS/<Projeto>/quadros/`, abre no Obsidian também; o cartão de sessão é leve (estado, últimas mensagens pelo transcript ou o fim do terminal, campo de mensagem, abrir o terminal); ligar uma nota do Brain a uma sessão manda à sessão o pedido de ler a nota (vira contexto e entra no mini-mapa). Cartões da MÊTIS (sessão, tarefa) são nós de texto com `%%metis {...}%%` no fim, que o Obsidian esconde e guarda; salvar recusa se o Obsidian salvou depois (a tela recarrega).
 
 ## 10. Riscos
 
@@ -287,7 +295,7 @@ A gramática de editor de nós do n8n com a identidade da MÊTIS. Só tokens do 
 
 ### 13.4 Fora da `v0.9.0`
 
-- Importar do n8n (ler o workflow pelo MCP do n8n e traduzir nó a nó; webhook e HTTP solto ficam marcados para revisar): proposta para a `v0.9.1`, depois do motor provado.
-- Orquestração de agentes no canvas (explorar e construir, melhor de N, portão de revisão): `v0.9.1`, no mesmo canvas e motor.
+- Importar do n8n (ler o workflow pelo MCP do n8n e traduzir nó a nó; webhook e HTTP solto ficam marcados para revisar): proposta para a `v0.9.2`, depois do motor provado.
+- Orquestração de agentes no canvas (explorar e construir, melhor de N, portão de revisão): `v0.9.2`, no mesmo canvas e motor.
 - **Rodar com o Mac desligado (nuvem da Anthropic ou VPS): fora.** Decidido pelo Pedro em 2026-11-08: as Automações são só pessoais e só rodam com o Mac acordado, com acesso a tudo do Brain e dos outros projetos; o n8n da empresa continua onde está. O que a nuvem da Anthropic e uma VPS exigiriam ficou registrado no Brain (`[[Tarefas agendadas na nuvem do Claude Code gastam o plano mas não enxergam o Mac]]`), para o caso de isso mudar.
 - Webhook e fluxos de produção 24 h: ficam no n8n.
