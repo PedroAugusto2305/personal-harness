@@ -1,6 +1,6 @@
 [package]
 name = "harness"
-version = "0.3.0"
+version = "0.4.0"
 description = "MÊTIS: OS pessoal e ADE no Mac"
 authors = ["Pedro Aquino"]
 edition = "2024"
@@ -14,7 +14,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# unstable: navegador embutido (webview filho da janela); devtools: inspetor também no app empacotado.
+tauri = { version = "2", features = ["unstable", "devtools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"

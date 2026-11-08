@@ -1,12 +1,13 @@
 [project]
 name = "harness-core"
-version = "0.3.0"
+version = "0.4.0"
 description = "Núcleo da MÊTIS (antes Personal Harness): terminais dos agentes, sessões e telemetria do Claude Code."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "faster-whisper>=1.1",
+    "pillow>=11",
     "uvicorn[standard]>=0.32",
 ]
 

@@ -2611,3 +2611,228 @@ kbd {
   line-height: 1.45;
   cursor: default;
 }
+
+/* Chat da sprite (Agentes). */
+.sprite-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sprite-chat-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sprite-chat-head .setting-label {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.sprite-chat-list {
+  max-height: 320px;
+  min-height: 56px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px;
+}
+
+.sprite-ideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bubble {
+  max-width: 82%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  line-height: 1.45;
+  user-select: text;
+}
+
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--soft);
+  color: var(--tx);
+  border-bottom-right-radius: 4px;
+}
+
+.bubble.theirs {
+  align-self: flex-start;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 4px;
+}
+
+.drawing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mut);
+  font-size: 12.5px;
+}
+
+.error-text {
+  color: var(--err);
+  font-size: 12.5px;
+}
+
+.sprite-result {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.sprite-preview {
+  width: 96px;
+  height: 96px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--term);
+}
+
+.sprite-result-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.sprite-chat-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sprite-chat-input input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  color: var(--tx);
+  outline: none;
+  user-select: text;
+}
+
+.sprite-chat-input input:focus {
+  border-color: var(--acc);
+}
+
+.sprite-chat-input .chip {
+  border: 0;
+  cursor: pointer;
+}
+
+.sprite-box .sprite-img {
+  width: 96px;
+  height: 96px;
+}
+
+/* Navegador embutido. A página é nativa, desenhada por cima de .web-area. */
+.web-pane {
+  background: var(--bg);
+}
+
+.web-bar {
+  flex: 0 0 auto;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.web-bar .icon-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.web-address {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  margin: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line2);
+  background: var(--side);
+}
+
+.web-address:focus-within {
+  border-color: var(--acc);
+}
+
+.web-address input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--tx);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  user-select: text;
+}
+
+.web-address .chip {
+  height: 18px;
+  font-size: 10.5px;
+}
+
+.web-loading {
+  width: 7px;
+  height: 7px;
+  background: var(--acc);
+}
+
+.design-toggle[aria-pressed="true"] {
+  background: var(--acc);
+  color: var(--onacc);
+}
+
+.design-banner {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  background: var(--soft);
+  color: var(--acct);
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.design-banner kbd {
+  padding: 0 5px;
+  font-size: 10.5px;
+}
+
+.web-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--term);
+}
+
+.web-area .frame {
+  position: absolute;
+  inset: 0;
+}
+
+.web-blank {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}

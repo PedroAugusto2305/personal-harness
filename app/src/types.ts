@@ -111,6 +111,17 @@ export interface Agent {
   updated_at: number;
 }
 
+export interface SpriteJob {
+  id: string;
+  prompt: string;
+  base: string | null;
+  status: "running" | "done" | "error";
+  error: string | null;
+  note: string;
+  created_at: number;
+  finished_at: number | null;
+}
+
 export type AgentDraft = Pick<Agent, "name" | "description" | "cli" | "model" | "account" | "folder" | "color" | "prompt">;
 
 export interface TextFile {

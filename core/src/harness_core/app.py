@@ -17,6 +17,7 @@ from . import files as fs
 from . import gitops
 from .accounts import PROVIDERS, AccountStore, UnknownAccount
 from .agents import AgentError, AgentStore
+from .sprites import SpriteStudio
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
 from .config import Settings, load_settings
 from .projects import ProjectError, ProjectStore
@@ -85,6 +86,18 @@ class AgentBody(BaseModel):
     prompt: str = ""
 
 
+class SpriteRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=2000)
+    name: str = ""
+    description: str = ""
+    color: str = "#82a0ff"
+    base: str | None = None
+
+
+class SpriteChoice(BaseModel):
+    job: str = Field(pattern="^[a-z0-9]{1,32}$")
+
+
 class OpenTarget(BaseModel):
     url: str | None = None
     reveal: str | None = None
@@ -102,6 +115,16 @@ def create_app(
     voice = transcriber or Transcriber(settings.home)
     projects = ProjectStore(settings.home)
     agents = AgentStore(settings.home)
+
+    def codex_env() -> tuple[str | None, dict[str, str]]:
+        import shutil
+
+        from .sessions import clean_env
+
+        account = manager.accounts.active("codex")
+        return shutil.which("codex"), {**clean_env(), **manager.accounts.env("codex", account)}
+
+    studio = SpriteStudio(settings.home, codex_env)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -464,6 +487,47 @@ def create_app(
         if path is None:
             raise HTTPException(status_code=404, detail="agente sem sprite")
         return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    # --- sprites por prompt (Codex + pixelização) ---------------------------------
+
+    def sprite_changed(job) -> None:
+        manager.events.publish({"type": "sprite.job", "job": job.to_dict()})
+
+    @app.post("/sprites/jobs", dependencies=[Depends(require_token)], status_code=202)
+    async def start_sprite(body: SpriteRequest) -> dict:
+        try:
+            job = studio.start(body.prompt, body.name, body.description, body.color, body.base, sprite_changed)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="rascunho anterior não encontrado") from exc
+        return job.to_dict()
+
+    @app.get("/sprites/jobs/{job_id}", dependencies=[Depends(require_token)])
+    def sprite_job(job_id: str) -> dict:
+        job = studio.jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="trabalho desconhecido")
+        return job.to_dict()
+
+    @app.get("/sprites/jobs/{job_id}/image", dependencies=[Depends(require_token_or_query)])
+    def sprite_job_image(job_id: str) -> FileResponse:
+        try:
+            path = studio.image(job_id)
+        except KeyError:
+            path = None
+        if path is None:
+            raise HTTPException(status_code=404, detail="sprite ainda não pronta")
+        return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+    @app.post("/agents/{agent_id}/sprite/from-job", dependencies=[Depends(require_token)], status_code=204)
+    def sprite_from_job(agent_id: str, body: SpriteChoice) -> None:
+        path = studio.image(body.job)
+        if path is None:
+            raise HTTPException(status_code=404, detail="sprite ainda não pronta")
+        try:
+            agents.set_sprite(agent_id, path.read_bytes())
+        except AgentError as exc:
+            raise fail(exc, 404) from exc
+        agents_changed()
 
     @app.post("/agents/import/maestri", dependencies=[Depends(require_token)])
     def import_maestri(roles: str = Query(default="~/Documents/Brain/.maestri/roles")) -> dict:
