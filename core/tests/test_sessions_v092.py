@@ -243,3 +243,23 @@ def test_history_route_answers(core, tmp_path):
     found = client.get("/historico", params={"q": "rota"}, headers=AUTH)
     assert found.status_code == 200, found.text
     assert [(i["id"], i["conta_id"]) for i in found.json()] == [("cccc3333", "padrao")]
+
+
+def test_port_counts_as_busy_only_while_someone_listens():
+    import socket
+
+    from harness_core.__main__ import port_free
+
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    server.listen()
+    port = server.getsockname()[1]
+    assert not port_free("127.0.0.1", port)  # outro núcleo no ar
+    client = socket.create_connection(("127.0.0.1", port))
+    conn, _ = server.accept()
+    server.close()
+    conn.close()
+    client.close()
+    time.sleep(0.1)
+    assert port_free("127.0.0.1", port)  # só sobrou a conexão do núcleo que fechou (TIME_WAIT)

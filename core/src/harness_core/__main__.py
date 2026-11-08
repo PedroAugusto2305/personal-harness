@@ -43,7 +43,11 @@ def watch_parent(pid: int, interval: float = 2.0) -> None:
 
 
 def port_free(host: str, port: int) -> bool:
+    """A porta está livre se ninguém estiver ouvindo nela. Com SO_REUSEADDR, como o próprio
+    uvicorn faz: as conexões do núcleo que acabou de fechar (TIME_WAIT por até 30 s) não
+    contam, senão o núcleo novo de um "Reiniciar" desiste achando que outro está no ar."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind((host, port))
         except OSError:
@@ -77,7 +81,8 @@ def main() -> None:
     if parent.isdigit():
         watch_parent(int(parent))
     print(f"Harness core {__version__} em {settings.url}", flush=True)
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="warning")
+    # O encerramento espera as conexões abertas (a janela e os terminais) por 3 s no máximo.
+    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="warning", timeout_graceful_shutdown=3)
 
 
 if __name__ == "__main__":
