@@ -4,12 +4,12 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.4.1)
+## O que já faz (v0.4.2)
 
 **Novo na 0.4:**
 
 - **Navegador embutido**: abas de navegador ao lado dos terminais (botão de globo na barra lateral, ⌘K → "Abrir navegador", "Abrir" no painel Portas, `metis web <endereço>` em qualquer terminal, ou ⌘ + clique num link do terminal; com ⇧, abre no navegador do Mac). É o WebKit do macOS, com barra de endereço, voltar e avançar, recarregar, inspetor (devtools), aba anônima, downloads em `~/Downloads` e links `target=_blank` virando aba nova.
-- **Modo de design**: ligado na barra da aba, realça o elemento sob o mouse; o clique manda para a barra de entrada do agente da worktree o seletor, o texto, o HTML, o estilo e, quando a página é React, Svelte ou Vue em desenvolvimento, o componente e o arquivo de origem. Esc sai.
+- **Modo de design**: botão Design na barra da aba (ou ⌘K → "Modo de design", que abre uma aba já no modo se nenhuma estiver em foco), realça o elemento sob o mouse; o clique manda para a barra de entrada do agente da worktree o seletor, o texto, o HTML, o estilo e, quando a página é React, Svelte ou Vue em desenvolvimento, o componente e o arquivo de origem. Esc sai.
 - **Sprites por prompt**: na tela de Agentes, um chat da sprite. Você descreve, o Codex desenha e a MÊTIS pixeliza em 48 × 48. Todo agente é **greco-romano** por padrão; sem sprite escolhida, ganha um busto greco-romano gerado do nome.
 - O app escolhe uma porta livre para o núcleo e o núcleo se encerra se o app morrer, então recompilar ou travar não deixa a MÊTIS "sem núcleo".
 
