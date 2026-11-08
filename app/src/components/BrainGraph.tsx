@@ -156,6 +156,8 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
   const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set());
   const [cross, setCross] = useState(true);
   const [orphans, setOrphans] = useState(true);
+  /** Nomes dos projetos no grafo. Desligado: o nome só aparece passando o mouse (pedido do Pedro). */
+  const [names, setNames] = useState(false);
   const [forces, setForces] = useState<Forces>(loadForces);
   const [showForces, setShowForces] = useState(false);
   const forcesNow = useRef(forces);
@@ -447,16 +449,15 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
     });
     ctx.restore();
 
-    // Nomes em tamanho fixo: projetos sempre; o resto só bem de perto.
+    // Nomes: por padrão nenhum (o do nó sob o mouse vem na dica); com "Nomes", os dos projetos.
+    if (!names) return;
     ctx.globalAlpha = 1;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     data.nodes.forEach((n, i) => {
       if (!shown[i]) return;
       const project = n.tipo === "projeto";
-      // Vizinhos do nó em foco ganham nome se forem poucos (ou de perto); muitos viram um borrão.
-      const nearLabel = !!near && near.has(i) && (near.size <= 12 || k >= 1.6);
-      if (!project && k < 2.2 && !nearLabel) return;
+      if (!project) return;
       const sx = n.x * k + vx;
       const sy = n.y * k + vy + n.r * k + 3;
       if (sx < -100 || sx > w + 100 || sy < -20 || sy > h + 20) return;
@@ -607,6 +608,9 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
             </button>
             <button type="button" className="filter-chip" aria-pressed={orphans} onClick={() => setOrphans((v) => !v)}>
               Notas sem ligação
+            </button>
+            <button type="button" className="filter-chip" aria-pressed={names} onClick={() => setNames((v) => !v)} title="Mostra o nome dos projetos no grafo">
+              Nomes
             </button>
             <span className="graph-sep" />
             <button type="button" className="filter-chip" aria-pressed={showForces} aria-expanded={showForces} onClick={() => setShowForces((v) => !v)}>
