@@ -62,6 +62,25 @@ class ProjectStore:
     def list(self) -> list[dict]:
         return self._load()
 
+    def scripts(self, project_id: str) -> dict:
+        """Scripts do projeto (v0.9.2): `setup` roda na worktree nova, `arquivar` antes de apagar."""
+        for item in self._load():
+            if item["id"] == project_id:
+                return {"setup": item.get("setup", ""), "arquivar": item.get("arquivar", "")}
+        raise ProjectError(f"projeto desconhecido: {project_id}")
+
+    def set_scripts(self, project_id: str, setup: str | None = None, arquivar: str | None = None) -> dict:
+        items = self._load()
+        for item in items:
+            if item["id"] == project_id:
+                if setup is not None:
+                    item["setup"] = setup.strip()
+                if arquivar is not None:
+                    item["arquivar"] = arquivar.strip()
+                self._save(items)
+                return {"setup": item.get("setup", ""), "arquivar": item.get("arquivar", "")}
+        raise ProjectError(f"projeto desconhecido: {project_id}")
+
     def get(self, project_id: str) -> Project:
         for item in self._load():
             if item["id"] == project_id:

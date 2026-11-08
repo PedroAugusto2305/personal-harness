@@ -15,6 +15,11 @@
     metis tarefa nova "<texto>"        acrescenta uma tarefa
     metis tarefa mover <id> <estado>   pendente, em-andamento, em-teste ou concluida
     metis lembrete "<texto>" <quando>  o bot da MÊTIS avisa no Slack na hora (ex.: sexta 9h, em 20 min)
+    metis desligar                     desliga a MÊTIS de vez (fecha os terminais dos agentes)
+    metis sessoes                      os terminais abertos na MÊTIS, com o id
+    metis sessao ler <id>              o fim do terminal (ou as últimas mensagens do agente)
+    metis sessao escrever <id> "texto" manda o texto para o terminal (como a barra de baixo)
+    --json                             nos comandos de listar: a saída em JSON, para agentes
     metis automacoes                   as automações, com estado e a última execução
     metis rodar <automação>            roda a versão publicada agora (id ou nome)
 
@@ -127,6 +132,9 @@ def _here_project(home, explicit: str | None) -> str:
 def _brain_command(home, args) -> int:
     if args.acao == "buscar":
         items = _core(home, "GET", f"/brain/search?{_q({'q': ' '.join(args.termos), 'tipo': args.tipo, 'projeto': args.projeto, 'limit': args.limite})}")
+        if args.json:
+            print(json.dumps([{**i, "snippet": _clean_snippet(i.get("snippet"))} for i in items], ensure_ascii=False))
+            return 0
         if not items:
             print("nada encontrado.")
         for item in items:
@@ -191,6 +199,9 @@ def _tasks_command(home, args) -> int:
     project = _here_project(home, args.projeto)
     if args.command == "tarefas":
         tasks = _core(home, "GET", f"/brain/projects/{urllib.parse.quote(project, safe='')}/tasks")
+        if args.json:
+            print(json.dumps({"projeto": project, "tarefas": tasks}, ensure_ascii=False))
+            return 0
         print(f"Próximas ações de {project}:")
         for state in ("em-andamento", "em-teste", "pendente", "concluida"):
             group = [t for t in tasks if t["state"] == state]
@@ -243,6 +254,7 @@ def _print_accounts(store: AccountStore) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="metis", description="Contas, navegador, Brain, tarefas e lembretes da MÊTIS.")
+    parser.add_argument("--json", action="store_true", help="saída em JSON (contas, brain buscar, tarefas, sessões, automações)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("contas", help="lista as contas e qual está ativa")
     switch = sub.add_parser("switch", help="troca a conta ativa de uma CLI")
@@ -271,6 +283,12 @@ def main(argv: list[str] | None = None) -> int:
     reminder.add_argument("texto")
     reminder.add_argument("quando", nargs="+", help="ex.: sexta 9h, amanhã 14:30, em 20 min, 13/11 9h")
     reminder.add_argument("--conta", default="", help="id da conta do Slack (padrão: a de lembretes)")
+    sub.add_parser("desligar", help="desliga o núcleo da MÊTIS (fecha os terminais dos agentes)")
+    sub.add_parser("sessoes", help="os terminais abertos na MÊTIS")
+    one = sub.add_parser("sessao", help="lê ou escreve num terminal da MÊTIS")
+    one.add_argument("acao", choices=("ler", "escrever"))
+    one.add_argument("id")
+    one.add_argument("texto", nargs="*")
     sub.add_parser("automacoes", help="as automações, com estado e a última execução")
     run = sub.add_parser("rodar", help="roda a versão publicada de uma automação agora")
     run.add_argument("automacao", nargs="+", help="id ou nome da automação")
@@ -278,10 +296,54 @@ def main(argv: list[str] | None = None) -> int:
 
     home = load_settings().home
 
+    if args.command in ("sessoes", "sessao"):
+        try:
+            if args.command == "sessoes":
+                items = _core(home, "GET", "/sessions")
+                if args.json:
+                    print(json.dumps([{k: s.get(k) for k in ("id", "title", "kind", "status", "cwd", "agent", "tag")} for s in items], ensure_ascii=False))
+                for s in [] if args.json else items:
+                    print(f"{s['id']}  {s['kind']:6s} {s['status']:8s} {s['title']}  ({s['cwd']})")
+                return 0
+            if args.acao == "ler":
+                glance = _core(home, "GET", f"/sessions/{args.id}/resumo")
+                if args.json:
+                    print(json.dumps(glance, ensure_ascii=False))
+                    return 0
+                for m in glance["ultimas"]:
+                    print(f"{'você' if m['role'] == 'voce' else 'agente'}: {m['text']}")
+                print("\n".join(glance["linhas"]))
+                return 0
+            text = " ".join(args.texto).strip()
+            if not text:
+                print("diga o texto: metis sessao escrever <id> \"texto\"", file=sys.stderr)
+                return 1
+            _core(home, "POST", f"/sessions/{args.id}/mensagem", {"texto": text})
+            print("enviado.")
+            return 0
+        except CoreRefused as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"a MÊTIS não respondeu ({exc}). O app está aberto?", file=sys.stderr)
+            return 1
+
+    if args.command == "desligar":
+        try:
+            done = _core(home, "POST", "/desligar", {})
+        except (CoreRefused, OSError, ValueError, KeyError) as exc:
+            print(f"a MÊTIS não respondeu ({exc}): já está desligada?", file=sys.stderr)
+            return 1
+        print(f"desligando a MÊTIS ({done['fechando']} terminal(is) fechando).")
+        return 0
+
     if args.command in ("automacoes", "rodar"):
         try:
             items = _core(home, "GET", "/automacoes")
             if args.command == "automacoes":
+                if args.json:
+                    print(json.dumps(items, ensure_ascii=False))
+                    return 0
                 for item in items:
                     last = item.get("ultima") or {}
                     state = "ativa" if item.get("ativa") else ("publicada" if item.get("publicada") else "rascunho")
@@ -360,6 +422,9 @@ def main(argv: list[str] | None = None) -> int:
     store = AccountStore(home)
 
     if args.command == "contas":
+        if args.json:
+            print(json.dumps(store.list(), ensure_ascii=False))
+            return 0
         _print_accounts(store)
         return 0
 

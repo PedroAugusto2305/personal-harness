@@ -18,6 +18,8 @@ export interface Statusline {
   cost_usd: number | null;
   rate_limits: RateLimits;
   transcript?: string | null;
+  /** Id da conversa no Claude (para continuar depois de sair). */
+  session_id?: string | null;
 }
 
 export interface Session {
@@ -148,12 +150,14 @@ export interface ReviewNote {
 }
 
 export type CoreEvent =
-  | { type: "hello"; sessions: Session[]; usage: Usage; accounts: Accounts; projects: Project[]; agents: Agent[] }
+  | { type: "hello"; version?: string; sessions: Session[]; usage: Usage; accounts: Accounts; projects: Project[]; agents: Agent[] }
+  | { type: "prefs"; prefs: Prefs }
+  | { type: "awake"; ativo: boolean }
   | { type: "session.created"; session: Session }
   | { type: "session.closed"; id: string }
   | { type: "session.status"; id: string; status: SessionStatus }
   | { type: "session.statusline"; id: string; statusline: Statusline }
-  | { type: "session.hook"; id: string; name: string }
+  | { type: "session.hook"; id: string; name: string; message?: string | null }
   | { type: "usage"; usage: Usage }
   | { type: "accounts"; accounts: Accounts }
   | { type: "projects"; projects: Project[] }
@@ -660,4 +664,58 @@ export interface SessionGlance {
   ultimas: { role: "voce" | "agente"; text: string }[];
   /** Fim do terminal sem cores (Codex, shell, ou Claude sem transcript ainda). */
   linhas: string[];
+}
+
+// --- Sessões, agentes e sistema (v0.9.2) ------------------------------------------------------
+
+export type PermissionMode = "padrao" | "manual" | "auto" | "yolo";
+
+export interface Prefs {
+  permissao_claude: PermissionMode;
+  permissao_codex: PermissionMode;
+  /** As pastas dos projetos e das worktrees da MÊTIS entram como confiáveis na CLI. */
+  confiar_pastas: boolean;
+  manter_acordado: "nunca" | "agente" | "sempre";
+  avisos: { terminou: boolean; espera: boolean; aprovacao: boolean; erro: boolean; som: boolean; volume: number; silencio: boolean };
+}
+
+export interface HistoryItem {
+  cli: "claude" | "codex";
+  id: string;
+  cwd: string;
+  titulo: string;
+  primeiro: string;
+  /** Nome da conta (ou "padrão"). */
+  conta: string;
+  /** Id da conta na MÊTIS ("padrao" quando é a pasta de sempre, sem conta cadastrada). */
+  conta_id?: string;
+  inicio: string;
+  /** mtime do arquivo (segundos). */
+  atualizado: number;
+  tamanho: number;
+  arquivo: string;
+}
+
+export interface Resources {
+  nucleo: { mb: number; cpu: number; com_sessoes_mb: number };
+  sessoes: { id: string; title: string; kind: SessionKind; status: SessionStatus; cwd: string; mb: number; cpu: number; processos: number; comandos: string[] }[];
+  modelo: SemanticStatus["model"];
+  acordado: { modo: Prefs["manter_acordado"]; ativo: boolean };
+  /** Janelas da MÊTIS ligadas ao núcleo agora. */
+  janelas: number;
+}
+
+export interface SkillInfo {
+  nome: string;
+  descricao: string;
+  origem: "usuário" | "projeto";
+  pasta: string;
+  arquivo: string;
+}
+
+export interface ProjectScripts {
+  /** Roda num terminal à vista na worktree nova. */
+  setup: string;
+  /** Roda antes de apagar a worktree (até 2 min); se falhar, não apaga sem forçar. */
+  arquivar: string;
 }

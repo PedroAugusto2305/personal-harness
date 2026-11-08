@@ -2,14 +2,18 @@ import { useEffect, useState } from "react";
 import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, PROVIDERS, shortPath } from "../lib/format";
 import { ICON, Icon } from "../icons";
-import type { Accounts, Provider, ThemeName, Usage, VoiceStatus } from "../types";
+import type { Accounts, Prefs, Provider, ThemeName, Usage, VoiceStatus } from "../types";
 import { THEME_LABEL } from "./Chrome";
+import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
 import { Limits } from "./StatusBar";
 
-export type SettingsSection = "contas" | "aparencia" | "voz" | "sobre";
+export type SettingsSection = "contas" | "agentes" | "skills" | "recursos" | "aparencia" | "voz" | "sobre";
 
 const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }[] = [
   { key: "contas", label: "Contas e uso", icon: "user" },
+  { key: "agentes", label: "Agentes e avisos", icon: "bell" },
+  { key: "skills", label: "Skills", icon: "spark" },
+  { key: "recursos", label: "Recursos", icon: "cpu" },
   { key: "aparencia", label: "Aparência", icon: "palette" },
   { key: "voz", label: "Voz", icon: "mic" },
   { key: "sobre", label: "Sobre e atalhos", icon: "info" },
@@ -44,6 +48,16 @@ interface Props {
   onLanguage: (language: string) => void;
   run: <T>(action: (core: CoreClient) => Promise<T>) => Promise<T | null>;
   onOpenSession: (provider: Provider, accountId: string, title: string) => void;
+  // v0.9.2: agentes e avisos, skills e recursos
+  prefs: Prefs | null;
+  onSavePrefs: (changes: Partial<Omit<Prefs, "avisos">> & { avisos?: Partial<Prefs["avisos"]> }) => Promise<void>;
+  /** Terminais que não saíram (o que desligar ou reiniciar o núcleo fecha). */
+  openSessions: number;
+  /** Pasta da worktree em foco, para as skills do projeto ("" = só as do usuário). */
+  skillsCwd: string;
+  skillsCwdLabel: string | null;
+  onCloseSession: (id: string) => Promise<void>;
+  onGoToSession: (id: string) => void;
 }
 
 export function Settings(props: Props) {
@@ -65,6 +79,11 @@ export function Settings(props: Props) {
       </nav>
       <div className="settings-body">
         {props.section === "contas" && <AccountsSection {...props} />}
+        {props.section === "agentes" && (
+          <AgentsPrefsSection client={props.client} prefs={props.prefs} onSave={props.onSavePrefs} openSessions={props.openSessions} />
+        )}
+        {props.section === "skills" && <SkillsSection client={props.client} cwd={props.skillsCwd} cwdLabel={props.skillsCwdLabel} />}
+        {props.section === "recursos" && <ResourcesSection client={props.client} onClose={props.onCloseSession} onOpen={props.onGoToSession} />}
         {props.section === "aparencia" && <AppearanceSection theme={props.theme} onTheme={props.onTheme} />}
         {props.section === "voz" && <VoiceSection {...props} />}
         {props.section === "sobre" && <AboutSection client={props.client} />}

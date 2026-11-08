@@ -69,3 +69,23 @@ export function clock(seconds: number): string {
 export function fold(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
+
+/** Quanto tempo faz, curto: "agora", "há 5 min", "há 3 h", "ontem", "há 4 dias", "12/03". */
+export function ago(epochMs: number, now = Date.now()): string {
+  const minutes = Math.floor((now - epochMs) / 60000);
+  if (minutes < 1) return "agora";
+  if (minutes < 60) return `há ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `há ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "ontem";
+  if (days < 7) return `há ${days} dias`;
+  const date = new Date(epochMs);
+  const dm = `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
+  return date.getFullYear() === new Date(now).getFullYear() ? dm : `${dm}/${date.getFullYear()}`;
+}
+
+/** 1536 → "1,5 GB"; 230 → "230 MB". */
+export function megabytes(mb: number): string {
+  return mb >= 1024 ? `${trim(mb / 1024)} GB` : `${Math.round(mb)} MB`;
+}

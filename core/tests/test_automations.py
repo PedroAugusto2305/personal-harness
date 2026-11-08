@@ -231,8 +231,8 @@ def test_agent_step_returns_through_saida_with_format_check(core, monkeypatch):
     written: list[bytes] = []
     created = {}
 
-    def fake_create(kind, cwd=None, cols=120, rows=32, title=None, account_id=None, tag=None, agent=None, prompt=None):
-        created.update(kind=kind, tag=tag, prompt=prompt, agent=agent)
+    def fake_create(kind, cwd=None, cols=120, rows=32, title=None, account_id=None, tag=None, agent=None, prompt=None, extra_args=None, **_rest):
+        created.update(kind=kind, tag=tag, prompt=prompt, agent=agent, extra=extra_args)
         session = SimpleNamespace(id="ag1", title=title, pty=SimpleNamespace(write=written.append), statusline=None)
         manager.sessions["ag1"] = session
         return session
@@ -258,6 +258,7 @@ def test_agent_step_returns_through_saida_with_format_check(core, monkeypatch):
             break
         time.sleep(0.05)
     assert created["tag"] == "automacao" and "Resuma o dia 2" in created["prompt"] and "`saida`" in created["prompt"]
+    assert created["extra"] == ["--allowedTools", "mcp__metis"]  # a central não pede licença: o passo não trava
     names = {t.name for t in hub.tools_for(Context(session="ag1", who="x", cwd=None, allowed=None))}
     assert names == {"brain_buscar", "saida"}  # só o que o passo liberou, mais a saída
     engine.on_stop("ag1")  # terminou o turno sem devolver: a MÊTIS pede de novo no terminal

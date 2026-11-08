@@ -20,6 +20,7 @@ from .codex_usage import read_codex_limits
 from .config import Settings
 from .ports import ports_by_session
 from .pty_session import PtySession
+from .prefs import Prefs, codex_trust_args, permission_args, trust_claude_folder
 from .statusline import parse_statusline
 
 # Variáveis que não podem vazar para os agentes. As do Orca fariam os hooks dele
@@ -84,6 +85,11 @@ class EventBus:
 
     def unsubscribe(self, queue: asyncio.Queue[dict]) -> None:
         self._subscribers.pop(queue, None)
+
+    @property
+    def listeners(self) -> int:
+        """Quantas janelas estão ligadas agora (0 = a MÊTIS está fechada e o núcleo segue sozinho)."""
+        return len(self._subscribers)
 
     def publish(self, event: dict) -> None:
         try:
@@ -202,6 +208,12 @@ class SessionManager:
         # Central de MCP: dá um token por sessão de agente e esquece ao fechar (ligada pelo app).
         self.mcp_token: Callable[[str], str] | None = None
         self.mcp_forget: Callable[[str], None] | None = None
+        # Ajustes (v0.9.2): modo de permissão e pastas confiáveis (ligados pelo app).
+        self.prefs = Prefs(settings.home)
+        self.trusted_roots: Callable[[], list[str]] = lambda: [str(settings.worktrees)]
+        # Mudança de estado de uma sessão (antes, depois) e hook recebido (nome, mensagem).
+        self.on_status: Callable[[Session, str, str], None] | None = None
+        self.on_hook: Callable[[Session, str, str | None], None] | None = None
 
     # --- sessões -----------------------------------------------------------
 
@@ -229,6 +241,9 @@ class SessionManager:
         tag: str | None = None,
         agent: Agent | None = None,
         prompt: str | None = None,
+        resume: str | None = None,
+        permission: str | None = None,
+        extra_args: list[str] | None = None,
     ) -> Session:
         if agent is not None:
             kind = agent.cli
@@ -243,11 +258,25 @@ class SessionManager:
         if agent is not None:
             argv = argv + agent_args(agent)
         env, account = self.session_env(kind, session_id, account_id)
+        if kind in PROVIDERS:
+            prefs = self.prefs.get()
+            argv = argv + permission_args(kind, permission or prefs[f"permissao_{kind}"])
+            if prefs["confiar_pastas"] and self._trusted(workdir):
+                if kind == "claude":
+                    folder = env.get("CLAUDE_CONFIG_DIR")
+                    trust_claude_folder(Path(folder) / ".claude.json" if folder else self.settings.claude_json, workdir)
+                else:
+                    argv = argv + codex_trust_args(workdir)
+            if extra_args:
+                argv = argv + list(extra_args)
+            if resume:
+                # Retomar: no Claude é --resume <id>; no Codex, o subcomando `codex resume <id>`.
+                argv = argv + ["--resume", resume] if kind == "claude" else [argv[0], "resume", resume, *argv[1:]]
         if kind in ("claude", "codex") and self.mcp_token is not None:
             token = self.mcp_token(session_id)
             argv = argv + mcp_args(kind, self.settings.url, token)
             env["METIS_MCP_TOKEN"] = token
-        if prompt and kind in ("claude", "codex"):
+        if prompt and kind in ("claude", "codex") and not resume:
             # Primeira mensagem da sessão interativa (rotinas). Vai logo depois do executável:
             # no Claude, o --mcp-config aceita vários valores e engoliria o que viesse depois.
             argv = [argv[0], prompt, *argv[1:]]
@@ -277,6 +306,17 @@ class SessionManager:
         self.events.publish({"type": "session.created", "session": session.to_dict()})
         return session
 
+    def _trusted(self, folder: str) -> bool:
+        """Pasta de um projeto da MÊTIS ou de uma worktree dele: entra como confiável na CLI."""
+        target = Path(folder).resolve()
+        for root in self.trusted_roots():
+            try:
+                target.relative_to(Path(root).expanduser().resolve())
+                return True
+            except ValueError:
+                continue
+        return False
+
     def _unique_title(self, base: str) -> str:
         """Claude, Claude 2, Claude 3…: abas e a barra de entrada precisam distinguir."""
         taken = {s.title for s in self.sessions.values()}
@@ -285,8 +325,11 @@ class SessionManager:
             title, n = f"{base} {n}", n + 1
         return title
 
-    def send_text(self, session_id: str, text: str) -> bool:
+    def send_text(self, session_id: str, text: str, paste: bool = True) -> bool:
         """Mensagem para a sessão como se viesse da barra de baixo: colagem e, logo depois, Enter.
+
+        `paste=False` digita o texto puro, linha a linha: é o caso de um shell que acabou de
+        nascer e ainda não ligou o modo de colagem (as marcas apareceriam como lixo na tela).
 
         Pode vir de uma rota síncrona (thread): a escrita vai pelo loop dono do terminal, que é
         quem pode registrar a espera de escrita do PTY."""
@@ -294,7 +337,11 @@ class SessionManager:
         loop = session.pty._loop if session is not None else None
         if session is None or not session.pty.alive or loop is None or loop.is_closed():
             return False
-        payload = b"\x1b[200~" + text.replace("\x1b", "").encode("utf-8") + b"\x1b[201~"
+        clean = text.replace("\x1b", "")
+        if paste:
+            payload = b"\x1b[200~" + clean.encode("utf-8") + b"\x1b[201~"
+        else:
+            payload = "\r".join(clean.splitlines()).encode("utf-8")
 
         def enter() -> None:
             if session.pty.alive:
@@ -338,8 +385,10 @@ class SessionManager:
     def _set_status(self, session: Session, status: str) -> None:
         if session.status == status:
             return
-        session.status = status
+        before, session.status = session.status, status
         self.events.publish({"type": "session.status", "id": session.id, "status": status})
+        if self.on_status is not None:
+            self.on_status(session, before, status)
 
     def _on_exit(self, session_id: str, code: int | None) -> None:
         session = self.sessions.get(session_id)
@@ -366,14 +415,28 @@ class SessionManager:
             self._publish_usage()
         return parsed
 
-    def record_hook(self, session_id: str, name: str) -> bool:
+    def record_hook(self, session_id: str, name: str, payload: dict | None = None) -> bool:
         session = self.sessions.get(session_id)
         if session is None:
             return False
         status = HOOK_STATUS.get(name)
         if status:
             self._set_status(session, status)
-        self.events.publish({"type": "session.hook", "id": session_id, "name": name})
+        message = (payload or {}).get("message") if isinstance((payload or {}).get("message"), str) else None
+        self.events.publish({"type": "session.hook", "id": session_id, "name": name, "message": message})
+        if self.on_hook is not None:
+            self.on_hook(session, name, message)
+        return True
+
+    def forget(self, session_id: str) -> bool:
+        """Tira da lista uma sessão que já saiu (reiniciar no lugar dela, com o mesmo nome)."""
+        session = self.sessions.get(session_id)
+        if session is None or session.pty.alive:
+            return False
+        self.sessions.pop(session_id, None)
+        if self.mcp_forget is not None:
+            self.mcp_forget(session_id)
+        self.events.publish({"type": "session.closed", "id": session_id})
         return True
 
     # --- contas e cota -----------------------------------------------------

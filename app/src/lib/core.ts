@@ -21,6 +21,12 @@ import type {
   AutoSummary,
   BoardFile,
   BoardSummary,
+  HistoryItem,
+  PermissionMode,
+  Prefs,
+  ProjectScripts,
+  Resources,
+  SkillInfo,
   BrainPlace,
   CanvasDoc,
   ContextWindow,
@@ -71,6 +77,25 @@ export async function getCoreInfo(): Promise<CoreInfo> {
   };
 }
 
+/** Reinicia o núcleo (versão nova do código): fecha os terminais e sobe outro. Só na janela do app. */
+export async function restartCore(): Promise<boolean> {
+  if (!inTauri()) return false;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("core_restart");
+  return true;
+}
+
+/** Número no ícone do Dock (avisos não lidos); 0 tira. Só na janela do app. */
+export async function setDockBadge(count: number): Promise<void> {
+  if (!inTauri()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
+  } catch {
+    // sem permissão ou fora do macOS: o sino da janela basta
+  }
+}
+
 export class CoreError extends Error {
   constructor(
     message: string,
@@ -89,6 +114,10 @@ export interface NewSessionOptions {
   rows?: number;
   /** Agente ainda não salvo ("testar antes de salvar"). */
   draft?: { name: string; cli: "claude" | "codex"; model: string; folder: string; prompt: string };
+  /** Retomar uma conversa do histórico (`claude --resume <id>`, `codex resume <id>`). */
+  resume?: string;
+  /** Modo de permissão só desta sessão; sem ele vale o dos Ajustes. */
+  permissao?: PermissionMode;
 }
 
 export class CoreClient {
@@ -203,7 +232,13 @@ export class CoreClient {
     return this.request("GET", `/projects/${encodeURIComponent(projectId)}/worktrees`);
   }
 
-  createWorktree(projectId: string, name: string, copyEnv: boolean, base?: string): Promise<{ path: string; branch: string; copied: string[] }> {
+  /** `setup`: id do terminal onde o script de setup do projeto roda (v0.9.2); `setup_erro` se ele não abriu. */
+  createWorktree(
+    projectId: string,
+    name: string,
+    copyEnv: boolean,
+    base?: string,
+  ): Promise<{ path: string; branch: string; copied: string[]; setup?: string; setup_erro?: string }> {
     return this.request("POST", `/projects/${encodeURIComponent(projectId)}/worktrees`, { name, copy_env: copyEnv, base: base || null });
   }
 
@@ -341,6 +376,58 @@ export class CoreClient {
 
   brainKnown(titles: string[]): Promise<string[]> {
     return this.request("POST", "/brain/known", { titles });
+  }
+
+  // --- Sessões, agentes e sistema (v0.9.2) ---------------------------------------------
+
+  prefs(): Promise<Prefs> {
+    return this.request("GET", "/ajustes");
+  }
+
+  /** Muda só as chaves dadas (avisos é mesclado). */
+  savePrefs(changes: Partial<Prefs> | { avisos: Partial<Prefs["avisos"]> }): Promise<Prefs> {
+    return this.request("PUT", "/ajustes", changes);
+  }
+
+  /** Conversas do Claude e do Codex no disco, mais novas primeiro (todas as contas). */
+  history(q = "", cwd = "", limit = 80): Promise<HistoryItem[]> {
+    return this.request("GET", `/historico?${new URLSearchParams({ q, cwd, limit: String(limit) })}`);
+  }
+
+  /** Reinicia o agente na mesma pasta e conta; `continuar` retoma a conversa (409 se não achar). */
+  restartSession(id: string, continuar: boolean): Promise<Session> {
+    return this.request("POST", `/sessions/${encodeURIComponent(id)}/reiniciar`, { continuar });
+  }
+
+  /** Passa o trabalho para a outra CLI (Claude ↔ Codex) com o transcript e as últimas mensagens. */
+  handOff(id: string, para?: "claude" | "codex", nota = ""): Promise<Session> {
+    return this.request("POST", `/sessions/${encodeURIComponent(id)}/passar`, { para: para ?? null, nota });
+  }
+
+  resources(): Promise<Resources> {
+    return this.request("GET", "/recursos");
+  }
+
+  skills(cwd = ""): Promise<SkillInfo[]> {
+    return this.request("GET", `/skills?${new URLSearchParams({ cwd })}`);
+  }
+
+  projectScripts(projectId: string): Promise<ProjectScripts> {
+    return this.request("GET", `/projects/${encodeURIComponent(projectId)}/scripts`);
+  }
+
+  setProjectScripts(projectId: string, scripts: Partial<ProjectScripts>): Promise<ProjectScripts> {
+    return this.request("PUT", `/projects/${encodeURIComponent(projectId)}/scripts`, scripts);
+  }
+
+  /** Aviso do macOS pela mão do núcleo (para quando a janela está aberta mas sem foco). */
+  notifyMac(titulo: string, texto = ""): Promise<void> {
+    return this.request("POST", "/avisos/mac", { titulo, texto });
+  }
+
+  /** Desliga o núcleo de vez (fecha os terminais). A janela não faz isso sozinha ao fechar. */
+  shutdown(): Promise<{ fechando: number }> {
+    return this.request("POST", "/desligar");
   }
 
   // --- Quadros (v0.9.1) -------------------------------------------------------------

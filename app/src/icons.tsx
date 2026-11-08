@@ -37,6 +37,13 @@ export const ICON = {
   minus: "M5 12h14",
   port: "M4 12h4M16 12h4M8 8h8v8H8zM12 4v4M12 16v4",
   globe: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z",
+  // v0.9.2: sessões, agentes e avisos
+  bell: "M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0",
+  cpu: "M7 7h10v10H7zM10 10h4v4h-4zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4",
+  spark: "M12 3c.7 4.8 2.2 6.3 7 7-4.8.7-6.3 2.2-7 7-.7-4.8-2.2-6.3-7-7 4.8-.7 6.3-2.2 7-7zM19 16c.3 1.8.9 2.4 2.5 2.5-1.6.3-2.2.9-2.5 2.5-.3-1.6-.9-2.2-2.5-2.5 1.6-.1 2.2-.7 2.5-2.5z",
+  history: "M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.6L4 8.5M4 4v4.5h4.5",
+  handoff: "M4 8h13l-3.5-3.5M20 16H7l3.5 3.5",
+  code: "M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14",
 } as const;
 
 export function Icon({ d, size = 18, strokeWidth = 1.7 }: { d: string; size?: number; strokeWidth?: number }) {

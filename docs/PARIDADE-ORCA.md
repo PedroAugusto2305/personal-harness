@@ -1,6 +1,6 @@
 # Paridade com o Orca
 
-> **Estado:** levantamento. **Atualizado em:** 2026-11-07, sobre o Orca 1.4.248 a 1.4.253.
+> **Estado:** em execução, um bloco por versão desde a `v0.9.2`. **Levantamento:** 2026-11-07, sobre o Orca 1.4.248 a 1.4.253. **Situação:** 2026-11-08.
 > **Fontes:** as 58 páginas de `onorca.dev/docs`, o changelog, as releases de 1.4.247 a 1.4.253 e as referências de plugin em `github.com/stablyai/orca/docs/reference`. Em [`MAPA.md`](MAPA.md#6-seu-uso-real-do-orca), o seu uso real, lido de `~/Library/Application Support/Orca`.
 
 **Como ler a tabela:**
@@ -10,6 +10,21 @@
   - **Depois** entra após a 1.0.
   - **Fora** contraria um princípio do Harness.
 - A meta é uma **proposta**: mova o que quiser.
+
+## Situação da régua 1.0 (2026-11-08, `v0.9.2`)
+
+| Bloco | Situação |
+|---|---|
+| Contas, uso e limites, hooks e memória, servidores MCP (central de conectores), status do agente, barra de entrada com anexo e ditado em português, terminal flutuante, links e arrastar para o terminal | ✅ da `v0.2` à `v0.6` |
+| Worktrees (criar, copiar `.env`, apagar sem perder branch), abas, divisão em dois, painel de mudanças, diff com notas, commit pelo agente, arquivos, visualizadores, ⌘P, portas | ✅ `v0.3` |
+| Navegador por worktree com modo de design | ✅ `v0.4` |
+| Status do workspace e tarefas no kanban, Atividade, automações agendadas | ✅ `v0.5` a `v0.9.0` |
+| **A. Sessões e agentes:** sobreviver a fechar o app, histórico e retomar, reiniciar e continuar, passar o trabalho Claude ↔ Codex, modo de permissão, confiar na pasta, Mac acordado, página de Skills | ✅ `v0.9.2` |
+| **E. Avisos e sistema:** aviso do macOS e som, sino com não lidos e badge no Dock, ajustes de aviso, gerenciador de recursos, scripts de setup e arquivamento, CLI com `--json` e leitura e escrita em terminais | ✅ `v0.9.2` |
+| **B. Terminal e navegação:** busca no terminal, comandos salvos, divisão aninhada salva por worktree, ⌘J, atalhos remapeáveis, busca nas configurações, importar tema do Ghostty | ⏳ próximo bloco |
+| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ |
+| **D. Editores:** editar arquivos da worktree, editar notas do Brain com `[[links]]` e callouts | ⏳ |
+| Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ⏳ |
 
 ## Agentes e contas
 

@@ -37,6 +37,9 @@ Núcleo da MÊTIS (antes Personal Harness). Roda em `127.0.0.1` e é dono dos te
 - `study.py`: blocos do Pomodoro em `~/.harness/estudo.db`, placar e a linha na nota do dia.
 - `agent_draft.py`: rascunho de agente a partir de uma frase, pelo `claude -p` oficial.
 - `routines.py`: rotinas (`~/.harness/rotinas/*.md`), a regra de rodar, recuperar ou pular com o Mac dormindo e o histórico em `~/.harness/rotinas.db`; o agendador roda no núcleo a cada 20 s.
+- `prefs.py`: Ajustes em `~/.harness/ajustes.json` (modo de permissão por CLI, confiar nas pastas, Mac acordado, avisos) e o que eles viram na linha de comando das CLIs.
+- `history.py`: histórico das conversas do Claude e do Codex de todas as contas, com busca, para retomar (`--resume`, `codex resume`).
+- `system.py`: Mac acordado (`caffeinate`), aviso do macOS (`osascript`, texto como argumento), recursos por sessão (`ps`) e Skills.
 - `boards.py`: os Quadros, `.canvas` do Obsidian (JSON Canvas 1.0) em `01-PROJETOS/<Projeto>/quadros/`: listar, criar, ler com as notas do Brain resolvidas e salvar recusando por cima do que o Obsidian salvou depois.
 - `automations.py`: o arquivo das automações (`~/.harness/automacoes/<id>.yaml` = rascunho, `publicadas/<id>.yaml` = publicada, git local com as versões), a validação do desenho, as camadas, as expressões `{{Passo.campo}}` e a regra de uma linha da Condição (avaliada sem `eval`).
 - `automation_engine.py`: o motor: execuções em `~/.harness/automacoes.db`, camadas que rodam juntas, ramos, ensaio no teste, ferramenta pela central, agente em terminal com a `saida`, aprovação, Brain, esperar, reexecutar daqui e o agendador (a mesma regra de recuperação das rotinas).
@@ -45,7 +48,7 @@ Núcleo da MÊTIS (antes Personal Harness). Roda em `127.0.0.1` e é dono dos te
 
 ```sh
 uv sync
-uv run harness-core          # sobe em http://127.0.0.1:47830
+uv run harness-core          # sobe em http://127.0.0.1:47830 (a janela se liga a ele pelo ~/.harness/runtime.json)
 uv run pytest
 uv run harness contas        # contas e troca de conta pelo terminal
 ```

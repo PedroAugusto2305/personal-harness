@@ -491,8 +491,12 @@ class Engine:
                     agent = Agent(**{**agent.to_dict(), "model": str(step["modelo"])})
             else:
                 agent = Agent(id="automacao", name=f"⚙️ {step['titulo']}"[:60], cli=str(step.get("cli") or "claude"), model=str(step.get("modelo") or ""))
+            # As ferramentas da central (já filtradas para o passo) não pedem licença no Claude:
+            # no modo manual, a pergunta travaria o passo à espera de alguém no terminal.
+            extra = ["--allowedTools", "mcp__metis"] if agent.cli == "claude" else None
             session = self.manager.create(agent.cli, str(Path(step["pasta"]).expanduser()) if step.get("pasta") else None,
-                                          title=f"Automação · {state.flow['nome']}", tag="automacao", agent=agent, prompt=prompt)  # fmt: skip
+                                          title=f"Automação · {state.flow['nome']}", tag="automacao", agent=agent, prompt=prompt,
+                                          extra_args=extra)  # fmt: skip
             self.hub.session_tools[session.id] = {str(t) for t in step.get("ferramentas") or []}
             state.sessions.add(session.id)
             loop = asyncio.get_running_loop()
