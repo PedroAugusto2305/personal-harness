@@ -282,8 +282,8 @@ select:focus {
 
 .new-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
-  gap: 6px;
+  grid-template-columns: 1fr 1fr 1fr auto auto;
+  gap: 5px;
   padding: 0 4px;
 }
 
@@ -2794,6 +2794,13 @@ kbd {
   width: 7px;
   height: 7px;
   background: var(--acc);
+}
+
+.web-bar .design-toggle {
+  height: 28px;
+  margin: 0 4px;
+  padding: 0 10px;
+  gap: 6px;
 }
 
 .design-toggle[aria-pressed="true"] {

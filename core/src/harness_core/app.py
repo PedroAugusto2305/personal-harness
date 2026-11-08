@@ -103,6 +103,11 @@ class OpenTarget(BaseModel):
     reveal: str | None = None
 
 
+class WebTab(BaseModel):
+    url: str = ""
+    cwd: str | None = None
+
+
 def create_app(
     settings: Settings | None = None,
     accounts: AccountStore | None = None,
@@ -425,6 +430,14 @@ def create_app(
                 fs.reveal(body.reveal)
         except fs.FileError as exc:
             raise fail(exc) from exc
+
+    @app.post("/ui/web", dependencies=[Depends(require_token)], status_code=204)
+    def open_web_tab(body: WebTab) -> None:
+        """Pede à janela uma aba do navegador da MÊTIS (usado pelo `metis web`)."""
+        url = body.url.strip()
+        if url and not url.startswith(("http://", "https://", "about:blank")):
+            raise HTTPException(status_code=400, detail="só abro http, https ou about:blank")
+        manager.events.publish({"type": "open-web", "url": url, "cwd": body.cwd})
 
     # --- agentes em arquivo --------------------------------------------------
 

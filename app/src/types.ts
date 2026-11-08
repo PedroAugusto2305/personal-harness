@@ -155,7 +155,8 @@ export type CoreEvent =
   | { type: "projects"; projects: Project[] }
   | { type: "worktrees"; project: string }
   | { type: "agents"; agents: Agent[] }
-  | { type: "ports"; ports: Record<string, number[]> };
+  | { type: "ports"; ports: Record<string, number[]> }
+  | { type: "open-web"; url: string; cwd: string | null };
 
 export type Connection = "connecting" | "online" | "offline";
 

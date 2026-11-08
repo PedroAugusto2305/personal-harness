@@ -181,6 +181,27 @@ def test_open_only_accepts_local_urls(client):
     assert client.post("/open", json={"url": "http://localhost.exemplo.com"}, headers=AUTH).status_code == 400
 
 
+def test_web_tab_request_reaches_the_window(client):
+    with client.websocket_connect(f"/events?token={TOKEN}") as events:
+        assert events.receive_json()["type"] == "hello"
+        response = client.post("/ui/web", json={"url": "http://localhost:5173", "cwd": "/tmp/x"}, headers=AUTH)
+        assert response.status_code == 204
+        assert events.receive_json() == {"type": "open-web", "url": "http://localhost:5173", "cwd": "/tmp/x"}
+    assert client.post("/ui/web", json={"url": "file:///etc/passwd"}, headers=AUTH).status_code == 400
+    assert client.post("/ui/web", json={"url": "http://localhost:1"}).status_code in (401, 403)
+
+
+def test_cli_web_url():
+    from harness_core.cli import web_url
+
+    assert web_url("5173") == "http://localhost:5173"
+    assert web_url("localhost:3000/x") == "http://localhost:3000/x"
+    assert web_url("app.test") == "http://app.test"
+    assert web_url("exemplo.com") == "https://exemplo.com"
+    assert web_url("https://a.b") == "https://a.b"
+    assert web_url("") == ""
+
+
 # --- portas ----------------------------------------------------------------------
 
 
