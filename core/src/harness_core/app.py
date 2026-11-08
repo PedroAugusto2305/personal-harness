@@ -8,6 +8,8 @@ import json
 from datetime import datetime
 import secrets
 import subprocess
+import threading
+import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -562,7 +564,17 @@ def create_app(
         import signal
 
         open_sessions = len(manager.list())
-        asyncio.get_running_loop().call_later(0.3, lambda: os.kill(os.getpid(), signal.SIGTERM))
+
+        def stop() -> None:
+            os.kill(os.getpid(), signal.SIGTERM)  # o uvicorn fecha as sessões direito
+
+            def force() -> None:
+                time.sleep(10)
+                os._exit(0)  # o encerramento travou: sai assim mesmo, quem pediu quer o núcleo fora
+
+            threading.Thread(target=force, name="desligar-a-forca", daemon=True).start()
+
+        asyncio.get_running_loop().call_later(0.3, stop)
         return {"fechando": open_sessions}
 
     # --- sessões -----------------------------------------------------------

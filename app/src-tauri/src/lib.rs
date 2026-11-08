@@ -191,21 +191,56 @@ fn start_core() -> CoreState {
     CoreState { info: Mutex::new(info), child: Mutex::new(child) }
 }
 
+/// O núcleo com o nosso token já gravou o endereço dele no runtime.json? Se sim, guarda o endereço.
+fn runtime_ready(info: &mut CoreInfo) -> bool {
+    let Ok(text) = std::fs::read_to_string(runtime_file()) else { return false };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
+    if value["token"] != info.token.as_str() {
+        return false;
+    }
+    match value["url"].as_str() {
+        Some(url) => {
+            info.url = url.to_string();
+            true
+        }
+        None => false,
+    }
+}
+
 /// Espera o núcleo novo gravar o endereço dele (com o nosso token) no runtime.json.
 fn wait_runtime(info: &mut CoreInfo) {
     let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        if let Ok(text) = std::fs::read_to_string(runtime_file()) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                if value["token"] == info.token.as_str() {
-                    if let Some(url) = value["url"].as_str() {
-                        info.url = url.to_string();
-                        return;
-                    }
-                }
-            }
-        }
+    while Instant::now() < deadline && !runtime_ready(info) {
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Sobe um núcleo e espera ele ficar pronto. Se ele sair antes (a porta ainda presa pelo
+/// núcleo que acabou de fechar, por exemplo), espera um pouco e tenta de novo.
+fn spawn_ready() -> (CoreInfo, Option<Child>) {
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let (mut info, mut child) = spawn_core();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if runtime_ready(&mut info) {
+                return (info, child);
+            }
+            let exited = match child.as_mut() {
+                Some(process) => matches!(process.try_wait(), Ok(Some(_))),
+                None => true,
+            };
+            if exited || Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if attempt >= 4 {
+            return (info, child);
+        }
+        eprintln!("metis: o núcleo novo não subiu (tentativa {attempt}); tentando de novo");
+        std::thread::sleep(Duration::from_secs(2));
     }
 }
 
@@ -245,8 +280,7 @@ async fn core_restart(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, St
     if let Some(mut old) = state.child.lock().map_err(|e| e.to_string())?.take() {
         let _ = old.try_wait();
     }
-    let (mut info, child) = spawn_core();
-    wait_runtime(&mut info);
+    let (info, child) = spawn_ready();
     *state.child.lock().map_err(|e| e.to_string())? = child;
     *state.info.lock().map_err(|e| e.to_string())? = info.clone();
     Ok(info)
