@@ -17,6 +17,8 @@ export function useHarness() {
   const [agents, setAgents] = useState<Agent[]>([]);
   /** Sobe a cada mudança de worktrees num projeto, para quem lista recarregar. */
   const [worktreesTick, setWorktreesTick] = useState(0);
+  /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
+  const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const retry = useRef<number | undefined>(undefined);
 
@@ -64,6 +66,9 @@ export function useHarness() {
           break;
         case "agents":
           setAgents(event.agents);
+          break;
+        case "open-web":
+          setWebRequest((last) => ({ id: (last?.id ?? 0) + 1, url: event.url, cwd: event.cwd }));
           break;
         case "ports":
           setSessions((all) => {
@@ -164,6 +169,7 @@ export function useHarness() {
     projects,
     agents,
     worktreesTick,
+    webRequest,
     bumpWorktrees: () => setWorktreesTick((n) => n + 1),
     error,
     setError,

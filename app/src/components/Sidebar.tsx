@@ -28,6 +28,7 @@ interface Props {
   onSelectPlace: (place: Selected | null) => void;
   onFolder: (value: string) => void;
   onCreate: (kind: SessionKind) => void;
+  onWeb: () => void;
   onLaunchAgent: (agent: Agent) => void;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
@@ -152,6 +153,9 @@ export function Sidebar(props: Props) {
           <button type="button" className="btn" disabled={!props.ready} onClick={() => props.onCreate("shell")}>
             <Icon d={ICON.plus} size={13} strokeWidth={2.2} />
             Shell
+          </button>
+          <button type="button" className="btn" onClick={props.onWeb} title="Abrir o navegador da MÊTIS (com modo de design)" aria-label="Abrir navegador">
+            <Icon d={ICON.globe} size={14} />
           </button>
           <button
             type="button"

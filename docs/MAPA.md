@@ -170,6 +170,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 >
 > **`v0.4.0` (2026-11-07):** navegador embutido com WebKit nativo do macOS (o Tauri não traz Chromium): abas ao lado dos terminais, inspetor, aba anônima, downloads, novas janelas como abas, links do terminal com ⌘ + clique e as portas abrindo nele. Modo de design que manda o elemento (seletor, texto, HTML, estilo, componente e arquivo quando dá) para a barra de entrada do agente da worktree. Também entraram as sprites por prompt (Codex + pixelização) com estilo greco-romano por padrão. Ficou para depois: perfis com cookies importados do Chrome (o WebKit tem outro cofre de cookies) e o agente controlar o navegador pelo MCP.
 
+> **`v0.4.1` (2026-11-07):** o navegador ficou fácil de achar: botão de globo na barra lateral, botão "Navegador" na tela vazia e rótulo "Design" no modo de design. Entrou o comando `metis web <endereço>`, que abre uma aba da MÊTIS a partir de qualquer terminal, inclusive o de um agente.
+
 ## 10. Riscos
 
 | Risco | Como tratar |

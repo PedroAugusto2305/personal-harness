@@ -153,14 +153,15 @@ export function BrowserView(props: Props) {
         </form>
         <button
           type="button"
-          className="icon-btn design-toggle"
+          className="btn design-toggle"
           aria-pressed={!!info?.design}
           title={native ? "Modo de design: clique num elemento e ele vai para o agente (Esc sai)" : "Modo de design só no app"}
           aria-label="Modo de design"
           disabled={!native}
           onClick={() => props.onDesign(!info?.design)}
         >
-          <Icon d="M4 4l7 16 2.5-6.5L20 11z" size={15} strokeWidth={1.9} />
+          <Icon d="M4 4l7 16 2.5-6.5L20 11z" size={14} strokeWidth={1.9} />
+          <span>Design</span>
         </button>
         <button type="button" className="icon-btn" title="Inspetor (devtools)" aria-label="Abrir o inspetor" onClick={() => action("devtools")} disabled={!native}>
           <Icon d="M8 9l-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12" size={15} strokeWidth={1.9} />

@@ -3,6 +3,7 @@
     metis contas                       lista as contas e qual está ativa
     metis switch <claude|codex> <conta> passa a usar outra conta nas sessões novas
     metis login <claude|codex> <nome>   cria a conta e abre o login oficial aqui
+    metis web [endereço]               abre uma aba do navegador da MÊTIS (ex.: localhost:5173)
 
 O login acontece sempre no fluxo oficial da CLI, numa pasta só daquela conta.
 """
@@ -33,6 +34,30 @@ def _notify_core(home) -> None:
         pass
 
 
+def _core_post(home, path: str, body: dict) -> None:
+    """POST no núcleo em execução, achado pelo runtime.json."""
+    info = json.loads((home / "runtime.json").read_text(encoding="utf-8"))
+    request = urllib.request.Request(
+        f"{info['url']}{path}",
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={"X-Harness-Token": info["token"], "Content-Type": "application/json"},
+    )
+    urllib.request.urlopen(request, timeout=3)
+
+
+def web_url(target: str) -> str:
+    """localhost:5173 → http://localhost:5173; exemplo.com → https://exemplo.com."""
+    target = target.strip()
+    if not target or "://" in target or target == "about:blank":
+        return target
+    host = target.split("/", 1)[0].split(":", 1)[0]
+    local = host in ("localhost", "127.0.0.1", "0.0.0.0", "[::1]") or host.endswith(".localhost") or host.endswith(".test")
+    if target.isdigit():
+        return f"http://localhost:{target}"
+    return f"{'http' if local else 'https'}://{target}"
+
+
 def _print_accounts(store: AccountStore) -> None:
     for provider, entry in store.list().items():
         print(provider)
@@ -43,7 +68,7 @@ def _print_accounts(store: AccountStore) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="metis", description="Contas da MÊTIS.")
+    parser = argparse.ArgumentParser(prog="metis", description="Contas e navegador da MÊTIS.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("contas", help="lista as contas e qual está ativa")
     switch = sub.add_parser("switch", help="troca a conta ativa de uma CLI")
@@ -52,9 +77,22 @@ def main(argv: list[str] | None = None) -> int:
     login = sub.add_parser("login", help="cria uma conta e abre o login oficial neste terminal")
     login.add_argument("provider", choices=PROVIDERS)
     login.add_argument("nome")
+    web = sub.add_parser("web", help="abre uma aba do navegador da MÊTIS")
+    web.add_argument("endereco", nargs="?", default="", help="endereço ou porta (ex.: 5173, localhost:3000, exemplo.com)")
     args = parser.parse_args(argv)
 
     home = load_settings().home
+
+    if args.command == "web":
+        url = web_url(args.endereco)
+        try:
+            _core_post(home, "/ui/web", {"url": url, "cwd": os.getcwd()})
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"a MÊTIS não respondeu ({exc}). O app está aberto?", file=sys.stderr)
+            return 1
+        print(f"aberto na MÊTIS: {url or 'aba em branco'}")
+        return 0
+
     store = AccountStore(home)
 
     if args.command == "contas":

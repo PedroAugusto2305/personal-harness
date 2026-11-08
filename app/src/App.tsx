@@ -529,6 +529,14 @@ export default function App() {
   const browserLive = useRef({ docs, placeFor, keys, openWeb, setToast });
   browserLive.current = { docs, placeFor, keys, openWeb, setToast };
 
+  // `metis web <endereço>` num terminal (de você ou de um agente) abre a aba aqui.
+  useEffect(() => {
+    const request = harness.webRequest;
+    if (!request) return;
+    const { openWeb: open, placeFor: place } = browserLive.current;
+    open(request.url || undefined, { root: request.cwd ? place(request.cwd)?.worktree.path : undefined });
+  }, [harness.webRequest]);
+
   const handlePick = async (label: string, data: string) => {
     const doc = docs.find((d) => d.label === label);
     let pick: DesignPick;
@@ -769,6 +777,7 @@ export default function App() {
             onSelectPlace={setSelected}
             onFolder={setFolder}
             onCreate={(kind) => void create(kind)}
+            onWeb={() => openWeb()}
             onLaunchAgent={launchAgent}
             onSelect={select}
             onClose={harness.close}
@@ -885,6 +894,9 @@ export default function App() {
                         <span style={{ color: KIND_COLOR[kind] }}>{KIND_GLYPH[kind]}</span> {KIND_LABEL[kind]}
                       </button>
                     ))}
+                    <button type="button" className="btn" onClick={() => openWeb()}>
+                      ◍ Navegador
+                    </button>
                   </div>
                 </div>
               )}
@@ -905,6 +917,9 @@ export default function App() {
                     </button>
                     <button type="button" className="btn" disabled={!ready} onClick={() => void create("shell")}>
                       &gt;_ Shell
+                    </button>
+                    <button type="button" className="btn" onClick={() => openWeb()}>
+                      ◍ Navegador
                     </button>
                   </div>
                   <span className="small">
