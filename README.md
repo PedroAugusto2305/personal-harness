@@ -4,9 +4,11 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.4)
+## O que já faz (v0.9.5)
 
-**Novo na 0.9.4, uso diário:**
+**Na 0.9.5:** a MÊTIS instalada abre pelo Finder, pelo Launchpad e pelo Dock com o PATH do seu shell (antes, aberta assim, não achava o `uv`, o `claude` nem o `codex`).
+
+**Na 0.9.4, uso diário:**
 
 - **A MÊTIS de uso fica instalada** em `/Applications/MÊTIS.app`, montada de uma versão marcada (`scripts/instalar.sh`, ver [Instalar e atualizar](#instalar-e-atualizar)). Ela não recompila quando o código muda, então dá para usá-la o dia todo enquanto a MÊTIS é desenvolvida.
 - **Atualizar:** a instalada procura versão nova a cada 6 horas e avisa no sino; Ajustes → Sobre atualiza num terminal à vista (ou `metis atualizar`). Os terminais abertos continuam; o núcleo passa para a versão nova quando você o reinicia.
