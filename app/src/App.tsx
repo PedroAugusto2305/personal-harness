@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { Agents } from "./components/Agents";
 import { ICON, Icon } from "./icons";
 import { AgentSprite, spriteState } from "./components/AgentSprite";
+import { AutomationsView } from "./components/AutomationsView";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
@@ -839,6 +840,7 @@ export default function App() {
           { id: "today", group: "Hoje", label: "Hoje", hint: "rotinas do dia, em andamento, aprovações", run: () => setView("today") },
           { id: "routine-new", group: "Hoje", label: "Rotinas", hint: "agendar um agente", run: () => setView("today") },
           { id: "connectors", group: "Conectores", label: "Conectores", hint: "Slack, ClickUp e lembretes", run: () => setView("connectors") },
+          { id: "automations", group: "Automações", label: "Automações", hint: "passos ligados: ferramentas, agentes, condições e aprovações", run: () => setView("automations") },
           { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
           { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
           ...(contextPlace ? [{ id: "brain-panel", group: "Brain", label: "Precedentes desta worktree", hint: "painel da worktree → Brain", run: () => (setInspectorOpen(true), setInspectorTab("brain")) }] : []),
@@ -940,6 +942,16 @@ export default function App() {
             activity={harness.activity}
             onActivity={harness.setActivity}
             onDecide={decide}
+            onToast={setToast}
+          />
+        )}
+        {view === "automations" && (
+          <AutomationsView
+            client={harness.client}
+            agents={harness.agents}
+            tick={harness.automationTick}
+            event={harness.automationEvent}
+            onOpenSession={select}
             onToast={setToast}
           />
         )}

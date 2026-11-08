@@ -13,6 +13,12 @@ import type {
   BrainGraphData,
   BrainHit,
   BrainNote,
+  AutoCatalog,
+  AutoDetail,
+  AutoFlow,
+  AutoRun,
+  AutoRunSummary,
+  AutoSummary,
   BrainPlace,
   ContextWindow,
   SemanticStatus,
@@ -331,6 +337,72 @@ export class CoreClient {
 
   brainKnown(titles: string[]): Promise<string[]> {
     return this.request("POST", "/brain/known", { titles });
+  }
+
+  // --- Automações (v0.9.0) ---------------------------------------------------------
+
+  automations(): Promise<AutoSummary[]> {
+    return this.request("GET", "/automacoes");
+  }
+
+  automation(id: string): Promise<AutoDetail> {
+    return this.request("GET", `/automacoes/${encodeURIComponent(id)}`);
+  }
+
+  automationCatalog(): Promise<AutoCatalog> {
+    return this.request("GET", "/automacoes/catalogo");
+  }
+
+  createAutomation(nome: string, desenho?: AutoFlow): Promise<AutoSummary> {
+    return this.request("POST", "/automacoes", { nome, desenho: desenho ?? null });
+  }
+
+  saveAutomation(id: string, desenho: AutoFlow): Promise<AutoSummary> {
+    return this.request("PUT", `/automacoes/${encodeURIComponent(id)}`, { desenho });
+  }
+
+  archiveAutomation(id: string): Promise<void> {
+    return this.request("DELETE", `/automacoes/${encodeURIComponent(id)}`);
+  }
+
+  /** Publica o rascunho, ou uma versão antiga (hash do commit) de novo. */
+  publishAutomation(id: string, versao = ""): Promise<AutoSummary> {
+    return this.request("POST", `/automacoes/${encodeURIComponent(id)}/publicar`, { versao });
+  }
+
+  setAutomationActive(id: string, ativa: boolean): Promise<AutoSummary> {
+    return this.request("PUT", `/automacoes/${encodeURIComponent(id)}/ativa`, { ativa });
+  }
+
+  /** Testa o rascunho com ensaio: inteiro, a partir de um passo (desde) ou só um passo (passo). */
+  testAutomation(id: string, options: { desde?: string; passo?: string; execucao?: number } = {}): Promise<{ execucao: number }> {
+    return this.request("POST", `/automacoes/${encodeURIComponent(id)}/testar`, { desde: options.desde ?? "", passo: options.passo ?? "", execucao: options.execucao ?? 0 });
+  }
+
+  /** Roda a publicada agora, de verdade. */
+  runAutomation(id: string): Promise<{ execucao: number }> {
+    return this.request("POST", `/automacoes/${encodeURIComponent(id)}/rodar`);
+  }
+
+  automationRuns(id: string, limit = 50): Promise<AutoRunSummary[]> {
+    return this.request("GET", `/automacoes/${encodeURIComponent(id)}/execucoes?limit=${limit}`);
+  }
+
+  automationRun(runId: number): Promise<AutoRun> {
+    return this.request("GET", `/execucoes/${runId}`);
+  }
+
+  rerunFrom(runId: number, desde: string): Promise<{ execucao: number }> {
+    return this.request("POST", `/execucoes/${runId}/reexecutar`, { desde });
+  }
+
+  stopRun(runId: number): Promise<void> {
+    return this.request("POST", `/execucoes/${runId}/parar`);
+  }
+
+  /** Abre um Claude com o rascunho e o log do erro; a correção vai só para o rascunho. */
+  askFix(runId: number): Promise<{ session: string; title: string }> {
+    return this.request("POST", `/execucoes/${runId}/conserto`);
   }
 
   // --- Brain vivo (v0.8) ---------------------------------------------------------

@@ -23,6 +23,8 @@ from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
 from .brain_index import BrainIndex
+from .automation_engine import Engine
+from .automations import AutomationError, AutomationStore, blank, connectors_used, validate
 from .brain_tools import BrainTools
 from .claude_print import ClaudePrintError, ask_json
 from .semantic import Embedder
@@ -36,7 +38,7 @@ from .config import Settings, load_settings
 from .connectors import CATALOG, ConnectorError, ConnectorStore
 from .keychain import Keychain
 from .keychain import Vault as SecretVault
-from .mcp_hub import Hub, ToolError
+from .mcp_hub import Context, Hub, ToolError
 from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
 from .relay import install_cli_shim, install_relay
@@ -213,6 +215,33 @@ class TitlesBody(BaseModel):
     titles: list[str] = Field(default_factory=list, max_length=2000)
 
 
+class NewAutomation(BaseModel):
+    nome: str = Field(min_length=1, max_length=120)
+    desenho: dict | None = None
+
+
+class AutomationBody(BaseModel):
+    desenho: dict
+
+
+class PublishBody(BaseModel):
+    versao: str = ""
+
+
+class ActiveBody(BaseModel):
+    ativa: bool
+
+
+class TestBody(BaseModel):
+    desde: str = ""
+    passo: str = ""
+    execucao: int = 0
+
+
+class RerunBody(BaseModel):
+    desde: str = Field(min_length=1)
+
+
 class EmbedBody(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=64)
 
@@ -301,6 +330,21 @@ def create_app(
     routines = RoutineStore(settings.home)
     study = StudyLog(settings.home, vault)
 
+    def dm_pedro(text: str) -> str:
+        """Mensagem do bot na DM do Pedro (conta de lembretes). Devolve o que deu errado, se deu."""
+        account = next((a for a in connectors.list() if a.reminders), None)
+        if account is None:
+            return "sem conta do Slack para avisar"
+        try:
+            _, slack = connectors.slack(account.id)
+            slack.send(account.meta["dm"], text)
+        except (ConnectorError, SlackError, OSError, KeyError) as exc:
+            return f"Slack falhou: {exc}"
+        return ""
+
+    automations = AutomationStore(settings.home)
+    engine = Engine(settings.home, automations, hub, manager, brain, kanban, vault, agents, notify=dm_pedro, publish=lambda event: manager.events.publish(event))
+
     def notify_routine(routine: Routine, who: str, slot) -> str:
         """Aviso no Slack (conta de lembretes) de que a rotina abriu. Devolve o que deu errado, se deu."""
         account = next((a for a in connectors.list() if a.reminders), None)
@@ -353,6 +397,10 @@ def create_app(
                     manager.events.publish({"type": "routine.run", "routine": routine.to_dict(), "run": run})
                 else:
                     await run_routine(routine, slot, "rodou" if action == "rodar" else "recuperada")
+            try:
+                await engine.tick(now)
+            except Exception as exc:  # o agendador das rotinas nunca para por causa de uma automação
+                manager.events.publish({"type": "automation.error", "automation": "", "error": str(exc)})
             await asyncio.sleep(20)
 
     async def brain_worker() -> None:
@@ -395,6 +443,8 @@ def create_app(
     app.state.suggestions = suggestions
     app.state.hub = hub
     app.state.embedder = embedder
+    app.state.engine = engine
+    app.state.automations = automations
     app.state.voice = voice
     app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
@@ -1012,6 +1062,176 @@ def create_app(
         if not hub.decide(approval_id, body.aprovar):
             raise HTTPException(status_code=404, detail="aprovação não encontrada ou já respondida")
 
+    # --- automações (v0.9.0) ---------------------------------------------------------
+
+    def automation_fail(exc: Exception) -> HTTPException:
+        message = str(exc)
+        return HTTPException(status_code=404 if "não encontrada" in message else 400, detail=message)
+
+    def automation_summary(automation_id: str) -> dict:
+        draft = automations.draft(automation_id)
+        published = automations.published(automation_id)
+        st = engine.state(automation_id)
+        versions = automations.versions(automation_id)
+        return {
+            "id": automation_id,
+            "nome": draft["nome"],
+            "descricao": draft["descricao"],
+            "gatilho": (published or draft)["gatilho"],
+            "ativa": bool(st["ativa"]),
+            "publicada": versions[0]["number"] if versions else None,
+            "mudou": published is not None and published != draft,
+            "conectores": connectors_used(draft),
+            "ultima": engine.last_run(automation_id),
+            "alterado": automations.mtime(automation_id),
+        }
+
+    @app.get("/automacoes", dependencies=[Depends(require_token)])
+    def list_automations() -> list[dict]:
+        items = []
+        for automation_id in automations.ids():
+            try:
+                items.append(automation_summary(automation_id))
+            except AutomationError as exc:
+                items.append({"id": automation_id, "nome": automation_id, "erro": str(exc), "ativa": False, "conectores": []})
+        return items
+
+    @app.post("/automacoes", dependencies=[Depends(require_token)], status_code=201)
+    def create_automation(body: NewAutomation) -> dict:
+        try:
+            automation_id = automations.create(body.nome, body.desenho or blank(body.nome))
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        return automation_summary(automation_id)
+
+    @app.get("/automacoes/catalogo", dependencies=[Depends(require_token)])
+    async def automation_catalog() -> dict:
+        """O que dá para pôr num passo: ferramentas da central (com quem fala com outras pessoas), agentes e o Brain."""
+        ctx = Context(session="catalogo", who="catálogo", cwd=None, allowed=None)
+        tools = await asyncio.to_thread(hub.tools_for, ctx)
+        names = {a.id: a.name for a in connectors.list()}
+        return {
+            "ferramentas": [
+                {"nome": t.name, "descricao": t.description, "conta": t.account, "conta_nome": names.get(t.account, "MÊTIS"), "pessoas": t.write, "esquema": t.schema}
+                for t in tools
+            ],
+            "agentes": [{"id": a["id"], "nome": a["name"], "cli": a["cli"], "cor": a["color"], "descricao": a["description"]} for a in agents.list()],
+        }
+
+    @app.get("/automacoes/{automation_id}", dependencies=[Depends(require_token)])
+    def get_automation(automation_id: str) -> dict:
+        try:
+            return {
+                **automation_summary(automation_id),
+                "rascunho": automations.draft(automation_id),
+                "publicada_desenho": automations.published(automation_id),
+                "versoes": automations.versions(automation_id),
+                "diferenca": automations.diff(automation_id),
+                "arquivo": str(automations.path(automation_id)),
+            }
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+
+    @app.put("/automacoes/{automation_id}", dependencies=[Depends(require_token)])
+    def save_automation(automation_id: str, body: AutomationBody) -> dict:
+        try:
+            automations.save(automation_id, body.desenho)
+            return automation_summary(automation_id)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+
+    @app.delete("/automacoes/{automation_id}", dependencies=[Depends(require_token)], status_code=204)
+    def archive_automation(automation_id: str) -> None:
+        try:
+            engine.set_active(automation_id, False)
+            automations.archive(automation_id)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+
+    @app.post("/automacoes/{automation_id}/publicar", dependencies=[Depends(require_token)])
+    def publish_automation(automation_id: str, body: PublishBody) -> dict:
+        try:
+            content = automations.version_content(automation_id, body.versao) if body.versao else None
+            number = automations.publish(automation_id, content)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        manager.events.publish({"type": "automation.published", "automation": automation_id, "versao": number})
+        return automation_summary(automation_id)
+
+    @app.put("/automacoes/{automation_id}/ativa", dependencies=[Depends(require_token)])
+    def toggle_automation(automation_id: str, body: ActiveBody) -> dict:
+        try:
+            engine.set_active(automation_id, body.ativa)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        return automation_summary(automation_id)
+
+    @app.post("/automacoes/{automation_id}/testar", dependencies=[Depends(require_token)], status_code=202)
+    async def test_automation(automation_id: str, body: TestBody) -> dict:
+        """Roda o RASCUNHO com ensaio (inteiro, a partir de um passo, ou um passo só)."""
+        try:
+            run_id = await engine.start(automation_id, "teste", "teste", desde=body.desde or None, base_run=body.execucao or None, only=body.passo or None)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        return {"execucao": run_id}
+
+    @app.post("/automacoes/{automation_id}/rodar", dependencies=[Depends(require_token)], status_code=202)
+    async def run_automation(automation_id: str) -> dict:
+        """Roda a PUBLICADA agora, de verdade (`metis rodar`)."""
+        try:
+            run_id = await engine.start(automation_id, "producao", "manual")
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        return {"execucao": run_id}
+
+    @app.get("/automacoes/{automation_id}/execucoes", dependencies=[Depends(require_token)])
+    def automation_runs(automation_id: str, limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
+        return engine.list_runs(automation_id, limit)
+
+    @app.get("/execucoes/{run_id}", dependencies=[Depends(require_token)])
+    def get_run(run_id: int) -> dict:
+        try:
+            return engine.run(run_id)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+
+    @app.post("/execucoes/{run_id}/reexecutar", dependencies=[Depends(require_token)], status_code=202)
+    async def rerun_from(run_id: int, body: RerunBody) -> dict:
+        """Reexecutar daqui: as entradas guardadas valem, e só o passo e o que vem depois rodam de novo."""
+        try:
+            base = engine.run(run_id)
+            new_id = await engine.start(base["automation"], base["mode"], "reexecução", desde=body.desde, base_run=run_id)
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        return {"execucao": new_id}
+
+    @app.post("/execucoes/{run_id}/parar", dependencies=[Depends(require_token)], status_code=204)
+    async def stop_run(run_id: int) -> None:
+        if not await engine.cancel(run_id):
+            raise HTTPException(status_code=404, detail="essa execução não está rodando")
+
+    @app.post("/execucoes/{run_id}/conserto", dependencies=[Depends(require_token)], status_code=201)
+    def ask_fix(run_id: int) -> dict:
+        """Pedir conserto: um Claude com o rascunho e o log; a correção vai só para o rascunho."""
+        try:
+            run = engine.run(run_id)
+            path = automations.path(run["automation"])
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        failed = [f"- {sid}: {st.get('erro')}" for sid, st in run["steps"].items() if st.get("status") == "erro"]
+        prompt = (
+            f"A automação da MÊTIS \"{run['flow']['nome']}\" falhou na execução #{run_id} ({run['mode']}).\n"
+            f"Erro: {run.get('error')}\n" + "\n".join(failed) + "\n\n"
+            f"O rascunho dela é o arquivo {path}. Leia o arquivo e o erro, explique em duas linhas a causa e corrija "
+            "SÓ o rascunho (nunca a pasta publicadas/). Mantenha o formato YAML e os ids dos passos. "
+            "Depois diga ao Pedro para conferir na tela de Automações, testar e publicar."
+        )
+        try:
+            session = manager.create("claude", str(automations.dir), title=f"Conserto · {run['flow']['nome']}", tag="automacao", prompt=prompt)
+        except (UnknownKind, ExecutableNotFound, OSError) as exc:
+            raise fail(exc) from exc
+        return {"session": session.id, "title": session.title}
+
     # --- rotinas e Hoje -------------------------------------------------------------
 
     def routine_view(routine: Routine, now: datetime) -> dict:
@@ -1285,6 +1505,8 @@ def create_app(
     async def hook_event(request: Request, session: str = Query(...), name: str = Query(...)) -> None:
         await _json(request)
         manager.record_hook(session, name)
+        if name == "Stop":
+            engine.on_stop(session)  # passo de automação que terminou o turno sem devolver a saída
 
     # --- WebSockets --------------------------------------------------------
 

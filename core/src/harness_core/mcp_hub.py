@@ -134,6 +134,10 @@ class Hub:
         self.brain_tools = brain_tools or BrainTools(brain)
         # Notas do Brain que cada sessão viu pelas ferramentas (mini-mapa): sessão → caminho → nota.
         self.session_notes: dict[str, dict[str, dict]] = {}
+        # Passo de agente de uma automação (v0.9): só as ferramentas liberadas no passo, mais a
+        # `saida`, por onde o agente devolve o resultado ao motor.
+        self.session_tools: dict[str, set[str]] = {}
+        self.output_handler: Callable[[str, Any], str] | None = None
         self.tokens: dict[str, str] = {}
         self.pending: dict[str, Pending] = {}
         self._upstream: dict[str, tuple[float, list[dict]]] = {}
@@ -148,6 +152,7 @@ class Hub:
     def forget(self, session_id: str) -> None:
         self.tokens = {t: s for t, s in self.tokens.items() if s != session_id}
         self.session_notes.pop(session_id, None)
+        self.session_tools.pop(session_id, None)
 
     def touch(self, session_id: str, notes: list[dict], via: str) -> None:
         """Guarda as notas que a sessão viu, para o mini-mapa, e avisa a tela."""
@@ -325,13 +330,32 @@ class Hub:
             )
         return tools
 
+    def _output_tool(self) -> Tool:
+        def saida(args: dict, ctx: Context) -> str:
+            if self.output_handler is None:
+                raise ToolError("nenhuma automação esperando a saída desta sessão")
+            return self.output_handler(ctx.session, args.get("dados"))
+
+        return Tool(
+            "saida",
+            "Devolve o resultado deste passo de automação à MÊTIS. Chame UMA vez, no fim, com o JSON no formato combinado no pedido (campo dados). Se faltar campo, a MÊTIS diz o que corrigir.",
+            _schema({"dados": {"type": "object", "description": "O resultado no formato combinado."}}, ["dados"]),
+            saida,
+        )
+
     def tools_for(self, ctx: Context) -> list[Tool]:
         tools = self._builtin()
         for account in self.connectors.list():
             if ctx.allowed is not None and account.id not in ctx.allowed:
                 continue
             tools += self._slack_tools(account) if account.kind == "slack" else self._upstream_tools(account)
+        allowed = self.session_tools.get(ctx.session)
+        if allowed is not None:
+            tools = [t for t in tools if t.name in allowed] + [self._output_tool()]
         return tools
+
+    def find_tool(self, ctx: Context, name: str) -> Tool | None:
+        return next((t for t in self.tools_for(ctx) if t.name == name), None)
 
     # --- aprovação -----------------------------------------------------------------
 
@@ -344,15 +368,20 @@ class Hub:
 
     async def _ask(self, ctx: Context, tool: Tool, args: dict) -> str:
         """Espera o Pedro: 'aprovado', 'recusado' ou 'expirou'."""
-        loop = asyncio.get_running_loop()
         account = next((a for a in self.connectors.list() if a.id == tool.account), None)
+        summary = tool.summary(args) if tool.summary else json.dumps(args, ensure_ascii=False)[:300]
+        return await self.ask(ctx.session, ctx.who, tool.name, account.name if account else tool.account, summary, args)
+
+    async def ask(self, session: str, who: str, tool: str, account: str, summary: str, args: dict, timeout: float = APPROVAL_TIMEOUT) -> str:
+        """Pedido de aprovação na tela (o mesmo cartão da central): 'aprovado', 'recusado' ou 'expirou'."""
+        loop = asyncio.get_running_loop()
         pending = Pending(
             id=secrets.token_hex(6),
-            session=ctx.session,
-            who=ctx.who,
-            tool=tool.name,
-            account=account.name if account else tool.account,
-            summary=tool.summary(args) if tool.summary else json.dumps(args, ensure_ascii=False)[:300],
+            session=session,
+            who=who,
+            tool=tool,
+            account=account,
+            summary=summary,
             args=args,
             created=time.time(),
             future=loop.create_future(),
@@ -360,7 +389,7 @@ class Hub:
         self.pending[pending.id] = pending
         self.publish({"type": "approval", "approval": pending.to_dict()})
         try:
-            return "aprovado" if await asyncio.wait_for(pending.future, APPROVAL_TIMEOUT) else "recusado"
+            return "aprovado" if await asyncio.wait_for(pending.future, timeout) else "recusado"
         except asyncio.TimeoutError:
             return "expirou"
         finally:

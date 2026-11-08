@@ -37,6 +37,8 @@ Núcleo da MÊTIS (antes Personal Harness). Roda em `127.0.0.1` e é dono dos te
 - `study.py`: blocos do Pomodoro em `~/.harness/estudo.db`, placar e a linha na nota do dia.
 - `agent_draft.py`: rascunho de agente a partir de uma frase, pelo `claude -p` oficial.
 - `routines.py`: rotinas (`~/.harness/rotinas/*.md`), a regra de rodar, recuperar ou pular com o Mac dormindo e o histórico em `~/.harness/rotinas.db`; o agendador roda no núcleo a cada 20 s.
+- `automations.py`: o arquivo das automações (`~/.harness/automacoes/<id>.yaml` = rascunho, `publicadas/<id>.yaml` = publicada, git local com as versões), a validação do desenho, as camadas, as expressões `{{Passo.campo}}` e a regra de uma linha da Condição (avaliada sem `eval`).
+- `automation_engine.py`: o motor: execuções em `~/.harness/automacoes.db`, camadas que rodam juntas, ramos, ensaio no teste, ferramenta pela central, agente em terminal com a `saida`, aprovação, Brain, esperar, reexecutar daqui e o agendador (a mesma regra de recuperação das rotinas).
 - `activity.py`: Atividade em `~/.harness/atividade.db`.
 - `app.py`: API HTTP e WebSocket.
 
