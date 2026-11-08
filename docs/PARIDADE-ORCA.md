@@ -11,7 +11,7 @@
   - **Fora** contraria um princípio do Harness.
 - A meta é uma **proposta**: mova o que quiser.
 
-## Situação da régua 1.0 (2026-11-08, `v0.9.2`)
+## Situação da régua 1.0 (2026-11-08, `v0.9.3`)
 
 | Bloco | Situação |
 |---|---|
@@ -21,10 +21,11 @@
 | Status do workspace e tarefas no kanban, Atividade, automações agendadas | ✅ `v0.5` a `v0.9.0` |
 | **A. Sessões e agentes:** sobreviver a fechar o app, histórico e retomar, reiniciar e continuar, passar o trabalho Claude ↔ Codex, modo de permissão, confiar na pasta, Mac acordado, página de Skills | ✅ `v0.9.2` |
 | **E. Avisos e sistema:** aviso do macOS e som, sino com não lidos e badge no Dock, ajustes de aviso, gerenciador de recursos, scripts de setup e arquivamento, CLI com `--json` e leitura e escrita em terminais | ✅ `v0.9.2` |
-| **B. Terminal e navegação:** busca no terminal, comandos salvos, divisão aninhada salva por worktree, ⌘J, atalhos remapeáveis, busca nas configurações, importar tema do Ghostty | ⏳ próximo bloco |
-| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ |
+| **B. Terminal e navegação:** busca no terminal, comandos salvos, divisão aninhada salva por worktree (com arrastar a aba para a borda), ⌘J, atalhos remapeáveis, busca nas configurações, importar tema do Ghostty | ✅ `v0.9.3` |
+| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ próximo bloco |
 | **D. Editores:** editar arquivos da worktree, editar notas do Brain com `[[links]]` e callouts | ⏳ |
 | Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ⏳ |
+| Fora da `v0.9.3` no bloco B: temas do Warp e do Kitty, copiar o contexto e o ID da sessão, teclado kitty e OSC 52 no terminal | ⏳ |
 
 ## Agentes e contas
 

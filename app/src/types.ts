@@ -152,6 +152,8 @@ export interface ReviewNote {
 export type CoreEvent =
   | { type: "hello"; version?: string; sessions: Session[]; usage: Usage; accounts: Accounts; projects: Project[]; agents: Agent[] }
   | { type: "prefs"; prefs: Prefs }
+  | { type: "comandos" }
+  | { type: "atalhos" }
   | { type: "awake"; ativo: boolean }
   | { type: "session.created"; session: Session }
   | { type: "session.closed"; id: string }
@@ -718,4 +720,52 @@ export interface ProjectScripts {
   setup: string;
   /** Roda antes de apagar a worktree (até 2 min); se falhar, não apaga sem forçar. */
   arquivar: string;
+}
+
+// --- Terminal e navegação (v0.9.3) -----------------------------------------------------
+
+/** Comando ou prompt salvo, global (projeto null) ou de um projeto (o caminho do repositório). */
+export interface SavedCommand {
+  id: string;
+  nome: string;
+  texto: string;
+  /** "comando" roda no shell; "prompt" vai para a barra de entrada do agente. */
+  tipo: "comando" | "prompt";
+  projeto: string | null;
+}
+
+/** Cores de um tema de terminal, no formato do xterm (ITheme). */
+export interface TerminalColors {
+  background?: string;
+  foreground?: string;
+  cursor?: string;
+  cursorAccent?: string;
+  selectionBackground?: string;
+  selectionForeground?: string;
+  black?: string;
+  red?: string;
+  green?: string;
+  yellow?: string;
+  blue?: string;
+  magenta?: string;
+  cyan?: string;
+  white?: string;
+  brightBlack?: string;
+  brightRed?: string;
+  brightGreen?: string;
+  brightYellow?: string;
+  brightBlue?: string;
+  brightMagenta?: string;
+  brightCyan?: string;
+  brightWhite?: string;
+}
+
+export interface TerminalTheme {
+  nome: string;
+  cores: TerminalColors;
+}
+
+export interface GhosttyInfo {
+  config: { arquivo: string; tema: string | null; cores_proprias: boolean } | null;
+  temas: { nome: string; origem: "metis" | "ghostty" | "usuario" }[];
 }

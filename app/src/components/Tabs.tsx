@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ICON, Icon } from "../icons";
 
 export interface TabItem {
@@ -7,26 +7,75 @@ export interface TabItem {
   glyph: ReactNode;
   hint?: string;
   dot?: string;
+  /** Aba de outra worktree: aparece na divisão de lá (fica em cinza aqui). */
+  away?: boolean;
 }
 
 interface Props {
   items: TabItem[];
-  visible: (string | null)[];
+  visible: string[];
   focusedKey: string | null;
-  split: boolean;
+  tiled: boolean;
   floatOpen: boolean;
   inspectorOpen: boolean;
+  /** Atalhos em vigor (seguem o que o Pedro remapeou). */
+  hints: { split: string; splitDown: string; float: string; panel: string; palette: string };
   onSelect: (key: string) => void;
   onClose: (key: string) => void;
-  onToggleSplit: () => void;
+  onSplit: (side: "right" | "bottom") => void;
+  /** Arrasto de uma aba para um painel (feito com o ponteiro: o arrastar do HTML não chega na janela do Tauri). */
+  onDrag: (phase: "move" | "end" | "cancel", key: string, x: number, y: number) => void;
   onToggleFloat: () => void;
   onToggleInspector: () => void;
   onPalette: () => void;
 }
 
+const withHint = (label: string, hint: string) => (hint ? `${label} (${hint})` : label);
+
 /** Abas de terminais, diffs e arquivos. As que estão na tela ficam marcadas; a em foco, destacada. */
 export function Tabs(props: Props) {
   const { items, visible, focusedKey } = props;
+  /** O arrasto que acabou não vira clique na aba. */
+  const dragged = useRef(false);
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>, key: string) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest(".tab-close")) return;
+    const el = event.currentTarget;
+    const x0 = event.clientX;
+    const y0 = event.clientY;
+    const pointer = event.pointerId;
+    let moving = false;
+    dragged.current = false;
+    // Captura já no clique: o primeiro movimento pode cair fora da aba (mouse rápido).
+    el.setPointerCapture(pointer);
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+      if (!moving) {
+        moving = true;
+        dragged.current = true;
+      }
+      props.onDrag("move", key, ev.clientX, ev.clientY);
+    };
+    const stop = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", stop);
+      el.removeEventListener("pointercancel", stop);
+      window.removeEventListener("keydown", escape, true);
+      if (moving) props.onDrag(ev.type === "pointerup" ? "end" : "cancel", key, ev.clientX, ev.clientY);
+    };
+    const escape = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || !moving) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      moving = false;
+      props.onDrag("cancel", key, 0, 0);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", stop);
+    el.addEventListener("pointercancel", stop);
+    window.addEventListener("keydown", escape, true);
+  };
+
   return (
     <div className="tabs">
       <div className="tab-strip" role="tablist" aria-label="Abas abertas">
@@ -38,8 +87,16 @@ export function Tabs(props: Props) {
             className="tab"
             aria-selected={item.key === focusedKey}
             data-visible={visible.includes(item.key) ? "true" : undefined}
-            title={`${item.title}${item.hint ? ` · ${item.hint}` : ""}${index < 9 ? ` · ⌘${index + 1}` : ""}`}
-            onClick={() => props.onSelect(item.key)}
+            data-away={item.away ? "true" : undefined}
+            title={`${item.title}${item.hint ? ` · ${item.hint}` : ""}${index < 9 ? ` · ⌘${index + 1}` : ""}${item.away ? " · de outra worktree" : " · arraste para um painel"}`}
+            onPointerDown={(event) => startDrag(event, item.key)}
+            onClick={() => {
+              if (dragged.current) {
+                dragged.current = false;
+                return;
+              }
+              props.onSelect(item.key);
+            }}
             onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && props.onSelect(item.key)}
             onAuxClick={(event) => event.button === 1 && props.onClose(item.key)}
           >
@@ -62,24 +119,39 @@ export function Tabs(props: Props) {
         ))}
       </div>
       <div className="tab-actions">
-        <button type="button" className="icon-btn" title="Novo terminal ou ação (⌘K)" aria-label="Salto rápido" onClick={props.onPalette}>
+        <button
+          type="button"
+          className="icon-btn"
+          title={withHint("Novo terminal ou ação", props.hints.palette)}
+          aria-label="Salto rápido"
+          onClick={props.onPalette}
+        >
           <Icon d={ICON.plus} size={15} strokeWidth={2} />
         </button>
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={props.split}
-          title={props.split ? "Juntar a tela (⌘D)" : "Dividir a tela (⌘D)"}
-          aria-label="Dividir a tela"
-          onClick={props.onToggleSplit}
+          aria-pressed={props.tiled}
+          title={withHint("Dividir à direita", props.hints.split)}
+          aria-label="Dividir à direita"
+          onClick={() => props.onSplit("right")}
         >
           <Icon d={ICON.split} size={15} />
         </button>
         <button
           type="button"
           className="icon-btn"
+          title={withHint("Dividir para baixo", props.hints.splitDown)}
+          aria-label="Dividir para baixo"
+          onClick={() => props.onSplit("bottom")}
+        >
+          <Icon d={ICON.splitDown} size={15} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
           aria-pressed={props.floatOpen}
-          title="Terminal flutuante (⌃`)"
+          title={withHint("Terminal flutuante", props.hints.float)}
           aria-label="Terminal flutuante"
           onClick={props.onToggleFloat}
         >
@@ -89,7 +161,7 @@ export function Tabs(props: Props) {
           type="button"
           className="icon-btn"
           aria-pressed={props.inspectorOpen}
-          title="Mudanças, arquivos e portas da worktree (⌘⇧B)"
+          title={withHint("Mudanças, arquivos e portas da worktree", props.hints.panel)}
           aria-label="Painel da worktree"
           onClick={props.onToggleInspector}
         >

@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Terminal, type IBufferLine, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CoreError, type CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
 import { terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
-import type { Session, ThemeName } from "../types";
+import type { Session, TerminalColors, ThemeName } from "../types";
 
 const ANSI_DARK = {
   black: "#21222c",
@@ -46,8 +47,11 @@ const ANSI_LIGHT = {
   brightWhite: "#1f2330",
 };
 
-/** O tema do terminal sai dos mesmos tokens da interface. */
-function terminalTheme(theme: ThemeName): ITheme {
+/**
+ * O tema do terminal sai dos mesmos tokens da interface; com um tema de terminal escolhido
+ * (v0.9.3: importado do Ghostty), as cores dele vão por cima.
+ */
+function terminalTheme(theme: ThemeName, colors?: TerminalColors | null): ITheme {
   const css = getComputedStyle(document.documentElement);
   const token = (name: string) => css.getPropertyValue(name).trim();
   return {
@@ -57,6 +61,7 @@ function terminalTheme(theme: ThemeName): ITheme {
     cursorAccent: token("--term"),
     selectionBackground: token("--sel"),
     ...(theme === "claro" ? ANSI_LIGHT : ANSI_DARK),
+    ...(colors ?? {}),
   };
 }
 
@@ -108,8 +113,11 @@ function findInputBox(terminal: Terminal): { top: number; status: string } | nul
   return null;
 }
 
-/** Onde o terminal aparece. Todos ficam montados; só mudam de lugar ou somem. */
-export type Slot = "left" | "right" | "float" | "hidden";
+/**
+ * Onde o terminal aparece. Todos ficam montados; só mudam de lugar ou somem.
+ * "tile" é um painel da divisão da worktree (a posição vem em `box`).
+ */
+export type Slot = "tile" | "float" | "hidden";
 
 interface Props {
   session: Session;
@@ -117,7 +125,14 @@ interface Props {
   theme: ThemeName;
   slot: Slot;
   focused: boolean;
-  split: boolean;
+  /** A tela está dividida (o painel em foco ganha contorno). */
+  tiled: boolean;
+  /** Posição do painel na divisão (v0.9.3). */
+  box?: CSSProperties;
+  /** Cores do tema de terminal escolhido (null = as do tema da MÊTIS). */
+  colors?: TerminalColors | null;
+  /** Sobe para abrir a busca neste terminal (⌘F). */
+  searchSignal?: number;
   accountName: string | null;
   /** Sprite do agente, quando a sessão é de um agente. */
   badge?: ReactNode;
@@ -160,7 +175,10 @@ export function TerminalView({
   theme,
   slot,
   focused,
-  split,
+  tiled,
+  box,
+  colors,
+  searchSignal,
   accountName,
   badge,
   place,
@@ -180,6 +198,8 @@ export function TerminalView({
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fitter = useRef<FitAddon | null>(null);
+  const searcher = useRef<SearchAddon | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const socket = useRef<WebSocket | null>(null);
   const focusRef = useRef(onFocus);
   focusRef.current = onFocus;
@@ -224,10 +244,15 @@ export function TerminalView({
       cursorBlink: true,
       scrollback: 5000,
       macOptionIsMeta: true,
-      theme: terminalTheme(theme),
+      theme: terminalTheme(theme, colors),
+      // A busca acende os achados com decorações (e conta quantos são).
+      allowProposedApi: true,
     });
     const addon = new FitAddon();
     terminal.loadAddon(addon);
+    const search = new SearchAddon();
+    terminal.loadAddon(search);
+    searcher.current = search;
     terminal.loadAddon(
       new WebLinksAddon((event, uri) => {
         if (event.metaKey) linkRef.current?.(uri, event.shiftKey);
@@ -328,6 +353,7 @@ export function TerminalView({
       socket.current = null;
       terminal.dispose();
       term.current = null;
+      searcher.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id, client]);
@@ -344,8 +370,16 @@ export function TerminalView({
   }, [focused, slot]);
 
   useEffect(() => {
-    if (term.current) term.current.options.theme = terminalTheme(theme);
-  }, [theme]);
+    if (term.current) term.current.options.theme = terminalTheme(theme, colors);
+  }, [theme, colors]);
+
+  // ⌘F no terminal em foco abre a busca (o sinal sobe a cada ⌘F; se já aberta, só foca o campo).
+  const lastSignal = useRef(searchSignal);
+  useEffect(() => {
+    if (searchSignal === lastSignal.current) return;
+    lastSignal.current = searchSignal;
+    if (searchSignal) setSearchOpen(true);
+  }, [searchSignal]);
 
   const status = session.status;
   const agentKind = session.kind === "claude" || session.kind === "codex" ? session.kind : null;
@@ -354,7 +388,8 @@ export function TerminalView({
     <section
       className="pane"
       data-slot={slot}
-      data-focused={focused && (split || slot === "float") ? "true" : undefined}
+      style={slot === "tile" ? box : undefined}
+      data-focused={focused && (tiled || slot === "float") ? "true" : undefined}
       data-drop={session.id}
       hidden={slot === "hidden"}
       aria-label={`Terminal: ${session.title}`}
@@ -383,12 +418,34 @@ export function TerminalView({
           {STATUS_LABEL[status]}
         </span>
         {agentKind && onHandOff && <HandOffButton other={other} onHandOff={onHandOff} />}
+        <button
+          type="button"
+          className="icon-btn"
+          title="Buscar no terminal (⌘F)"
+          aria-label="Buscar no terminal"
+          aria-pressed={searchOpen}
+          onClick={() => setSearchOpen((v) => !v)}
+        >
+          <Icon d={ICON.search} size={13} strokeWidth={2} />
+        </button>
         {onHide && (
-          <button type="button" className="icon-btn" title={slot === "float" ? "Esconder (⌃`)" : "Tirar da divisão"} onClick={onHide}>
+          <button type="button" className="icon-btn" title={slot === "float" ? "Esconder (⌃`)" : "Tirar da divisão (⌘⇧W)"} onClick={onHide}>
             <Icon d={ICON.close} size={13} strokeWidth={2} />
           </button>
         )}
       </div>
+      {searchOpen && (
+        <TerminalSearch
+          addon={searcher.current}
+          onClose={() => {
+            setSearchOpen(false);
+            searcher.current?.clearDecorations();
+            if (live.current.readOnly && live.current.onFocusInput) live.current.onFocusInput();
+            else term.current?.focus();
+          }}
+          signal={searchSignal}
+        />
+      )}
       <div
         className="term-host"
         ref={host}
@@ -579,6 +636,120 @@ function HandOffButton({ other, onHandOff }: { other: "claude" | "codex"; onHand
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+/**
+ * Busca no terminal (⌘F): texto, maiúsculas e regex, com o número de achados.
+ * Enter vai para o próximo, ⇧Enter para o anterior, Esc fecha (e apaga os destaques).
+ * O que está no histórico de rolagem (5.000 linhas) também é buscado.
+ */
+function TerminalSearch({ addon, onClose, signal }: { addon: SearchAddon | null; onClose: () => void; signal?: number }) {
+  const [query, setQuery] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [regex, setRegex] = useState(false);
+  const [result, setResult] = useState<{ index: number; count: number } | null>(null);
+  const [bad, setBad] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    input.current?.focus();
+    input.current?.select();
+  }, [signal]);
+
+  useEffect(() => {
+    if (!addon) return;
+    const sub = addon.onDidChangeResults((r) => setResult({ index: r.resultIndex, count: r.resultCount }));
+    return () => sub.dispose();
+  }, [addon]);
+
+  const options = (): ISearchOptions => {
+    const css = getComputedStyle(document.documentElement);
+    const acc = css.getPropertyValue("--acc").trim() || "#82a0ff";
+    return {
+      caseSensitive,
+      regex,
+      decorations: {
+        matchBackground: "#7a6a2a",
+        matchOverviewRuler: "#c9a227",
+        activeMatchBackground: acc,
+        activeMatchColorOverviewRuler: acc,
+      },
+    };
+  };
+
+  const find = (direction: "next" | "previous", incremental = false) => {
+    if (!addon) return;
+    if (!query) {
+      addon.clearDecorations();
+      setResult(null);
+      return;
+    }
+    if (regex) {
+      try {
+        new RegExp(query);
+      } catch {
+        setBad(true);
+        return;
+      }
+    }
+    setBad(false);
+    const found = direction === "next" ? addon.findNext(query, { ...options(), incremental }) : addon.findPrevious(query, options());
+    if (!found) setResult({ index: -1, count: 0 });
+  };
+
+  // Cada letra busca de novo a partir do achado atual (incremental), como no navegador.
+  useEffect(() => {
+    find("next", true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, caseSensitive, regex]);
+
+  const count = !query ? "" : bad ? "regex inválida" : !result || result.count === 0 ? "nada" : result.index < 0 ? `${result.count}+` : `${result.index + 1}/${result.count}`;
+
+  return (
+    <div
+      className="term-search"
+      role="search"
+      onMouseDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        // As teclas aqui são do campo, não dos atalhos de terminal.
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          find(event.shiftKey ? "previous" : "next");
+        }
+      }}
+    >
+      <Icon d={ICON.search} size={13} strokeWidth={2} />
+      <input
+        ref={input}
+        value={query}
+        placeholder="Buscar no terminal"
+        spellCheck={false}
+        aria-label="Buscar no terminal"
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <span className="small mono term-search-count" data-bad={bad || (query && result?.count === 0) ? "true" : undefined}>
+        {count}
+      </span>
+      <button type="button" className="search-opt" aria-pressed={caseSensitive} title="Diferenciar maiúsculas" onClick={() => setCaseSensitive((v) => !v)}>
+        Aa
+      </button>
+      <button type="button" className="search-opt mono" aria-pressed={regex} title="Expressão regular" onClick={() => setRegex((v) => !v)}>
+        .*
+      </button>
+      <button type="button" className="icon-btn" title="Anterior (⇧↵)" aria-label="Achado anterior" onClick={() => find("previous")}>
+        <Icon d="M6 15l6-6 6 6" size={13} strokeWidth={2} />
+      </button>
+      <button type="button" className="icon-btn" title="Próximo (↵)" aria-label="Próximo achado" onClick={() => find("next")}>
+        <Icon d="M6 9l6 6 6-6" size={13} strokeWidth={2} />
+      </button>
+      <button type="button" className="icon-btn" title="Fechar (Esc)" aria-label="Fechar a busca" onClick={onClose}>
+        <Icon d={ICON.close} size={12} strokeWidth={2} />
+      </button>
     </div>
   );
 }

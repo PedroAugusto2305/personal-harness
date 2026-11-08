@@ -609,28 +609,31 @@ select:focus {
   display: flex;
 }
 
+/*
+ * v0.9.3: a divisão é uma árvore; cada painel fica em posição absoluta (em %), e a folga de
+ * 1px entre eles deixa ver o fundo, que vira a linha divisória.
+ */
 .panes {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
 }
 
 .panes[data-split="true"] {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  column-gap: 1px;
   background: var(--line);
 }
 
+.panes[data-resizing="true"] {
+  user-select: none;
+  cursor: col-resize;
+}
+
 .pane {
-  grid-row: 1;
-  grid-column: 1;
+  position: absolute;
+  inset: 0;
   min-width: 0;
   min-height: 0;
-  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--bg);
@@ -638,10 +641,6 @@ select:focus {
 
 .pane[hidden] {
   display: none;
-}
-
-.pane[data-slot="right"] {
-  grid-column: 2;
 }
 
 .pane[data-focused="true"] {
@@ -653,6 +652,7 @@ select:focus {
 .pane[data-slot="float"] {
   position: absolute;
   z-index: 30;
+  bottom: auto;
   top: 10px;
   left: 28px;
   right: 28px;
@@ -723,9 +723,12 @@ select:focus {
   user-select: text;
 }
 
+/* O viewport do xterm vem preto e fica 1 a 2px mais alto que a tela: virava uma linha no pé do painel. */
+.term-host .xterm-viewport {
+  background-color: transparent !important;
+}
+
 .pane-empty {
-  grid-row: 1;
-  grid-column: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -770,8 +773,8 @@ select:focus {
 }
 
 .empty {
-  grid-row: 1;
-  grid-column: 1 / -1;
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -5774,4 +5777,414 @@ body.capture-body {
   font-family: "Fira Code", ui-monospace, monospace;
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+/* --- v0.9.3: divisão em árvore, arrasto de abas, busca no terminal, atalhos e comandos --- */
+
+.pane-empty-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+.pane-divider {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+.pane-divider[data-dir="row"] {
+  cursor: col-resize;
+}
+
+.pane-divider[data-dir="col"] {
+  cursor: row-resize;
+}
+
+.pane-divider::after {
+  content: "";
+  position: absolute;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.pane-divider[data-dir="row"]::after {
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+}
+
+.pane-divider[data-dir="col"]::after {
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 2px;
+}
+
+.pane-divider:hover::after,
+.panes[data-resizing="true"] .pane-divider::after {
+  background: var(--acc);
+}
+
+.panes[data-resizing="true"] .pane-divider[data-dir="col"] {
+  cursor: row-resize;
+}
+
+.tab[data-away="true"] {
+  opacity: 0.5;
+}
+
+.tab[data-away="true"]:hover {
+  opacity: 0.8;
+}
+
+.tab-drop-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+}
+
+.tab-drop-preview {
+  position: absolute;
+  z-index: 21;
+  pointer-events: none;
+  border: 2px dashed var(--acc);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--acc) 16%, transparent);
+  transition:
+    left 0.08s,
+    top 0.08s,
+    width 0.08s,
+    height 0.08s;
+}
+
+.tab-drag-ghost {
+  position: fixed;
+  z-index: 120;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 320px;
+  padding: 6px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--side);
+  color: var(--tx);
+  font-size: 12.5px;
+  white-space: nowrap;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}
+
+.tab-drag-ghost .small {
+  color: var(--mut);
+}
+
+/* Busca no terminal (⌘F). */
+.term-search {
+  position: absolute;
+  top: 40px;
+  right: 10px;
+  max-width: calc(100% - 20px);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--side);
+  color: var(--mut);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.term-search input {
+  flex: 1 1 190px;
+  width: 190px;
+  min-width: 40px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--tx);
+  outline: none;
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  user-select: text;
+}
+
+.term-search-count {
+  flex: 0 0 auto;
+  min-width: 36px;
+  text-align: right;
+  color: var(--mut);
+}
+
+.term-search-count[data-bad="true"] {
+  color: var(--err);
+}
+
+.term-search .icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.search-opt {
+  height: 24px;
+  min-width: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mut);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.search-opt:hover {
+  color: var(--tx);
+}
+
+.search-opt[aria-pressed="true"] {
+  border-color: var(--acc);
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 12%, transparent);
+}
+
+/* Busca nos ajustes. */
+.settings-find {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.settings-find-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--mut);
+}
+
+.settings-find-input:focus-within {
+  border-color: var(--acc);
+}
+
+.settings-find-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--tx);
+  outline: none;
+  font: inherit;
+  font-size: 13px;
+  user-select: text;
+}
+
+.settings-find-results {
+  position: absolute;
+  top: 36px;
+  left: 0;
+  right: -60px;
+  z-index: 30;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--side);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.settings-nav .settings-find-results button {
+  width: 100%;
+  height: auto;
+  min-height: 34px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 10px;
+  color: var(--tx);
+}
+
+.settings-nav .settings-find-results button[aria-selected="true"] {
+  background: var(--sel);
+}
+
+.settings-find-results .small {
+  color: var(--mut);
+  font-size: 11px;
+}
+
+.settings-find-empty {
+  padding: 8px 10px;
+}
+
+.find-flash {
+  animation: find-flash 1.8s ease-out;
+  border-radius: 6px;
+}
+
+@keyframes find-flash {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--acc) 22%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 55%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+/* Atalhos. */
+.keymap-row kbd {
+  min-width: 70px;
+  text-align: center;
+}
+
+.keymap-row kbd.off {
+  color: var(--fnt);
+  border-style: dashed;
+}
+
+.keymap-row[data-recording="true"] kbd {
+  border-color: var(--acc);
+  color: var(--acc);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 30%, transparent);
+  }
+}
+
+.keymap-bad {
+  color: var(--err);
+}
+
+/* Comandos salvos. */
+.command-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.command-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.command-form-row input {
+  flex: 1 1 auto;
+}
+
+.command-form input,
+.command-form select,
+.command-form textarea,
+.term-theme-paste input,
+.term-theme-paste textarea {
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  color: var(--tx);
+  outline: none;
+  font: inherit;
+  user-select: text;
+}
+
+.command-form textarea,
+.term-theme-paste textarea {
+  resize: vertical;
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.command-form input:focus,
+.command-form textarea:focus,
+.term-theme-paste input:focus,
+.term-theme-paste textarea:focus {
+  border-color: var(--acc);
+}
+
+.command-row .setting-label {
+  min-width: 0;
+}
+
+.command-kind {
+  width: 22px;
+  flex: 0 0 22px;
+  color: var(--acc);
+  text-align: center;
+}
+
+.command-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tema do terminal. */
+.term-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 230px;
+  padding: 8px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  font-size: 11.5px;
+}
+
+.term-preview-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 3px;
+}
+
+.term-preview-swatches span {
+  height: 9px;
+  border-radius: 2px;
+}
+
+.term-theme-paste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+
+/* Linha de atalho com colunas fixas: o rótulo, a tecla e três lugares de botão. */
+.setting-row.keymap-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 72px 74px 66px;
+  align-items: center;
+  gap: 8px;
+}
+
+.keymap-row .pill {
+  justify-content: center;
+}
+
+.command-form-row {
+  flex-wrap: wrap;
+}
+
+.command-form-row select {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+
+.term-theme select {
+  max-width: 240px;
 }

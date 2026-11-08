@@ -15,6 +15,7 @@ import type {
   SessionKind,
   SessionStatus,
   Usage,
+  SavedCommand,
 } from "./types";
 
 const NO_ACCOUNTS: Accounts = { claude: { active: "padrao", accounts: [] }, codex: { active: "padrao", accounts: [] } };
@@ -77,6 +78,12 @@ export function useHarness() {
   const [coreVersion, setCoreVersion] = useState<string | null>(null);
   /** Ajustes de agentes e avisos (v0.9.2); null até o núcleo responder. */
   const [prefs, setPrefs] = useState<Prefs | null>(null);
+  /** v0.9.3: a lista de sessões já veio do núcleo (antes disso, aba que falta não quer dizer aba fechada). */
+  const [hydrated, setHydrated] = useState(false);
+  /** Atalhos mudados pelo Pedro (~/.harness/atalhos.json) e comandos salvos. */
+  const [keymap, setKeymap] = useState<Record<string, string>>({});
+  const [keymapFile, setKeymapFile] = useState<string | null>(null);
+  const [commands, setCommands] = useState<SavedCommand[]>([]);
   const [error, setError] = useState<string | null>(null);
   const retry = useRef<number | undefined>(undefined);
   const inbox = useInbox(client, prefs);
@@ -95,6 +102,7 @@ export function useHarness() {
       switch (event.type) {
         case "hello":
           setSessions(Object.fromEntries(event.sessions.map((s) => [s.id, s])));
+          setHydrated(true);
           // Ao (re)ligar, o estado atual vira a base; o que mudou com a janela desligada não avisa.
           seen.current = Object.fromEntries(event.sessions.map((s) => [s.id, { status: s.status, kind: s.kind, title: s.title, cwd: s.cwd }]));
           if (event.version) setCoreVersion(event.version);
@@ -136,6 +144,16 @@ export function useHarness() {
         }
         case "prefs":
           setPrefs(event.prefs);
+          break;
+        case "atalhos":
+          if (coreRef) void loadKeymap(coreRef);
+          break;
+        case "comandos":
+          if (coreRef)
+            void coreRef
+              .commands()
+              .then(setCommands)
+              .catch(() => undefined);
           break;
         case "session.statusline":
           setSessions((all) =>
@@ -265,6 +283,11 @@ export function useHarness() {
           .prefs()
           .then((value) => !cancelled && setPrefs(value))
           .catch(() => undefined);
+        void loadKeymap(core);
+        void core
+          .commands()
+          .then((list) => !cancelled && setCommands(list))
+          .catch(() => undefined);
         void core
           .connectors()
           .then((c) => !cancelled && setConnectors(c.accounts))
@@ -328,6 +351,33 @@ export function useHarness() {
     setSessions((all) => (all[session.id] ? all : { ...all, [session.id]: session }));
   }, []);
 
+  /** Atalhos: o núcleo só valida o formato; núcleo antigo (sem a rota) deixa os padrões. */
+  async function loadKeymap(core: CoreClient) {
+    try {
+      const answer = await core.keymap();
+      setKeymap(answer.atalhos);
+      setKeymapFile(answer.arquivo);
+    } catch {
+      // núcleo de antes da v0.9.3: vale o padrão
+    }
+  }
+
+  const saveKeymap = useCallback(
+    async (atalhos: Record<string, string>) => {
+      if (!client) return;
+      setKeymap(atalhos);
+      try {
+        const answer = await client.saveKeymap(atalhos);
+        setKeymap(answer.atalhos);
+        setKeymapFile(answer.arquivo);
+      } catch (cause) {
+        setError(message(cause));
+        void loadKeymap(client);
+      }
+    },
+    [client],
+  );
+
   /** Ajustes: muda na tela na hora e grava; se o núcleo recusar, volta ao que ele tem. */
   const savePrefs = useCallback(
     async (changes: Partial<Omit<Prefs, "avisos">> & { avisos?: Partial<Prefs["avisos"]> }) => {
@@ -388,6 +438,12 @@ export function useHarness() {
     coreVersion,
     prefs,
     savePrefs,
+    hydrated,
+    keymap,
+    keymapFile,
+    saveKeymap,
+    reloadKeymap: () => client && loadKeymap(client),
+    commands,
     inbox,
     adopt,
     bumpWorktrees: () => setWorktreesTick((n) => n + 1),

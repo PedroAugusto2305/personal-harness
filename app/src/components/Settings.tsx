@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, PROVIDERS, shortPath } from "../lib/format";
+import { KIND_COLOR, KIND_GLYPH, PROVIDERS, fold, shortPath } from "../lib/format";
+import { ACTIONS, formatCombo, hintFor, type Overrides } from "../lib/keymap";
 import { ICON, Icon } from "../icons";
-import type { Accounts, Prefs, Provider, ThemeName, Usage, VoiceStatus } from "../types";
+import type { Accounts, Prefs, Project, Provider, SavedCommand, TerminalTheme, ThemeName, Usage, VoiceStatus } from "../types";
 import { THEME_LABEL } from "./Chrome";
 import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
+import { CommandsSection, KeymapSection, TerminalThemeCard, type FindEntry } from "./SettingsTerminal";
 import { Limits } from "./StatusBar";
 
-export type SettingsSection = "contas" | "agentes" | "skills" | "recursos" | "aparencia" | "voz" | "sobre";
+export type SettingsSection = "contas" | "agentes" | "skills" | "recursos" | "aparencia" | "atalhos" | "comandos" | "voz" | "sobre";
 
 const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }[] = [
   { key: "contas", label: "Contas e uso", icon: "user" },
@@ -15,8 +17,39 @@ const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }
   { key: "skills", label: "Skills", icon: "spark" },
   { key: "recursos", label: "Recursos", icon: "cpu" },
   { key: "aparencia", label: "Aparência", icon: "palette" },
+  { key: "atalhos", label: "Atalhos", icon: "keyboard" },
+  { key: "comandos", label: "Comandos salvos", icon: "terminal" },
   { key: "voz", label: "Voz", icon: "mic" },
-  { key: "sobre", label: "Sobre e atalhos", icon: "info" },
+  { key: "sobre", label: "Sobre", icon: "info" },
+];
+
+/**
+ * O que a busca dos ajustes acha (⌘,): cada linha leva à seção e acende o texto na tela.
+ * Os termos trazem sinônimos e o mesmo em inglês e espanhol, para achar como lembrar.
+ */
+const FIND: FindEntry[] = [
+  { section: "contas", label: "Contas e uso", terms: "account accounts login usage limits plan plano cuenta uso limites" },
+  { section: "contas", label: "Adicionar conta", terms: "add account new login nova conta agregar cuenta" },
+  { section: "contas", label: "Trocar a conta em uso", find: "Usar esta", terms: "switch account activate ativa trocar cambiar cuenta" },
+  { section: "contas", label: "Atualizar uso do Codex", find: "Atualizar uso", terms: "refresh usage codex limites" },
+  { section: "agentes", label: "Modo de permissão das sessões novas", terms: "permission mode yolo auto manual permisos skip permissions aprovar" },
+  { section: "agentes", label: "Confiar nas pastas dos projetos e worktrees da MÊTIS", terms: "trust folder trusted confiar pasta carpeta confianza" },
+  { section: "agentes", label: "Manter o Mac acordado", terms: "awake sleep caffeinate dormir despierto energia" },
+  { section: "agentes", label: "Avisos", terms: "notifications alerts notificações notificaciones sino bell terminou espera" },
+  { section: "agentes", label: "Som", terms: "sound sonido volume beep" },
+  { section: "agentes", label: "Silenciar tudo", terms: "mute silence do not disturb silenciar no molestar" },
+  { section: "agentes", label: "Desligar a MÊTIS", terms: "quit shutdown stop core nucleo desligar apagar reiniciar restart" },
+  { section: "skills", label: "Skills", terms: "skills habilidades plugins claude" },
+  { section: "recursos", label: "Recursos", terms: "resources memory cpu memoria processos procesos sessões" },
+  { section: "aparencia", label: "Aparência", terms: "appearance theme colors dark light tema cores escuro claro dracula grafite apariencia" },
+  { section: "aparencia", label: "Tema do terminal", terms: "terminal theme colors palette paleta cores xterm" },
+  { section: "aparencia", label: "Importar do Ghostty", terms: "ghostty import theme importar tema" },
+  { section: "aparencia", label: "Colar um tema", terms: "paste theme pegar tema ghostty" },
+  { section: "atalhos", label: "Atalhos", terms: "shortcuts keybindings hotkeys keyboard teclado atajos remapear" },
+  { section: "comandos", label: "Comandos salvos", terms: "saved commands snippets prompts scripts comandos guardados" },
+  { section: "voz", label: "Voz", terms: "voice dictation whisper ditado microfone microphone dictado" },
+  { section: "voz", label: "Idioma do ditado", terms: "language idioma lingua" },
+  { section: "sobre", label: "Sobre", find: "Versão", terms: "about version versao version nucleo core codigo github" },
 ];
 
 const PROVIDER_INFO: Record<Provider, { title: string; env: string; home: string; usageHint: string }> = {
@@ -58,13 +91,144 @@ interface Props {
   skillsCwdLabel: string | null;
   onCloseSession: (id: string) => Promise<void>;
   onGoToSession: (id: string) => void;
+  // v0.9.3: atalhos, comandos salvos e tema do terminal
+  keymap: Overrides;
+  keymapFile: string | null;
+  onSaveKeymap: (overrides: Overrides) => Promise<void>;
+  onReloadKeymap: () => void;
+  commands: SavedCommand[];
+  projects: Project[];
+  currentProject: string | null;
+  onRunCommand: (command: SavedCommand) => void;
+  termTheme: TerminalTheme | null;
+  onTermTheme: (theme: TerminalTheme | null) => void;
+}
+
+/**
+ * Busca nos ajustes: campo no topo da lista de seções (já com o foco ao abrir com ⌘,).
+ * Escolher um resultado abre a seção e acende a linha achada.
+ */
+function SettingsFind({ entries, onPick }: { entries: FindEntry[]; onPick: (entry: FindEntry) => void }) {
+  const [query, setQuery] = useState("");
+  const [index, setIndex] = useState(0);
+  const sectionLabel = (key: string) => SECTIONS.find((s) => s.key === key)?.label ?? key;
+  const results = useMemo(() => {
+    const words = fold(query).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    return entries
+      .filter((e) => {
+        const hay = fold(`${e.label} ${e.terms} ${sectionLabel(e.section)}`);
+        return words.every((w) => hay.includes(w));
+      })
+      .slice(0, 12);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, query]);
+  useEffect(() => setIndex(0), [query]);
+
+  const pick = (entry: FindEntry | undefined) => {
+    if (!entry) return;
+    setQuery("");
+    onPick(entry);
+  };
+
+  return (
+    <div className="settings-find">
+      <span className="settings-find-input">
+        <Icon d={ICON.search} size={13} strokeWidth={2} />
+        <input
+          autoFocus
+          value={query}
+          placeholder="Buscar nos ajustes"
+          spellCheck={false}
+          aria-label="Buscar nos ajustes"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setIndex((i) => Math.min(results.length - 1, i + 1));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setIndex((i) => Math.max(0, i - 1));
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              pick(results[index]);
+            } else if (event.key === "Escape" && query) {
+              event.preventDefault();
+              setQuery("");
+            }
+          }}
+        />
+      </span>
+      {query && (
+        <ul className="settings-find-results" role="listbox" aria-label="Resultados da busca">
+          {results.length === 0 && <li className="small settings-find-empty">Nada com “{query}”.</li>}
+          {results.map((entry, i) => (
+            <li key={`${entry.section}-${entry.label}`} role="presentation">
+              <button type="button" role="option" aria-selected={i === index} onMouseEnter={() => setIndex(i)} onClick={() => pick(entry)}>
+                <span>{entry.label}</span>
+                <span className="small">{sectionLabel(entry.section)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function Settings(props: Props) {
+  const body = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState<{ text: string; n: number } | null>(null);
+
+  const entries = useMemo<FindEntry[]>(
+    () => [
+      ...FIND,
+      ...ACTIONS.map((a) => ({
+        section: "atalhos",
+        label: a.label,
+        terms: `atalho shortcut keybinding ${a.group} ${formatCombo((a.id in props.keymap ? props.keymap[a.id] : a.combo) || "")}`,
+      })),
+      ...props.commands.map((c) => ({ section: "comandos", label: c.nome, terms: `comando command ${c.tipo} ${c.texto.slice(0, 200)}` })),
+    ],
+    [props.keymap, props.commands],
+  );
+
+  // Acende o que a busca achou: a seção pode demorar a carregar, então procura por até 1,5 s.
+  useEffect(() => {
+    if (!flash) return;
+    const wanted = fold(flash.text);
+    let tries = 0;
+    let lit: Element | null = null;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      const candidates = body.current?.querySelectorAll("h1, h2, .setting-label, .theme-name, .skill-name, button.pill") ?? [];
+      const hit = [...candidates].find((el) => fold(el.textContent ?? "").startsWith(wanted)) ?? [...candidates].find((el) => fold(el.textContent ?? "").includes(wanted));
+      if (hit || tries > 15) {
+        window.clearInterval(timer);
+        if (!hit) return;
+        lit = hit.closest(".setting-row, .card-head, h1, h2") ?? hit;
+        lit.scrollIntoView({ block: "center", behavior: "smooth" });
+        lit.classList.add("find-flash");
+        window.setTimeout(() => lit?.classList.remove("find-flash"), 1800);
+      }
+    }, 100);
+    return () => {
+      window.clearInterval(timer);
+      lit?.classList.remove("find-flash");
+    };
+  }, [flash]);
+
   return (
     <div className="settings">
       <nav className="settings-nav" aria-label="Seções dos ajustes">
         <span className="section-title">Ajustes</span>
+        <SettingsFind
+          entries={entries}
+          onPick={(entry) => {
+            props.onSection(entry.section as SettingsSection);
+            setFlash((last) => ({ text: entry.find ?? entry.label, n: (last?.n ?? 0) + 1 }));
+          }}
+        />
         {SECTIONS.map((item) => (
           <button
             key={item.key}
@@ -77,14 +241,31 @@ export function Settings(props: Props) {
           </button>
         ))}
       </nav>
-      <div className="settings-body">
+      <div className="settings-body" ref={body}>
         {props.section === "contas" && <AccountsSection {...props} />}
         {props.section === "agentes" && (
           <AgentsPrefsSection client={props.client} prefs={props.prefs} onSave={props.onSavePrefs} openSessions={props.openSessions} />
         )}
         {props.section === "skills" && <SkillsSection client={props.client} cwd={props.skillsCwd} cwdLabel={props.skillsCwdLabel} />}
         {props.section === "recursos" && <ResourcesSection client={props.client} onClose={props.onCloseSession} onOpen={props.onGoToSession} />}
-        {props.section === "aparencia" && <AppearanceSection theme={props.theme} onTheme={props.onTheme} />}
+        {props.section === "aparencia" && (
+          <AppearanceSection theme={props.theme} onTheme={props.onTheme}>
+            <TerminalThemeCard client={props.client} value={props.termTheme} onChange={props.onTermTheme} />
+          </AppearanceSection>
+        )}
+        {props.section === "atalhos" && (
+          <KeymapSection keymap={props.keymap} file={props.keymapFile} onSave={props.onSaveKeymap} onReload={props.onReloadKeymap} />
+        )}
+        {props.section === "comandos" && (
+          <CommandsSection
+            client={props.client}
+            commands={props.commands}
+            projects={props.projects}
+            currentProject={props.currentProject}
+            onRun={props.onRunCommand}
+            shortcut={hintFor(props.keymap, "comandos")}
+          />
+        )}
         {props.section === "voz" && <VoiceSection {...props} />}
         {props.section === "sobre" && <AboutSection client={props.client} />}
       </div>
@@ -222,7 +403,7 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
   );
 }
 
-function AppearanceSection({ theme, onTheme }: { theme: ThemeName; onTheme: (theme: ThemeName) => void }) {
+function AppearanceSection({ theme, onTheme, children }: { theme: ThemeName; onTheme: (theme: ThemeName) => void; children?: ReactNode }) {
   return (
     <section className="settings-page">
       <h1>Aparência</h1>
@@ -256,6 +437,7 @@ function AppearanceSection({ theme, onTheme }: { theme: ThemeName; onTheme: (the
           <span className="small">Você descreve, um agente gera as cores e a MÊTIS confere o contraste. Chega numa próxima versão.</span>
         </div>
       </div>
+      {children}
     </section>
   );
 }
@@ -322,21 +504,10 @@ function VoiceSection({ client, language, onLanguage, run }: Props) {
   );
 }
 
-const SHORTCUTS: [string, string][] = [
-  ["⌘K", "Salto rápido: terminais e ações"],
-  ["⌘1 … ⌘9", "Ir para a aba"],
-  ["⌘D", "Dividir ou juntar a tela"],
-  ["⌃`", "Terminal flutuante"],
-  ["⌘L", "Ir para a barra de entrada"],
-  ["⌘⇧M", "Ditar / parar"],
-  ["Esc", "Cancelar a gravação · voltar ao terminal"],
-  ["⌘,", "Ajustes"],
-];
-
 function AboutSection({ client }: { client: CoreClient | null }) {
   return (
     <section className="settings-page">
-      <h1>Sobre e atalhos</h1>
+      <h1>Sobre</h1>
       <div className="card">
         <div className="setting-row">
           <span className="setting-label">Versão</span>
@@ -351,15 +522,7 @@ function AboutSection({ client }: { client: CoreClient | null }) {
           <span className="mono small">github.com/PedroAugusto2305/personal-harness</span>
         </div>
       </div>
-      <h2 className="sub">Atalhos</h2>
-      <div className="card">
-        {SHORTCUTS.map(([keys, label]) => (
-          <div className="setting-row" key={keys}>
-            <span className="setting-label">{label}</span>
-            <kbd>{keys}</kbd>
-          </div>
-        ))}
-      </div>
+      <p className="small">Os atalhos estão em Ajustes → Atalhos, onde dá para mudar qualquer um.</p>
     </section>
   );
 }
