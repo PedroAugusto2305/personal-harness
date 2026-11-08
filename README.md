@@ -4,13 +4,20 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.7.2)
+## O que já faz (v0.8.0)
 
-**Novo na 0.7.2:** a barra de baixo (Ditar, Anexar) é a única entrada dos terminais do Claude e do Codex. O terminal fica só para ler: o que você digita ou cola nele vai para a barra, e a caixa de entrada vazia do Claude some atrás de um véu (a linha de modo, como "auto mode on", vai para o cabeçalho do terminal). Com a barra vazia, ↑↓, Enter, Esc, ⇧Tab e ⌃C vão para o agente, para escolher opções de menus e perguntas, confirmar e interromper. O shell segue um terminal normal.
+**Novo na 0.8.0, o Brain vivo:**
+
+- **Busca por significado, local.** O modelo [potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M) (model2vec, ~260 MB em disco, roda só com numpy no Mac Intel e entende português) dá um vetor a cada registro do Brain. Precedentes passam a ser achados por significado e por palavra, juntos. O modelo só carrega no núcleo, quando precisa, e sai da memória depois de 20 minutos parado (carregado, ocupa ~1,5 GB).
+- **Antes de decidir:** `brain_conflitos` (MCP) e `metis brain conflitos "<decisão>"` mostram decisões parecidas do mesmo projeto (repetição ou contradição) e registros parecidos dos outros (precedente).
+- **Sugestões entre projetos:** cada registro novo procura outros projetos com registros bem parecidos. Se houver, o Claude (Haiku, pelo plano, no máximo 25 por dia) julga se vale lá e já escreve a decisão. A sugestão aparece no painel Brain do projeto, em Hoje e no leitor de notas; **Aceitar** vira decisão aceita no projeto alvo pelo `brain.py registrar`, ligada à nota de origem (dá para editar título e resumo antes).
+- **Fora da MÊTIS também:** `metis brain mcp` é um servidor MCP do Brain para o Claude Code e o Codex abertos em qualquer terminal (instalado como `metis-brain`), e `metis brain contexto` é o hook de início de sessão do `~/.claude/settings.json` com os precedentes e as sugestões do projeto da pasta. Nenhum dos dois carrega o modelo: usam os vetores já guardados e pedem ao núcleo o vetor de um texto livre quando a MÊTIS está aberta.
+- **Mini-mapa** no canto de cada terminal de agente: o projeto em âmbar e as notas do Brain que a sessão viu (precedentes do início, leituras, buscas, conflitos) ou registrou. Clique abre a nota.
+- **Janela de contexto** (aba Contexto do painel, ou clique em "contexto" na barra de status): o que ocupa o contexto do Claude em foco, por categoria (fixo da sessão, comandos, arquivos lidos, MCP, hooks…) e os itens que mais pesam, lidos do transcript.
+
+**Na 0.7.2:** a barra de baixo (Ditar, Anexar) é a única entrada dos terminais do Claude e do Codex. O terminal fica só para ler: o que você digita ou cola nele vai para a barra, e a caixa de entrada vazia do Claude some atrás de um véu (a linha de modo, como "auto mode on", vai para o cabeçalho do terminal). Com a barra vazia, ↑↓, Enter, Esc, ⇧Tab e ⌃C vão para o agente, para escolher opções de menus e perguntas, confirmar e interromper. O shell segue um terminal normal.
 
 **Na 0.7.1, o resto do OS pessoal:**
-
-**Novo na 0.7.1, o resto do OS pessoal:**
 
 - **Captura rápida** (⌥Espaço de qualquer app, ou ⌘K → "Captura rápida"): uma caixinha por cima de tudo. "me lembra de pagar o boleto sexta 9h" vira lembrete no Slack; "tarefa revisar o PR no Personal Harness" vira linha nas Próximas ações do projeto; "tarefa…" ou "anota…" sem projeto vai para as Capturas do dia no Brain; o resto vai para o **Hermes**, o concierge, num terminal da MÊTIS, que age pela central de MCP.
 - **Hermes**: agente novo, concierge da captura rápida.
@@ -18,9 +25,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 - **Sprites animadas** por estado na barra lateral e nas abas: respira parado, balança trabalhando, "!" esperando você, pulinho ao concluir, treme no erro.
 - **Estudo** (ícone de livro): Pomodoro (25/5, 50/10 ou 15/3) que continua ao trocar de tela, com o relógio na barra de título; cada foco vira uma linha em "📚 Estudo" na nota do dia do Brain. Placar com o piso de 20 minutos, a semana, a sequência e o aviso de dois dias seguidos sem estudar; botões para a Aurora e o Sócrates.
 
-**Desde a 0.7.0:**
-
-**Novo na 0.7, rotinas e Hoje:**
+**Na 0.7.0, rotinas e Hoje:**
 
 - **Rotinas**: um agente que abre sozinho num terminal na hora marcada, com um pedido como primeira mensagem (`claude "<pedido>"`, interativo e pelo plano). Dias da semana, hora, aviso no Slack (toca no iPhone) e janela de recuperação: se o Mac dormia na hora e acordou dentro dela, roda; depois, pula e fica registrado. Cada rotina é um `.md` em `~/.harness/rotinas/`.
 - **Hoje** (ícone de casa): as rotinas do dia com o que rodou, pulou ou espera, o que está em andamento nos projetos do Brain, o que aguarda a sua aprovação e um lembrete rápido. À direita, todas as rotinas com a próxima execução e o editor (nome, agente, dias, hora, recuperação, pedido, aviso).
@@ -92,6 +97,10 @@ metis web 5173                     # abre uma aba do navegador da MÊTIS
 metis brain buscar webhook guru    # busca no Brain (--tipo decisao, --projeto "Nome")
 metis brain ler "Título da nota"   # mostra a nota e quem cita ela
 metis brain precedentes            # registros de outros projetos parecidos com o desta pasta
+metis brain conflitos "Webhook passa por fila"  # antes de decidir: repetição, contradição, precedente
+metis brain sugestoes              # sugestões de precedente esperando você neste projeto
+metis brain mcp                    # servidor MCP do Brain por stdio (sessões fora da MÊTIS)
+metis brain contexto               # hook SessionStart fora da MÊTIS (lê o JSON do Claude no stdin)
 metis tarefas                      # Próximas ações do projeto desta pasta, com o id
 metis tarefa mover 4ea9e8ea em-teste
 ```
@@ -130,7 +139,8 @@ app/ (Tauri + React + xterm.js)  ──HTTP/WebSocket em 127.0.0.1──►  cor
 - O núcleo só escuta em `127.0.0.1` e exige um token novo a cada execução.
 - Variáveis do Orca, marcadores da sessão que abriu o núcleo e o Python do próprio núcleo não passam para os agentes.
 - Cada conta é uma pasta de configuração. A conta "padrão" usa o `~/.claude` e o `~/.codex` de sempre.
-- O modelo de voz (Whisper "small", cerca de 460 MB) fica em `~/.harness/modelos`; os anexos, em `~/.harness/anexos`.
+- O modelo de voz (Whisper "small", cerca de 460 MB) e o de significado (potion-multilingual-128M em float16, cerca de 260 MB) ficam em `~/.harness/modelos`; os anexos, em `~/.harness/anexos`.
+- As sugestões de precedente ficam em `~/.harness/sugestoes.db`; os vetores, no `brain.db` (cache, refeito do vault). Na primeira vez, o núcleo marca todos os registros que já existem como vistos: só os novos são julgados.
 
 ## Estrutura
 

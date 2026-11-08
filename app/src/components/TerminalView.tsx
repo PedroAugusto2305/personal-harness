@@ -137,6 +137,8 @@ interface Props {
   onFocusInput?: () => void;
   onFocus: () => void;
   onHide?: () => void;
+  /** Canto de cima à direita, sobre o terminal: o mini-mapa do Brain (v0.8). */
+  corner?: ReactNode;
 }
 
 export function TerminalView({
@@ -153,6 +155,7 @@ export function TerminalView({
   onLink,
   onFocus,
   onHide,
+  corner,
   readOnly = false,
   onTyped,
   onFocusInput,
@@ -374,6 +377,7 @@ export function TerminalView({
           if (readOnly && !term.current?.hasSelection()) onFocusInput?.();
         }}
       >
+        {corner}
         {cover && (
           <div className="term-cover" style={{ top: `calc(10px + ${cover.top} * var(--cell-h, 17px))` }} aria-hidden="true">
             <span>escreva na barra de baixo · ↑↓ ↵ esc vão para o agente</span>

@@ -5,6 +5,7 @@ Campos usados (doc: code.claude.com/docs/en/statusline):
 - workspace.current_dir
 - context_window.used_percentage, context_window_size, current_usage
 - cost.total_cost_usd
+- transcript_path (a janela de contexto lê o JSONL da conversa)
 - rate_limits.five_hour / seven_day: used_percentage, resets_at (só para assinantes
   e só depois da primeira resposta; cada janela pode faltar)
 """
@@ -56,6 +57,7 @@ def parse_statusline(payload: dict) -> dict:
             "used_tokens": used_tokens,
         },
         "cost_usd": _num(cost.get("total_cost_usd")),
+        "transcript": payload.get("transcript_path") if isinstance(payload.get("transcript_path"), str) else None,
         "rate_limits": rate_limits,
     }
 

@@ -1,6 +1,6 @@
 # harness-core
 
-Núcleo do Personal Harness. Roda em `127.0.0.1` e é dono dos terminais dos agentes.
+Núcleo da MÊTIS (antes Personal Harness). Roda em `127.0.0.1` e é dono dos terminais dos agentes.
 
 - `pty_session.py`: um terminal real (PTY) por sessão, com histórico em memória.
 - `sessions.py`: registro das sessões, status (trabalhando, esperando você, encerrada) e eventos.
@@ -20,8 +20,14 @@ Núcleo do Personal Harness. Roda em `127.0.0.1` e é dono dos terminais dos age
 - `sprites.py`: sprites dos agentes por prompt (`codex exec` com a ferramenta de imagem, estilo greco-romano obrigatório) e a pixelização em 48 × 48.
 - `vault.py`: o vault Brain (Obsidian): frontmatter, links, projetos de `01-PROJETOS` e a pasta de cada um (`diretorio:`); grava só o que muda, de forma atômica.
 - `kanban.py`: estágio do projeto (`estagio:` no frontmatter) e tarefas das "Próximas ações" (`#em-andamento`, `#em-teste`, `[x]` com `✅ data`).
-- `brain_index.py`: índice SQLite FTS5 em `~/.harness/brain.db` (cache, refeito do vault), busca, backlinks, precedentes v1 por palavra e o texto do hook de início de sessão.
-- `mcp_hub.py`: a central de MCP (`POST /mcp`): um servidor MCP por HTTP para cada terminal de agente, com as ferramentas do Brain, do kanban, do lembrete e das contas de conector, aprovação de escrita e Atividade.
+- `brain_index.py`: índice SQLite FTS5 em `~/.harness/brain.db` (cache, refeito do vault, com trava de escrita entre processos), busca, backlinks, vetores dos registros, precedentes híbridos (palavra + significado), conflitos antes de decidir, projetos vizinhos de um registro e o texto do hook de início de sessão.
+- `semantic.py`: busca por significado com o potion-multilingual-128M (model2vec) em `~/.harness/modelos`: baixa, carrega sob demanda e solta parado; a régua é o z (quanto um vizinho se destaca da média da consulta).
+- `suggestions.py`: sugestões entre projetos em `~/.harness/sugestoes.db`: registro novo → projetos vizinhos (z >= 3,3) → juiz (`claude -p --model haiku`, teto de 25 por dia) → aceitar pelo `brain.py registrar`.
+- `brain_tools.py`: as ferramentas do Brain para agentes (buscar, ler, precedentes, conflitos, sugestões), as mesmas na central e no MCP de fora.
+- `brain_mcp.py`: `metis brain mcp` (MCP por stdio para sessões fora da MÊTIS, vazio dentro dela) e `metis brain contexto` (hook SessionStart).
+- `claude_print.py`: pedido pontual ao `claude -p` pela conta ativa (o juiz roda sem ferramentas, sem MCP e sem as configurações do usuário).
+- `transcript.py`: janela de contexto de uma sessão do Claude, lida do transcript JSONL (total da API, divisão estimada por categoria desde a última compactação).
+- `mcp_hub.py`: a central de MCP (`POST /mcp`): um servidor MCP por HTTP para cada terminal de agente, com as ferramentas do Brain (inclusive `brain_conflitos` e `brain_sugestoes`), do kanban, do lembrete e das contas de conector, aprovação de escrita, Atividade e as notas que cada sessão viu (mini-mapa).
 - `connectors.py`: contas dos conectores (Slack por token do bot, ClickUp por OAuth), em `~/.harness/conectores.json` sem segredos.
 - `keychain.py`: tokens dos conectores no Keychain do macOS (`keyring`).
 - `slack.py`: Web API do Slack para o bot (DM, mensagem, mensagem agendada) e o manifesto do app.

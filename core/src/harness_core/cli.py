@@ -7,6 +7,10 @@
     metis brain buscar <termos>        busca no Brain (--tipo decisao, --projeto "Nome")
     metis brain ler "<título>"         mostra uma nota do Brain
     metis brain precedentes [termos]   registros de outros projetos parecidos com este
+    metis brain conflitos "<decisão>"  antes de decidir: repetição, contradição e precedentes
+    metis brain sugestoes              sugestões de precedente esperando o Pedro neste projeto
+    metis brain mcp                    servidor MCP do Brain por stdio (para sessões fora da MÊTIS)
+    metis brain contexto               hook SessionStart fora da MÊTIS (lê o JSON do Claude no stdin)
     metis tarefas                      as Próximas ações do projeto desta pasta, com o id
     metis tarefa nova "<texto>"        acrescenta uma tarefa
     metis tarefa mover <id> <estado>   pendente, em-andamento, em-teste ou concluida
@@ -139,6 +143,31 @@ def _brain_command(home, args) -> int:
         if note["backlinks"]:
             print("\nCitada por: " + "; ".join(b["title"] for b in note["backlinks"][:20]))
         return 0
+    if args.acao == "conflitos":
+        project = args.projeto
+        if not project:
+            try:
+                project = _here_project(home, None)
+            except CoreRefused:
+                project = ""
+        found = _core(home, "GET", f"/brain/conflitos?{_q({'q': ' '.join(args.termos), 'project': project})}")
+        print(f"busca por {found['via']}")
+        if project:
+            print(f"decisões parecidas em {project}:")
+            for item in found["same"] or [{"title": "nenhuma", "status": "", "resumo": ""}]:
+                print(f"  ⚖️ {item['title']}" + (f" ({item['status']})" if item.get("status") else ""))
+        print("registros parecidos em outros projetos:")
+        for item in found["other"] or [{"title": "nenhum", "projeto": "", "tipo": ""}]:
+            print(f"  {TYPE_ICON.get(item.get('tipo', ''), '·')} {item['title']}" + (f" ({item['projeto']})" if item.get("projeto") else ""))
+        return 0
+    if args.acao == "sugestoes":
+        project = _here_project(home, args.projeto)
+        items = _core(home, "GET", f"/brain/sugestoes?{_q({'project': project})}")
+        if not items:
+            print(f"nenhuma sugestão pendente em {project}.")
+        for item in items:
+            print(f"💡 #{item['id']} {item['title']}\n   de {item['source_title']} ({item['source_project']}): {item['motivo']}")
+        return 0
     # precedentes
     project = args.projeto
     if not project:
@@ -223,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     web = sub.add_parser("web", help="abre uma aba do navegador da MÊTIS")
     web.add_argument("endereco", nargs="?", default="", help="endereço ou porta (ex.: 5173, localhost:3000, exemplo.com)")
     brain = sub.add_parser("brain", help="busca, leitura e precedentes do Brain")
-    brain.add_argument("acao", choices=("buscar", "ler", "precedentes"))
+    brain.add_argument("acao", choices=("buscar", "ler", "precedentes", "conflitos", "sugestoes", "mcp", "contexto"))
     brain.add_argument("termos", nargs="*")
     brain.add_argument("--tipo", default="", help="decisao, incidente, aprendizado, entrega, projeto (vírgula para vários)")
     brain.add_argument("--projeto", default="")
@@ -254,6 +283,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"a MÊTIS não respondeu ({exc}). O app está aberto?", file=sys.stderr)
             return 1
         print(done["message"])
+        return 0
+
+    if args.command == "brain" and args.acao in ("mcp", "contexto"):
+        # Sem o núcleo: funcionam com a MÊTIS fechada (brain_mcp.py).
+        from .brain_mcp import StdioServer, session_hook
+
+        settings = load_settings()
+        if args.acao == "mcp":
+            StdioServer(settings).serve()
+            return 0
+        try:
+            payload = json.loads(sys.stdin.read() or "{}") if not sys.stdin.isatty() else {}
+        except ValueError:
+            payload = {}
+        try:
+            text = session_hook(settings, payload if isinstance(payload, dict) else {})
+        except Exception:  # hook nunca trava o início da sessão
+            text = ""
+        if text:
+            print(text)
         return 0
 
     if args.command in ("brain", "tarefas", "tarefa"):

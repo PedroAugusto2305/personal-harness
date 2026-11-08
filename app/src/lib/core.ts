@@ -14,6 +14,10 @@ import type {
   BrainHit,
   BrainNote,
   BrainPlace,
+  ContextWindow,
+  SemanticStatus,
+  SessionMap,
+  Suggestion,
   KanbanTask,
   Stage,
   TaskState,
@@ -327,6 +331,41 @@ export class CoreClient {
 
   brainKnown(titles: string[]): Promise<string[]> {
     return this.request("POST", "/brain/known", { titles });
+  }
+
+  // --- Brain vivo (v0.8) ---------------------------------------------------------
+
+  brainSemantic(): Promise<SemanticStatus> {
+    return this.request("GET", "/brain/semantica");
+  }
+
+  brainSemanticDownload(): Promise<SemanticStatus["model"]> {
+    return this.request("POST", "/brain/semantica/baixar");
+  }
+
+  suggestions(options: { project?: string; status?: string; note?: string } = {}): Promise<Suggestion[]> {
+    const query = new URLSearchParams({ project: options.project ?? "", status: options.status ?? "pendente", nota: options.note ?? "" });
+    return this.request("GET", `/brain/sugestoes?${query}`);
+  }
+
+  acceptSuggestion(id: number, titulo: string, resumo: string): Promise<Suggestion & { output: string }> {
+    return this.request("POST", `/brain/sugestoes/${id}/aceitar`, { titulo, resumo });
+  }
+
+  rejectSuggestion(id: number): Promise<Suggestion> {
+    return this.request("POST", `/brain/sugestoes/${id}/recusar`);
+  }
+
+  scanSuggestions(): Promise<SemanticStatus["suggestions"]["last_scan"] & { skipped?: string; baseline?: number }> {
+    return this.request("POST", "/brain/sugestoes/varrer");
+  }
+
+  sessionMap(sessionId: string): Promise<SessionMap> {
+    return this.request("GET", `/brain/sessao/${encodeURIComponent(sessionId)}`);
+  }
+
+  contextWindow(sessionId: string): Promise<ContextWindow> {
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/contexto`);
   }
 
   brainPlace(cwd: string): Promise<BrainPlace> {

@@ -27,6 +27,10 @@ export function useHarness() {
   const [routineRun, setRoutineRun] = useState<{ id: number; name: string; status: string; session?: string; detail: string } | null>(null);
   /** Sobe quando uma nota do Brain muda pela MÊTIS (kanban, `metis tarefa`), para as telas recarregarem. */
   const [brainTick, setBrainTick] = useState(0);
+  /** Sobe quando uma sugestão de precedente nasce ou é decidida (v0.8). */
+  const [suggestionsTick, setSuggestionsTick] = useState(0);
+  /** Por sessão: sobe quando ela vê uma nota nova do Brain (mini-mapa). */
+  const [sessionMapTicks, setSessionMapTicks] = useState<Record<string, number>>({});
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
   const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +105,13 @@ export function useHarness() {
           break;
         case "brain.changed":
           setBrainTick((n) => n + 1);
+          break;
+        case "suggestions":
+          setSuggestionsTick((n) => n + 1);
+          if (event.decided) setBrainTick((n) => n + 1);
+          break;
+        case "brain.session":
+          setSessionMapTicks((all) => ({ ...all, [event.session]: (all[event.session] ?? 0) + 1 }));
           break;
         case "open-web":
           setWebRequest((last) => ({ id: (last?.id ?? 0) + 1, url: event.url, cwd: event.cwd }));
@@ -220,6 +231,9 @@ export function useHarness() {
     setActivity,
     brainTick,
     bumpBrain: () => setBrainTick((n) => n + 1),
+    suggestionsTick,
+    bumpSuggestions: () => setSuggestionsTick((n) => n + 1),
+    sessionMapTicks,
     webRequest,
     bumpWorktrees: () => setWorktreesTick((n) => n + 1),
     error,
