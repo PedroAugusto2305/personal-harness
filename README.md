@@ -4,9 +4,20 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.8.0)
+## O que já faz (v0.9.0)
 
-**Novo na 0.8.0, o Brain vivo:**
+**Novo na 0.9.0, as Automações (o "n8n da MÊTIS"):**
+
+- **Canvas de passos** (ícone de fluxo na faixa): gatilho, Ferramenta, Agente, Condição, Aprovação, Brain e Esperar, ligados por setas, com notas no canvas. Cada automação é um YAML legível em `~/.harness/automacoes/`, com histórico num git local.
+- **Rascunho e publicada sempre explícitos:** editar (pela tela, à mão ou por um agente) só mexe no rascunho; o motor só roda a publicada; voltar é publicar uma versão antiga. Detalhes mostra a diferença.
+- **Ferramenta** chama a central de MCP direto, sem agente e sem gastar cota (Brain, kanban, lembrete, Slack, ClickUp…). Quem fala com outras pessoas pede a sua aprovação antes.
+- **Agente** abre um terminal de verdade do Claude ou do Codex, pelo plano, só com as ferramentas liberadas no passo; o resultado volta pela ferramenta `saida` e é conferido contra o formato combinado (até 2 pedidos de correção).
+- **Testar** roda o rascunho em **ensaio**: o que falaria com outras pessoas vai para a sua DM; dados fixados substituem a chamada; esperar vira 3 segundos.
+- **Execuções** com entrada, saída, itens e tempo de cada passo; erro nunca calado (vermelho na tela e DM no Slack em produção), **Pedir conserto** (um Claude corrige o rascunho) e **Reexecutar daqui**.
+- **Gatilhos:** manual, `metis rodar <automação>` e agendado (com a recuperação das rotinas para o Mac dormindo).
+- Ficou para a 0.9.x: passo de Código, criar por frase, gatilhos por evento e por sondagem, troca de provedor por cota e as rotinas virando automações.
+
+**Na 0.8.0, o Brain vivo:**
 
 - **Busca por significado, local.** O modelo [potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M) (model2vec, ~260 MB em disco, roda só com numpy no Mac Intel e entende português) dá um vetor a cada registro do Brain. Precedentes passam a ser achados por significado e por palavra, juntos. O modelo só carrega no núcleo, quando precisa, e sai da memória depois de 20 minutos parado (carregado, ocupa ~1,5 GB).
 - **Antes de decidir:** `brain_conflitos` (MCP) e `metis brain conflitos "<decisão>"` mostram decisões parecidas do mesmo projeto (repetição ou contradição) e registros parecidos dos outros (precedente).
@@ -101,6 +112,8 @@ metis brain conflitos "Webhook passa por fila"  # antes de decidir: repetição,
 metis brain sugestoes              # sugestões de precedente esperando você neste projeto
 metis brain mcp                    # servidor MCP do Brain por stdio (sessões fora da MÊTIS)
 metis brain contexto               # hook SessionStart fora da MÊTIS (lê o JSON do Claude no stdin)
+metis automacoes                   # as automações, com estado e a última execução
+metis rodar "Briefing da manhã"    # roda a versão publicada agora
 metis tarefas                      # Próximas ações do projeto desta pasta, com o id
 metis tarefa mover 4ea9e8ea em-teste
 ```

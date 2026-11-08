@@ -31,6 +31,9 @@ export function useHarness() {
   const [suggestionsTick, setSuggestionsTick] = useState(0);
   /** Por sessão: sobe quando ela vê uma nota nova do Brain (mini-mapa). */
   const [sessionMapTicks, setSessionMapTicks] = useState<Record<string, number>>({});
+  /** Automações (v0.9): sobe a cada evento do motor; o último evento diz qual execução mudou. */
+  const [automationTick, setAutomationTick] = useState(0);
+  const [automationEvent, setAutomationEvent] = useState<Extract<CoreEvent, { type: `automation.${string}` }> | null>(null);
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
   const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +112,13 @@ export function useHarness() {
         case "suggestions":
           setSuggestionsTick((n) => n + 1);
           if (event.decided) setBrainTick((n) => n + 1);
+          break;
+        case "automation.run":
+        case "automation.step":
+        case "automation.published":
+        case "automation.error":
+          setAutomationEvent(event);
+          setAutomationTick((n) => n + 1);
           break;
         case "brain.session":
           setSessionMapTicks((all) => ({ ...all, [event.session]: (all[event.session] ?? 0) + 1 }));
@@ -234,6 +244,8 @@ export function useHarness() {
     suggestionsTick,
     bumpSuggestions: () => setSuggestionsTick((n) => n + 1),
     sessionMapTicks,
+    automationTick,
+    automationEvent,
     webRequest,
     bumpWorktrees: () => setWorktreesTick((n) => n + 1),
     error,

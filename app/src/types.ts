@@ -172,13 +172,17 @@ export type CoreEvent =
   | { type: "study"; summary: StudySummary }
   | { type: "suggestions"; created?: number[]; decided?: number }
   | { type: "brain.session"; session: string }
-  | { type: "brain.error"; error: string };
+  | { type: "brain.error"; error: string }
+  | { type: "automation.run"; run: number; automation: string; status: AutoRunStatus; mode: AutoMode; error?: string }
+  | { type: "automation.step"; run: number; automation?: string | null; step: string; status?: AutoStepStatus; itens?: number; erro?: string; nota?: string; sessao?: string }
+  | { type: "automation.published"; automation: string; versao: number }
+  | { type: "automation.error"; automation: string; error: string };
 
 export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today" | "study";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today" | "study" | "automations";
 
 // --- Rotinas e Hoje (v0.7) ---------------------------------------------------------------
 
@@ -427,4 +431,156 @@ export interface ContextWindow {
   compacted?: boolean;
   estimated?: boolean;
   updated?: number;
+}
+
+// --- Automações (v0.9.0) ---------------------------------------------------------------------
+
+export type AutoStepType = "ferramenta" | "agente" | "condicao" | "aprovacao" | "brain" | "esperar";
+export type AutoOutputType = "texto" | "numero" | "lista" | "objeto" | "sim/nao";
+export type AutoMode = "teste" | "producao";
+export type AutoRunStatus = "rodando" | "ok" | "erro" | "recusada" | "cancelada" | "pulada" | "interrompida";
+export type AutoStepStatus = "rodando" | "ok" | "erro" | "pulado" | "recusado" | "esperando";
+
+export interface AutoTrigger {
+  tipo: "manual" | "agendado";
+  /** 0 = segunda … 6 = domingo */
+  dias?: number[];
+  hora?: string;
+  recupera_min?: number;
+  x?: number;
+  y?: number;
+}
+
+export interface AutoStep {
+  id: string;
+  tipo: AutoStepType;
+  titulo: string;
+  x?: number;
+  y?: number;
+  /** Desligado: os dados passam direto, sem rodar. */
+  desligado?: boolean;
+  /** Dados fixados: no teste, substituem a chamada. */
+  fixado?: unknown;
+  // ferramenta
+  ferramenta?: string;
+  argumentos?: Record<string, unknown>;
+  // agente
+  agente?: string;
+  cli?: "claude" | "codex";
+  modelo?: string;
+  onde?: "segundo-plano" | "visivel";
+  ferramentas?: string[];
+  pedido?: string;
+  saida?: Record<string, AutoOutputType>;
+  pasta?: string;
+  tempo_limite_min?: number;
+  // condição
+  regra?: string;
+  // aprovação
+  mensagem?: string;
+  prazo_min?: number;
+  // Brain
+  acao?: "buscar" | "ler" | "precedentes" | "tarefas" | "diario";
+  /** Título da nota que o "ler" abre. */
+  nota?: string;
+  termos?: string;
+  tipos?: string;
+  projeto?: string;
+  texto?: string;
+  limite?: number;
+  // esperar
+  minutos?: number;
+}
+
+export interface AutoEdge {
+  de: string;
+  para: string;
+  ramo?: "sim" | "não";
+}
+
+export interface AutoNote {
+  id: string;
+  titulo: string;
+  texto: string;
+  x: number;
+  y: number;
+  w?: number;
+}
+
+export interface AutoFlow {
+  nome: string;
+  descricao: string;
+  gatilho: AutoTrigger;
+  passos: AutoStep[];
+  ligacoes: AutoEdge[];
+  notas: AutoNote[];
+}
+
+export interface AutoRunSummary {
+  id: number;
+  automation: string;
+  mode: AutoMode;
+  origem: string;
+  versao: string;
+  status: AutoRunStatus;
+  started: number;
+  ended: number | null;
+  error: string | null;
+  nota: string | null;
+}
+
+export interface AutoStepRun {
+  status: AutoStepStatus;
+  started: number | null;
+  ended: number | null;
+  entrada: unknown;
+  saida: unknown;
+  itens: number | null;
+  erro: string | null;
+  nota: string | null;
+  /** Terminal do passo de agente (dá para abrir enquanto ele trabalha). */
+  sessao?: string | null;
+}
+
+export interface AutoRun extends AutoRunSummary {
+  flow: AutoFlow;
+  steps: Record<string, AutoStepRun>;
+}
+
+export interface AutoSummary {
+  id: string;
+  nome: string;
+  descricao?: string;
+  gatilho?: AutoTrigger;
+  ativa: boolean;
+  /** Número da versão publicada (null = nunca publicada). */
+  publicada: number | null;
+  /** O rascunho tem mudanças que a publicada não tem. */
+  mudou?: boolean;
+  conectores: string[];
+  ultima?: AutoRunSummary | null;
+  /** Quando o rascunho mudou no disco (segundos): a tela relê se outro mudou o arquivo. */
+  alterado?: number;
+  /** O YAML não abre (editado à mão com erro). */
+  erro?: string;
+}
+
+export interface AutoVersion {
+  hash: string;
+  when: number;
+  message: string;
+  number: number;
+}
+
+export interface AutoDetail extends AutoSummary {
+  rascunho: AutoFlow;
+  publicada_desenho: AutoFlow | null;
+  versoes: AutoVersion[];
+  diferenca: string;
+  arquivo: string;
+}
+
+export interface AutoCatalog {
+  ferramentas: { nome: string; descricao: string; conta: string; conta_nome: string; pessoas: boolean; esquema: Record<string, unknown> }[];
+  agentes: { id: string; nome: string; cli: "claude" | "codex"; cor: string; descricao: string }[];
 }

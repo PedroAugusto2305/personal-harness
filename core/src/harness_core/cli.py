@@ -15,6 +15,8 @@
     metis tarefa nova "<texto>"        acrescenta uma tarefa
     metis tarefa mover <id> <estado>   pendente, em-andamento, em-teste ou concluida
     metis lembrete "<texto>" <quando>  o bot da MÊTIS avisa no Slack na hora (ex.: sexta 9h, em 20 min)
+    metis automacoes                   as automações, com estado e a última execução
+    metis rodar <automação>            roda a versão publicada agora (id ou nome)
 
 O login acontece sempre no fluxo oficial da CLI, numa pasta só daquela conta.
 """
@@ -269,9 +271,39 @@ def main(argv: list[str] | None = None) -> int:
     reminder.add_argument("texto")
     reminder.add_argument("quando", nargs="+", help="ex.: sexta 9h, amanhã 14:30, em 20 min, 13/11 9h")
     reminder.add_argument("--conta", default="", help="id da conta do Slack (padrão: a de lembretes)")
+    sub.add_parser("automacoes", help="as automações, com estado e a última execução")
+    run = sub.add_parser("rodar", help="roda a versão publicada de uma automação agora")
+    run.add_argument("automacao", nargs="+", help="id ou nome da automação")
     args = parser.parse_args(argv)
 
     home = load_settings().home
+
+    if args.command in ("automacoes", "rodar"):
+        try:
+            items = _core(home, "GET", "/automacoes")
+            if args.command == "automacoes":
+                for item in items:
+                    last = item.get("ultima") or {}
+                    state = "ativa" if item.get("ativa") else ("publicada" if item.get("publicada") else "rascunho")
+                    print(f"⚙️ {item['nome']}  ({item['id']} · {state}{' · v' + str(item['publicada']) if item.get('publicada') else ''})"
+                          + (f"  última: {last.get('status')}" if last else ""))
+                if not items:
+                    print("nenhuma automação ainda: crie na tela de Automações.")
+                return 0
+            wanted = " ".join(args.automacao).strip().lower()
+            match = next((i for i in items if i["id"] == wanted or i["nome"].lower() == wanted), None)
+            if match is None:
+                print(f"automação não encontrada: {wanted}. Veja `metis automacoes`.", file=sys.stderr)
+                return 1
+            done = _core(home, "POST", f"/automacoes/{match['id']}/rodar", {})
+            print(f"rodando {match['nome']} (execução #{done['execucao']}); acompanhe em Automações → Execuções.")
+            return 0
+        except CoreRefused as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"a MÊTIS não respondeu ({exc}). O app está aberto?", file=sys.stderr)
+            return 1
 
     if args.command == "lembrete":
         try:

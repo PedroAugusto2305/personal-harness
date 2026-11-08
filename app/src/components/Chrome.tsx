@@ -62,12 +62,13 @@ const NAV: { key: keyof typeof ICON; label: string; version: string }[] = [
   { key: "kanban", label: "Kanban", version: "v0.5" },
   { key: "canvas", label: "Quadros", version: "v0.9" },
   { key: "agents", label: "Agentes", version: "v0.7" },
+  { key: "flow", label: "Automações", version: "v0.9" },
   { key: "plug", label: "Conectores", version: "v0.6" },
 ];
 
-const READY: Partial<Record<keyof typeof ICON, View>> = { home: "today", term: "term", study: "study", graph: "brain", kanban: "kanban", agents: "agents", plug: "connectors" };
+const READY: Partial<Record<keyof typeof ICON, View>> = { home: "today", term: "term", study: "study", graph: "brain", kanban: "kanban", agents: "agents", flow: "automations", plug: "connectors" };
 
-/** Faixa de ícones. Terminais, Brain, Kanban, Agentes e Ajustes já existem; o resto mostra quando chega. */
+/** Faixa de ícones. O que já existe abre a tela; o resto mostra a versão em que chega. */
 export function Ribbon({ view, onView }: { view: View; onView: (view: View) => void }) {
   return (
     <nav className="ribbon" aria-label="Módulos">
