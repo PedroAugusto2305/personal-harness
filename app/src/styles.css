@@ -2847,3 +2847,631 @@ kbd {
   padding: 24px;
   text-align: center;
 }
+
+/* --- Brain (v0.5): busca à esquerda, leitor à direita --------------------------------- */
+
+.segmented button[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--tx);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.brain-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.brain-list {
+  width: 340px;
+  flex: 0 0 340px;
+  min-height: 0;
+  padding: 12px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--side);
+  border-right: 1px solid var(--line);
+}
+
+.brain-search {
+  height: 34px;
+  margin: 0 4px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--fnt);
+}
+
+.brain-search:focus-within {
+  border-color: var(--acc);
+}
+
+.brain-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--tx);
+  font-size: 13px;
+}
+
+.brain-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.filter-chip {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 12px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--mut);
+  font-size: 11.5px;
+}
+
+.filter-chip[aria-pressed="true"] {
+  border-color: var(--acc);
+  background: var(--soft);
+  color: var(--acct);
+}
+
+.brain-project {
+  margin: 0 4px;
+  font-size: 12px;
+}
+
+.brain-count {
+  margin: 4px 8px 0;
+}
+
+.brain-hits {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brain-hit {
+  width: 100%;
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--tx);
+  text-align: left;
+}
+
+.brain-hit:hover {
+  background: var(--elev);
+}
+
+.brain-hit[aria-current="true"] {
+  background: var(--soft);
+}
+
+.brain-hit-title {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.brain-hit-meta {
+  color: var(--fnt);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brain-hit-snippet {
+  color: var(--mut);
+  font-size: 12px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.brain-hit mark,
+.brain-hit-snippet mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--soft);
+  color: var(--acct);
+}
+
+.brain-empty {
+  margin: 6px 10px;
+  color: var(--fnt);
+  line-height: 1.45;
+}
+
+.brain-foot {
+  padding: 4px 8px 0;
+  color: var(--fnt);
+}
+
+.brain-reader {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.brain-note-head {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 18px 36px 0;
+}
+
+.brain-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brain-note-actions .btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.brain-path {
+  flex: 1;
+  min-width: 0;
+  color: var(--fnt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brain-note-head h1 {
+  margin: 18px 0 10px;
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.brain-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-link {
+  cursor: pointer;
+  color: var(--acct);
+}
+
+.chip[data-status="proposta"] {
+  color: var(--wait);
+}
+
+.chip[data-status="substituida"] {
+  text-decoration: line-through;
+}
+
+.brain-markdown {
+  padding-top: 8px;
+}
+
+.markdown a.wikilink {
+  color: var(--acct);
+  text-decoration: none;
+  border-bottom: 1px solid var(--soft);
+}
+
+.markdown a.wikilink:hover {
+  border-bottom-color: var(--acct);
+}
+
+.markdown a.wikilink.missing {
+  color: var(--fnt);
+  border-bottom: 1px dashed var(--line2);
+  cursor: default;
+}
+
+.markdown .embed {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--elev);
+  color: var(--mut);
+  font-size: 12px;
+}
+
+/* Callouts do Obsidian: a cor da borda diz o tipo. */
+.markdown blockquote.callout {
+  margin: 12px 0;
+  padding: 8px 14px 10px;
+  border-left: 3px solid var(--acc);
+  border-radius: 0 8px 8px 0;
+  background: var(--elev);
+  color: var(--tx);
+}
+
+.markdown blockquote.callout p {
+  margin: 6px 0 0;
+}
+
+.callout-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--acct);
+}
+
+.markdown blockquote.callout[data-callout="warning"],
+.markdown blockquote.callout[data-callout="todo"] {
+  border-left-color: var(--wait);
+}
+
+.markdown blockquote.callout[data-callout="warning"] .callout-title,
+.markdown blockquote.callout[data-callout="todo"] .callout-title {
+  color: var(--wait);
+}
+
+.markdown blockquote.callout[data-callout="success"],
+.markdown blockquote.callout[data-callout="tip"] {
+  border-left-color: var(--run);
+}
+
+.markdown blockquote.callout[data-callout="success"] .callout-title,
+.markdown blockquote.callout[data-callout="tip"] .callout-title {
+  color: var(--run);
+}
+
+.markdown blockquote.callout[data-callout="danger"],
+.markdown blockquote.callout[data-callout="bug"] {
+  border-left-color: var(--err);
+}
+
+.markdown blockquote.callout[data-callout="quote"],
+.markdown blockquote.callout[data-callout="example"] {
+  border-left-color: var(--line2);
+}
+
+.brain-backlinks {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 28px 40px;
+}
+
+.brain-backlinks .section-title {
+  margin: 0 8px 6px;
+}
+
+.brain-welcome {
+  max-width: 560px;
+  margin: 12vh auto 0;
+  padding: 0 24px;
+  color: var(--mut);
+  line-height: 1.6;
+}
+
+.brain-welcome h2 {
+  color: var(--tx);
+  font-size: 22px;
+}
+
+.brain-welcome code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--elev);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+}
+
+/* --- Kanban (v0.5): colunas lado a lado, cartões arrastáveis ------------------------------ */
+
+.kanban-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.kb-bar {
+  height: 48px;
+  flex: 0 0 auto;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.kb-bar select {
+  max-width: 280px;
+  font-size: 12.5px;
+}
+
+.kb-bar .btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.kb-summary {
+  margin-left: auto;
+  color: var(--fnt);
+}
+
+.kb-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+/* Cabem as seis colunas numa janela de 1440 px; em janela menor, o quadro rola de lado. */
+.kb-col {
+  flex: 1 0 210px;
+  max-width: 320px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: var(--side);
+  border: 1px solid transparent;
+}
+
+.kb-col[data-over="true"] {
+  border-color: var(--acc);
+  background: var(--soft);
+}
+
+.kb-col-head {
+  height: 38px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.kb-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+}
+
+.kb-count {
+  margin-left: auto;
+  color: var(--fnt);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.kb-hint {
+  margin: -4px 12px 6px;
+  color: var(--fnt);
+  line-height: 1.4;
+}
+
+.kb-cards {
+  flex: 1;
+  min-height: 40px;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-card {
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  cursor: grab;
+}
+
+.kb-card:hover {
+  border-color: var(--line2);
+}
+
+.kb-card:active {
+  cursor: grabbing;
+}
+
+.kb-card-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.kb-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.kb-tags:empty {
+  display: none;
+}
+
+.kb-tag {
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--soft);
+  color: var(--acct);
+  font-size: 11px;
+}
+
+.kb-tag.warn {
+  background: var(--elev);
+  color: var(--wait);
+}
+
+.kb-meta {
+  color: var(--fnt);
+}
+
+.kb-next {
+  color: var(--mut);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kb-card-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.kb-task-text {
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.kb-task-text code,
+.brain-panel-task code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--elev);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 11.5px;
+}
+
+.kb-task-text a,
+.kb-next a,
+.brain-panel-task a {
+  color: var(--acct);
+  text-decoration: none;
+}
+
+.kb-task[data-cancelled="true"] .kb-task-text {
+  color: var(--fnt);
+}
+
+.kb-run {
+  align-self: flex-start;
+}
+
+.kb-add {
+  padding: 0 8px 10px;
+}
+
+.kb-add input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px dashed var(--line2);
+  background: transparent;
+  color: var(--tx);
+  outline: none;
+  font-size: 12.5px;
+}
+
+.kb-add input:focus {
+  border-style: solid;
+  border-color: var(--acc);
+}
+
+.kb-more {
+  padding: 0 12px 10px;
+  text-align: left;
+}
+
+.kb-empty {
+  color: var(--fnt);
+}
+
+/* --- Aba Brain do painel da worktree ------------------------------------------------- */
+
+.brain-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brain-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+}
+
+.brain-panel-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--tx);
+  text-align: left;
+}
+
+.brain-panel-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 4px 4px;
+}
+
+.brain-panel-task {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 4px;
+  line-height: 1.4;
+  color: var(--mut);
+}
+
+.brain-panel-task .kb-dot {
+  transform: translateY(-1px);
+}
+
+.brain-panel-prec {
+  padding: 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--tx);
+  text-align: left;
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.brain-panel-prec:hover {
+  background: var(--elev);
+}
+
+.brain-panel-prec .small {
+  color: var(--fnt);
+}
+
+.brain-panel-none,
+.brain-panel-note {
+  margin: 2px 4px;
+  color: var(--fnt);
+  line-height: 1.4;
+}
+
+.brain-panel-note {
+  margin-top: 12px;
+}

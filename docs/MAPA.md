@@ -174,6 +174,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 
 > **`v0.4.2` (2026-11-08):** correção do navegador. A página nativa podia ficar presa numa posição velha e cobrir a janela, e abrir uma aba dava o aviso "aba … não existe": o app reposicionava a página antes de ela nascer e marcava a posição como aplicada antes da confirmação. Agora é uma chamada nativa por vez, a posição só conta depois do sucesso e é reaplicada a cada segundo e no foco da janela. Entrou ⌘K → "Modo de design", e os botões da barra lateral pararam de ser cortados.
 
+> **`v0.5.0` (2026-11-08):** Brain e kanban. Índice SQLite FTS5 do vault (cache em `~/.harness/brain.db`), tela do Brain com busca, filtros, leitor com `[[links]]`, callouts e "Citada por". Kanban de projetos pelo `estagio:` da nota e de tarefas pelas "Próximas ações", com o estado intermediário como etiqueta na linha (`#em-andamento`, `#em-teste`), escolha do Pedro para a tarefa seguir aberta no Obsidian e no `brain.py`. "Executar com agente" cria a worktree e abre o Claude com a tarefa. Precedentes v1 por palavra (título e resumo dos registros de outros projetos) no início de cada sessão do Claude e na aba Brain do painel. Os agentes usam o Brain e o kanban pelo `metis brain` e `metis tarefa`; o MCP do Harness fica para a `v0.6.0`, junto com a central de MCP. Ficou para depois: precedentes para o Codex no início da sessão (a MÊTIS ainda não instala hooks no Codex), tarefas no ClickUp (`v0.6.0`) e busca por significado (`v0.8.0`).
+
 ## 10. Riscos
 
 | Risco | Como tratar |

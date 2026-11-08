@@ -4,9 +4,17 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.4.2)
+## O que já faz (v0.5.0)
 
-**Novo na 0.4:**
+**Novo na 0.5, Brain e kanban:**
+
+- **Brain** (ícone de grafo na faixa, ou ⌘K → "Buscar no Brain"): busca por palavra em todo o vault, sem acento e por começo de palavra, com filtro por tipo (decisões, incidentes, aprendizados, entregas, projetos, conhecimento) e por projeto. A nota abre ao lado, com `[[links]]` clicáveis (link para nota que não existe fica tracejado), callouts, "Citada por" e "Abrir no Obsidian".
+- **Kanban** (ícone de colunas, ou ⌘K → "Kanban de projetos"): os projetos de `01-PROJETOS` como cartões nas colunas Ideia, Planejando, Construindo, Em produção e Pausado. Arrastar grava `estagio:` na nota. O cartão abre as tarefas, que são as "Próximas ações" da nota, em Pendente, Em andamento, Em teste e Concluído. Arrastar troca a etiqueta na linha (`#em-andamento`, `#em-teste`) ou marca `[x]` com a data; "+ Adicionar" escreve uma linha nova.
+- **Executar com agente**: numa tarefa, cria uma worktree com o nome dela, abre o Claude, põe a tarefa em "Em andamento" e deixa o pedido na barra de entrada para você revisar.
+- **Precedentes v1**: toda sessão do Claude aberta na pasta de um projeto do Brain começa com decisões, incidentes, aprendizados e entregas de **outros** projetos que batem com as tarefas abertas. No painel da worktree, a aba **Brain** mostra o projeto, as tarefas abertas e os mesmos precedentes.
+- **Para os agentes**: `metis brain buscar|ler|precedentes`, `metis tarefas` e `metis tarefa nova|mover`, em qualquer terminal da MÊTIS.
+
+**Desde a 0.4:**
 
 - **Navegador embutido**: abas de navegador ao lado dos terminais (botão de globo na barra lateral, ⌘K → "Abrir navegador", "Abrir" no painel Portas, `metis web <endereço>` em qualquer terminal, ou ⌘ + clique num link do terminal; com ⇧, abre no navegador do Mac). É o WebKit do macOS, com barra de endereço, voltar e avançar, recarregar, inspetor (devtools), aba anônima, downloads em `~/Downloads` e links `target=_blank` virando aba nova.
 - **Modo de design**: botão Design na barra da aba (ou ⌘K → "Modo de design", que abre uma aba já no modo se nenhuma estiver em foco), realça o elemento sob o mouse; o clique manda para a barra de entrada do agente da worktree o seletor, o texto, o HTML, o estilo e, quando a página é React, Svelte ou Vue em desenvolvimento, o componente e o arquivo de origem. Esc sai.
@@ -36,6 +44,8 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 
 As outras telas do protótipo aparecem na faixa de ícones e mostram em que versão chegam.
 
+O projeto do Brain de uma pasta vem do `diretorio:` no frontmatter da nota do projeto (o mesmo vínculo do `brain.py`); uma worktree conta como o repositório principal dela.
+
 ## Comando `metis`
 
 Dentro dos terminais do app (e em `core/` com `uv run metis`):
@@ -44,6 +54,12 @@ Dentro dos terminais do app (e em `core/` com `uv run metis`):
 metis contas                       # contas de cada CLI e qual está em uso
 metis switch codex pessoal         # as próximas sessões do Codex usam a conta "pessoal"
 metis login claude trabalho        # cria a conta e abre o login oficial do Claude Code nela
+metis web 5173                     # abre uma aba do navegador da MÊTIS
+metis brain buscar webhook guru    # busca no Brain (--tipo decisao, --projeto "Nome")
+metis brain ler "Título da nota"   # mostra a nota e quem cita ela
+metis brain precedentes            # registros de outros projetos parecidos com o desta pasta
+metis tarefas                      # Próximas ações do projeto desta pasta, com o id
+metis tarefa mover 4ea9e8ea em-teste
 ```
 
 O nome antigo, `harness`, continua funcionando como apelido. Os dados seguem em `~/.harness`.

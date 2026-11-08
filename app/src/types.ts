@@ -156,10 +156,70 @@ export type CoreEvent =
   | { type: "worktrees"; project: string }
   | { type: "agents"; agents: Agent[] }
   | { type: "ports"; ports: Record<string, number[]> }
-  | { type: "open-web"; url: string; cwd: string | null };
+  | { type: "open-web"; url: string; cwd: string | null }
+  | { type: "brain.changed"; project: string };
 
 export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban";
+
+// --- Brain e kanban (v0.5) ---------------------------------------------------------
+
+export type NoteType = "decisao" | "incidente" | "aprendizado" | "entrega" | "projeto" | string;
+
+export interface BrainHit {
+  path: string;
+  title: string;
+  tipo: NoteType;
+  projeto: string;
+  status: string;
+  data: string;
+  resumo: string;
+  /** Trecho com \x02 … \x03 em volta das palavras achadas. */
+  snippet?: string;
+  terms?: string[];
+}
+
+export interface BrainNote extends BrainHit {
+  meta: Record<string, string>;
+  body: string;
+  backlinks: BrainHit[];
+}
+
+export type Stage = "" | "ideia" | "planejando" | "construindo" | "em-producao" | "pausado";
+export type TaskState = "pendente" | "em-andamento" | "em-teste" | "concluida";
+
+export interface BoardProject {
+  name: string;
+  path: string;
+  stage: Stage;
+  status: string;
+  area: string;
+  deadline: string;
+  started: string;
+  updated: string;
+  directory: string;
+  tasks: Record<TaskState, number>;
+  next: string[];
+  records: { decisoes: number; incidentes: number; entregas: number; aprendizados: number };
+  proposals: number;
+}
+
+export interface KanbanTask {
+  id: string;
+  text: string;
+  state: TaskState;
+  line: number;
+  subtasks_done: number;
+  subtasks_total: number;
+  cancelled: boolean;
+  done_on: string;
+}
+
+export interface BrainPlace {
+  project: BoardProject | null;
+  tasks?: KanbanTask[];
+  precedents?: BrainHit[];
+}

@@ -25,6 +25,8 @@ def settings(tmp_path: Path) -> Settings:
         port=free_port(),
         token=TOKEN,
         worktrees=tmp_path / "workspaces",
+        # Nunca o vault de verdade nos testes: um Brain vazio na pasta temporária.
+        brain=tmp_path / "Brain",
     )
 
 

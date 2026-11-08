@@ -17,6 +17,8 @@ export function useHarness() {
   const [agents, setAgents] = useState<Agent[]>([]);
   /** Sobe a cada mudança de worktrees num projeto, para quem lista recarregar. */
   const [worktreesTick, setWorktreesTick] = useState(0);
+  /** Sobe quando uma nota do Brain muda pela MÊTIS (kanban, `metis tarefa`), para as telas recarregarem. */
+  const [brainTick, setBrainTick] = useState(0);
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
   const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +68,9 @@ export function useHarness() {
           break;
         case "agents":
           setAgents(event.agents);
+          break;
+        case "brain.changed":
+          setBrainTick((n) => n + 1);
           break;
         case "open-web":
           setWebRequest((last) => ({ id: (last?.id ?? 0) + 1, url: event.url, cwd: event.cwd }));
@@ -169,6 +174,8 @@ export function useHarness() {
     projects,
     agents,
     worktreesTick,
+    brainTick,
+    bumpBrain: () => setBrainTick((n) => n + 1),
     webRequest,
     bumpWorktrees: () => setWorktreesTick((n) => n + 1),
     error,

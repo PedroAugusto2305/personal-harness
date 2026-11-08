@@ -1,4 +1,11 @@
 import type {
+  BoardProject,
+  BrainHit,
+  BrainNote,
+  BrainPlace,
+  KanbanTask,
+  Stage,
+  TaskState,
   Accounts,
   Account,
   Agent,
@@ -280,6 +287,53 @@ export class CoreClient {
 
   importMaestri(): Promise<{ imported: string[] }> {
     return this.request("POST", "/agents/import/maestri");
+  }
+
+  // --- Brain e kanban ---------------------------------------------------------
+
+  brainSearch(q: string, options: { tipo?: string[]; projeto?: string; limit?: number } = {}): Promise<BrainHit[]> {
+    const query = new URLSearchParams({ q, tipo: (options.tipo ?? []).join(","), projeto: options.projeto ?? "", limit: String(options.limit ?? 40) });
+    return this.request("GET", `/brain/search?${query}`);
+  }
+
+  brainNote(target: { path?: string; title?: string }): Promise<BrainNote> {
+    return this.request("GET", `/brain/note?${new URLSearchParams({ path: target.path ?? "", title: target.title ?? "" })}`);
+  }
+
+  brainStatus(): Promise<{ vault: string; available: boolean; total: number; types: Record<string, number> }> {
+    return this.request("GET", "/brain/status");
+  }
+
+  openInObsidian(path: string): Promise<void> {
+    return this.request("POST", "/brain/obsidian", { path });
+  }
+
+  brainKnown(titles: string[]): Promise<string[]> {
+    return this.request("POST", "/brain/known", { titles });
+  }
+
+  brainPlace(cwd: string): Promise<BrainPlace> {
+    return this.request("GET", `/brain/place?${new URLSearchParams({ cwd })}`);
+  }
+
+  boardProjects(): Promise<BoardProject[]> {
+    return this.request("GET", "/brain/projects");
+  }
+
+  setStage(project: string, stage: Stage): Promise<BoardProject> {
+    return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/stage`, { stage });
+  }
+
+  tasks(project: string): Promise<KanbanTask[]> {
+    return this.request("GET", `/brain/projects/${encodeURIComponent(project)}/tasks`);
+  }
+
+  addTask(project: string, text: string, state: TaskState = "pendente"): Promise<KanbanTask> {
+    return this.request("POST", `/brain/projects/${encodeURIComponent(project)}/tasks`, { text, state });
+  }
+
+  moveTask(project: string, id: string, state: TaskState): Promise<KanbanTask> {
+    return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}`, { state });
   }
 
   async upload(file: Blob, name: string): Promise<string> {

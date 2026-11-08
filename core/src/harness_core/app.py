@@ -17,6 +17,9 @@ from . import files as fs
 from . import gitops
 from .accounts import PROVIDERS, AccountStore, UnknownAccount
 from .agents import AgentError, AgentStore
+from .brain_index import BrainIndex
+from .kanban import Kanban
+from .vault import Vault, VaultError
 from .sprites import SpriteStudio
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
 from .config import Settings, load_settings
@@ -108,6 +111,27 @@ class WebTab(BaseModel):
     cwd: str | None = None
 
 
+class StageBody(BaseModel):
+    stage: str = Field(default="", pattern="^(|ideia|planejando|construindo|em-producao|pausado)$")
+
+
+class TaskBody(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    state: str = Field(default="pendente", pattern="^(pendente|em-andamento|em-teste|concluida)$")
+
+
+class TaskMove(BaseModel):
+    state: str = Field(pattern="^(pendente|em-andamento|em-teste|concluida)$")
+
+
+class NotePath(BaseModel):
+    path: str = Field(min_length=4)
+
+
+class TitlesBody(BaseModel):
+    titles: list[str] = Field(default_factory=list, max_length=2000)
+
+
 def create_app(
     settings: Settings | None = None,
     accounts: AccountStore | None = None,
@@ -130,11 +154,16 @@ def create_app(
         return shutil.which("codex"), {**clean_env(), **manager.accounts.env("codex", account)}
 
     studio = SpriteStudio(settings.home, codex_env)
+    vault = Vault(settings.brain)
+    brain = BrainIndex(vault, settings.home / "brain.db")
+    kanban = Kanban(vault)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         install_relay(settings.relay_path)
         install_cli_shim(settings.relay_path.parent, settings.home)
+        # Primeiro índice do Brain em segundo plano: a janela abre sem esperar por ele.
+        asyncio.get_running_loop().run_in_executor(None, lambda: brain.refresh(max_age=0))
         pollers = []
         if poll_codex:
             pollers.append(asyncio.create_task(manager.poll_codex_usage()))
@@ -438,6 +467,124 @@ def create_app(
         if url and not url.startswith(("http://", "https://", "about:blank")):
             raise HTTPException(status_code=400, detail="só abro http, https ou about:blank")
         manager.events.publish({"type": "open-web", "url": url, "cwd": body.cwd})
+
+    # --- Brain e kanban -------------------------------------------------------
+
+    def brain_fail(exc: Exception) -> HTTPException:
+        missing = "não encontrad" in str(exc)
+        return HTTPException(status_code=404 if missing else 400, detail=str(exc))
+
+    def brain_changed(project: str) -> None:
+        manager.events.publish({"type": "brain.changed", "project": project})
+
+    def cwd_of(session: str | None, cwd: str | None) -> str | None:
+        found = manager.get(session) if session else None
+        return found.cwd if found else cwd
+
+    @app.get("/brain/status", dependencies=[Depends(require_token)])
+    def brain_status() -> dict:
+        return brain.status()
+
+    @app.get("/brain/search", dependencies=[Depends(require_token)])
+    def brain_search(q: str = "", tipo: str = "", projeto: str = "", limit: int = Query(default=40, ge=1, le=200)) -> list[dict]:
+        tipos = [x for x in tipo.split(",") if x]
+        return brain.search(q, tipos or None, projeto or None, limit)
+
+    @app.get("/brain/note", dependencies=[Depends(require_token)])
+    def brain_note(path: str = "", title: str = "") -> dict:
+        try:
+            return brain.note(path or None, title or None)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+
+    @app.post("/brain/known", dependencies=[Depends(require_token)])
+    def brain_known(body: TitlesBody) -> list[str]:
+        return brain.known_titles(body.titles)
+
+    @app.post("/brain/obsidian", dependencies=[Depends(require_token)], status_code=204)
+    def brain_obsidian(body: NotePath) -> None:
+        """Abre a nota no Obsidian. Só notas de dentro do vault; o endereço é montado aqui."""
+        import subprocess
+        from urllib.parse import quote, urlencode
+
+        try:
+            vault.resolve(body.path)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        url = "obsidian://open?" + urlencode({"vault": vault.root.name, "file": body.path[: -len(".md")]}, quote_via=quote)
+        subprocess.run(["open", url], check=False, timeout=10)
+
+    @app.get("/brain/place", dependencies=[Depends(require_token)])
+    def brain_place(cwd: str = "", session: str = "") -> dict:
+        """O projeto do Brain de uma pasta (ou da pasta de uma sessão), com tarefas e precedentes."""
+        folder = cwd_of(session or None, cwd or None)
+        note = vault.project_for_dir(folder) if folder else None
+        if note is None:
+            return {"project": None}
+        board = next((p for p in kanban.projects() if p["name"] == note.name), None)
+        return {
+            "project": board,
+            "tasks": kanban.tasks(note.name),
+            "precedents": brain.precedents(note.name, brain.project_context(note.name), 6),
+        }
+
+    @app.get("/brain/precedents", dependencies=[Depends(require_token)])
+    def brain_precedents(project: str = "", q: str = "", cwd: str = "", limit: int = Query(default=8, ge=1, le=30)) -> list[dict]:
+        if not project and cwd:
+            note = vault.project_for_dir(cwd)
+            project = note.name if note else ""
+        try:
+            context = q or (brain.project_context(project) if project else "")
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        return brain.precedents(project or None, context, limit)
+
+    @app.get("/brain/session-context", dependencies=[Depends(require_token)], response_class=PlainTextResponse)
+    def brain_session_context(session: str = "", cwd: str = "") -> str:
+        """Texto do hook SessionStart: o Claude Code junta ao contexto o que sair aqui."""
+        folder = cwd_of(session or None, cwd or None)
+        try:
+            return brain.session_context(folder) if folder else ""
+        except (VaultError, OSError):
+            return ""
+
+    @app.get("/brain/projects", dependencies=[Depends(require_token)])
+    def brain_projects() -> list[dict]:
+        return kanban.projects()
+
+    @app.put("/brain/projects/{name}/stage", dependencies=[Depends(require_token)])
+    def brain_stage(name: str, body: StageBody) -> dict:
+        try:
+            project = kanban.set_stage(name, body.stage)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return project
+
+    @app.get("/brain/projects/{name}/tasks", dependencies=[Depends(require_token)])
+    def brain_tasks(name: str) -> list[dict]:
+        try:
+            return kanban.tasks(name)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+
+    @app.post("/brain/projects/{name}/tasks", dependencies=[Depends(require_token)], status_code=201)
+    def brain_add_task(name: str, body: TaskBody) -> dict:
+        try:
+            task = kanban.add(name, body.text, body.state)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    @app.put("/brain/projects/{name}/tasks/{task_id}", dependencies=[Depends(require_token)])
+    def brain_move_task(name: str, task_id: str, body: TaskMove) -> dict:
+        try:
+            task = kanban.move(name, task_id, body.state)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
 
     # --- agentes em arquivo --------------------------------------------------
 
