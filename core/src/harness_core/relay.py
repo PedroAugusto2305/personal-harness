@@ -20,6 +20,12 @@ if [ -z "$HARNESS_CORE_URL" ] || [ -z "$HARNESS_SESSION_ID" ]; then
   cat >/dev/null
   exit 0
 fi
+if [ "$kind" = "context" ]; then
+  cat >/dev/null
+  curl -s -m 6 -H "X-Harness-Token: $HARNESS_TOKEN" \\
+    "$HARNESS_CORE_URL/brain/session-context?session=$HARNESS_SESSION_ID" 2>/dev/null
+  exit 0
+fi
 if [ "$kind" = "statusline" ]; then
   curl -s -m 2 -X POST -H "Content-Type: application/json" -H "X-Harness-Token: $HARNESS_TOKEN" \\
     --data-binary @- "$HARNESS_CORE_URL/hooks/statusline?session=$HARNESS_SESSION_ID" 2>/dev/null

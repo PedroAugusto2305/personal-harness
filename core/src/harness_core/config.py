@@ -10,6 +10,8 @@ from pathlib import Path
 DEFAULT_PORT = 47830
 # Mesma pasta do Orca: durante a migração, os dois enxergam as mesmas worktrees.
 DEFAULT_WORKTREES = Path.home() / "orca" / "workspaces"
+# O vault Obsidian do Pedro; BRAIN_VAULT é a mesma variável que o brain.py usa.
+DEFAULT_BRAIN = Path.home() / "Documents" / "Brain"
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,7 @@ class Settings:
     port: int
     token: str
     worktrees: Path = DEFAULT_WORKTREES
+    brain: Path = DEFAULT_BRAIN
 
     @property
     def url(self) -> str:
@@ -34,4 +37,5 @@ def load_settings() -> Settings:
     port = int(os.environ.get("HARNESS_PORT") or DEFAULT_PORT)
     token = os.environ.get("HARNESS_TOKEN") or secrets.token_urlsafe(32)
     worktrees = Path(os.environ.get("HARNESS_WORKTREES_DIR") or DEFAULT_WORKTREES).expanduser()
-    return Settings(home=home, host="127.0.0.1", port=port, token=token, worktrees=worktrees)
+    brain = Path(os.environ.get("BRAIN_VAULT") or DEFAULT_BRAIN).expanduser()
+    return Settings(home=home, host="127.0.0.1", port=port, token=token, worktrees=worktrees, brain=brain)

@@ -1,6 +1,6 @@
 [package]
 name = "harness"
-version = "0.4.2"
+version = "0.5.0"
 description = "MÊTIS: OS pessoal e ADE no Mac"
 authors = ["Pedro Aquino"]
 edition = "2024"

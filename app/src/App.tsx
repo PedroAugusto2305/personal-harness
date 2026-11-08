@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Agents } from "./components/Agents";
 import { AgentSprite } from "./components/AgentSprite";
+import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
 import { Inspector, type InspectorTab } from "./components/Inspector";
+import { KanbanView, type KanbanRequest } from "./components/KanbanView";
 import { Palette, type PaletteItem } from "./components/Palette";
 import { Settings, THEMES, type SettingsSection } from "./components/Settings";
 import { Sidebar, type Selected } from "./components/Sidebar";
@@ -15,9 +17,9 @@ import { Tabs, type TabItem } from "./components/Tabs";
 import { TerminalView, type Slot } from "./components/TerminalView";
 import { browser, describePick, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
 import { CoreError, inTauri, type NewSessionOptions } from "./lib/core";
-import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, shortPath } from "./lib/format";
+import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
 import { quotePaths, submit, terminals } from "./lib/terminals";
-import type { Agent, GitFile, Project, ReviewNote, Session, SessionKind, ThemeName, View, Worktree } from "./types";
+import type { Agent, BoardProject, GitFile, KanbanTask, Project, ReviewNote, Session, SessionKind, ThemeName, View, Worktree } from "./types";
 import { useHarness } from "./useHarness";
 import { placeOf, useWorktrees, worktreeLabel, type Place } from "./useWorktrees";
 
@@ -85,6 +87,10 @@ export default function App() {
   const [webInfo, setWebInfo] = useState<Record<string, WebInfo>>({});
   /** Para onde a barra de entrada manda quando o foco está numa aba que não é terminal. */
   const [dockOverride, setDockOverride] = useState<string | null>(null);
+  /** Pedidos para as telas do Brain e do kanban (abrir nota, buscar, abrir tarefas de um projeto). */
+  const [brainRequest, setBrainRequest] = useState<BrainRequest | null>(null);
+  const [kanbanRequest, setKanbanRequest] = useState<KanbanRequest | null>(null);
+  const [boardNames, setBoardNames] = useState<string[]>([]);
   const [urlFocusTick, setUrlFocusTick] = useState(0);
   const dock = useRef<DockHandle>(null);
   const lastTerm = useRef<string | null>(null);
@@ -369,6 +375,80 @@ export default function App() {
     if (openClaude) void create("claude", { cwd: created.path });
     return true;
   };
+
+  // --- Brain e kanban -------------------------------------------------------
+
+  const openNote = (target: { title?: string; path?: string; query?: string }) => {
+    setView("brain");
+    setBrainRequest((last) => ({ id: (last?.id ?? 0) + 1, ...target }));
+  };
+
+  const openTasks = (project?: string) => {
+    setView("kanban");
+    setKanbanRequest((last) => ({ id: (last?.id ?? 0) + 1, project }));
+  };
+
+  /** Cartão do kanban → o repositório do projeto na barra lateral (ou um terminal na pasta, se não for git). */
+  const openBoardProject = async (project: BoardProject) => {
+    if (!harness.client || !project.directory) return;
+    setView("term");
+    try {
+      const repo = await harness.client.addProject(project.directory);
+      setSelected({ project: repo.id, path: repo.path });
+      harness.bumpWorktrees();
+    } catch {
+      setSelected(null);
+      setFolder(project.directory);
+      setToast(`${project.name} não é um repositório git; os terminais novos abrem em ${project.directory}.`);
+    }
+  };
+
+  /**
+   * "Executar com agente": worktree nova com o nome da tarefa, Claude nela, a tarefa em
+   * "Em andamento" e o pedido na barra de entrada para você revisar antes de mandar.
+   */
+  const runTask = async (project: BoardProject, task: KanbanTask) => {
+    const client = harness.client;
+    if (!client || !project.directory) return;
+    setView("term");
+    let cwd = project.directory;
+    let where = project.directory;
+    try {
+      const repo = await client.addProject(project.directory);
+      const name = `tarefa-${fold(task.text).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 36)}`.replace(/-+$/, "");
+      const created = await client.createWorktree(repo.id, name, true);
+      await wt.refresh();
+      harness.bumpWorktrees();
+      setSelected({ project: repo.id, path: created.path });
+      cwd = created.path;
+      where = `a worktree ${created.branch}`;
+    } catch (cause) {
+      setToast(`Sem worktree (${cause instanceof Error ? cause.message : String(cause)}); o agente abre na pasta do projeto.`);
+    }
+    await client.moveTask(project.name, task.id, "em-andamento").catch(() => undefined);
+    const session = await create("claude", { cwd });
+    if (!session) return;
+    await whenReady(session.id);
+    const prompt = [
+      `Tarefa do kanban da MÊTIS · projeto ${project.name} · id ${task.id}`,
+      task.text,
+      "",
+      `Ela já está em "Em andamento". Quando estiver pronta para eu testar, rode \`metis tarefa mover ${task.id} em-teste\`. Se precisar de uma decisão minha, pergunte antes de seguir.`,
+    ].join("\n");
+    setDockOverride(session.id);
+    window.setTimeout(() => dock.current?.insert(prompt), 50);
+    setToast(`Claude aberto em ${where}. O pedido está na barra de entrada: revise e mande.`);
+  };
+
+  // Nomes dos projetos do Brain, para o filtro da busca.
+  useEffect(() => {
+    if (!harness.client || (view !== "brain" && !boardNames.length)) return;
+    void harness.client
+      .boardProjects()
+      .then((list) => setBoardNames(list.map((p) => p.name)))
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [harness.client, view, harness.brainTick]);
 
   const confirmDelete = async (closeTerminals: boolean) => {
     if (!pendingDelete || !harness.client) return;
@@ -715,6 +795,9 @@ export default function App() {
             .filter((a) => !a.active)
             .map((a) => ({ id: `acc-codex-${a.id}`, group: "Contas", label: `Usar a conta ${a.name} no Codex`, run: () => void harness.run((c) => c.activateAccount("codex", a.id)) })),
           ...THEMES.filter((t) => t !== theme).map((t) => ({ id: `theme-${t}`, group: "Aparência", label: `Tema ${THEME_LABEL[t]}`, run: () => setTheme(t) })),
+          { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
+          { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
+          ...(contextPlace ? [{ id: "brain-panel", group: "Brain", label: "Precedentes desta worktree", hint: "painel da worktree → Brain", run: () => (setInspectorOpen(true), setInspectorTab("brain")) }] : []),
           { id: "agents", group: "Ajustes", label: "Agentes", run: () => setView("agents") },
           { id: "settings-accounts", group: "Ajustes", label: "Contas e uso", hint: "⌘,", run: () => (setSection("contas"), setView("settings")) },
           { id: "settings-voice", group: "Ajustes", label: "Voz", run: () => (setSection("voz"), setView("settings")) },
@@ -768,6 +851,27 @@ export default function App() {
         )}
         {view === "agents" && (
           <Agents client={harness.client} agents={harness.agents} accounts={harness.accounts} run={harness.run} onLaunch={launchAgent} />
+        )}
+        {view === "brain" && (
+          <BrainView
+            client={harness.client}
+            tick={harness.brainTick}
+            request={brainRequest}
+            projects={boardNames}
+            onOpenTasks={(project) => openTasks(project)}
+            onError={setToast}
+          />
+        )}
+        {view === "kanban" && (
+          <KanbanView
+            client={harness.client}
+            tick={harness.brainTick}
+            request={kanbanRequest}
+            onOpenNote={(title) => openNote({ title })}
+            onOpenProject={(project) => void openBoardProject(project)}
+            onRunTask={(project, task) => void runTask(project, task)}
+            onError={setToast}
+          />
         )}
         {view === "term" && (
           <Sidebar
@@ -965,6 +1069,9 @@ export default function App() {
                 }}
                 onError={(message) => harness.setError(message)}
                 onClose={() => setInspectorOpen(false)}
+                brainTick={harness.brainTick}
+                onOpenNote={(title) => openNote({ title })}
+                onOpenTasks={(project) => openTasks(project)}
               />
             )}
           </div>

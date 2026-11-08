@@ -4,10 +4,11 @@ import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, fold } from "../lib/format";
 import { openExternal } from "../lib/browser";
 import { buildTree, type TreeNode } from "../lib/tree";
-import type { GitFile, GitStatus, ReviewNote, Session } from "../types";
+import { TYPE_ICON, renderInline } from "../lib/obsidian";
+import type { BrainPlace, GitFile, GitStatus, ReviewNote, Session } from "../types";
 import { worktreeLabel, type Place } from "../useWorktrees";
 
-export type InspectorTab = "changes" | "files" | "ports";
+export type InspectorTab = "changes" | "files" | "ports" | "brain";
 
 interface Props {
   client: CoreClient | null;
@@ -26,6 +27,9 @@ interface Props {
   onChanged: () => void;
   onError: (message: string) => void;
   onClose: () => void;
+  brainTick: number;
+  onOpenNote: (title: string) => void;
+  onOpenTasks: (project: string) => void;
 }
 
 /** Letra e cor do estado de um arquivo no git, no estilo do VS Code. */
@@ -73,6 +77,7 @@ export function Inspector(props: Props) {
             ["changes", "Mudanças", status?.files.length],
             ["files", "Arquivos", undefined],
             ["ports", "Portas", props.sessions.reduce((n, s) => n + s.ports.length, 0) || undefined],
+            ["brain", "Brain", undefined],
           ] as [InspectorTab, string, number | undefined][]
         ).map(([key, label, count]) => (
           <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => props.onTab(key)}>
@@ -93,6 +98,8 @@ export function Inspector(props: Props) {
         <Changes {...props} place={place} status={status} reload={load} />
       ) : tab === "files" ? (
         <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
+      ) : tab === "brain" ? (
+        <BrainPanel client={client} cwd={place.worktree.path} tick={props.brainTick} onOpenNote={props.onOpenNote} onOpenTasks={props.onOpenTasks} />
       ) : (
         <Ports sessions={props.sessions} onOpenUrl={props.onOpenUrl} />
       )}
@@ -382,6 +389,86 @@ function Ports({ sessions, onOpenUrl }: { sessions: Session[]; onOpenUrl: (url: 
           ))}
         </div>
       ))}
+    </div>
+  );
+}
+
+const STATE_DOT: Record<string, string> = { pendente: "var(--fnt)", "em-andamento": "var(--run)", "em-teste": "var(--wait)" };
+const STATE_NAME: Record<string, string> = { pendente: "pendente", "em-andamento": "em andamento", "em-teste": "em teste" };
+
+/** O projeto do Brain desta worktree: tarefas abertas e precedentes de outros projetos. */
+function BrainPanel(props: { client: CoreClient | null; cwd: string; tick: number; onOpenNote: (title: string) => void; onOpenTasks: (project: string) => void }) {
+  const { client, cwd } = props;
+  const [place, setPlace] = useState<BrainPlace | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    void client
+      .brainPlace(cwd)
+      .then((found) => alive && setPlace(found))
+      .catch(() => alive && setPlace({ project: null }));
+    return () => {
+      alive = false;
+    };
+  }, [client, cwd, props.tick]);
+
+  // [[links]] no texto das tarefas abrem a nota.
+  const onLink = (event: React.MouseEvent) => {
+    const link = (event.target as HTMLElement).closest("a");
+    if (!link) return;
+    event.preventDefault();
+    if (link.classList.contains("wikilink") && link.dataset.note) props.onOpenNote(link.dataset.note);
+  };
+
+  if (!place) return <p className="inspector-empty small">Lendo o Brain…</p>;
+  const project = place.project;
+  if (!project) {
+    return (
+      <p className="inspector-empty small">
+        Esta pasta não é de nenhum projeto do Brain. Para ligar, ponha <code>diretorio: "{cwd.replace(/^\/Users\/[^/]+/, "~")}"</code> no
+        frontmatter da nota do projeto (ou rode <code>brain.py vincular</code>).
+      </p>
+    );
+  }
+  const open = (place.tasks ?? []).filter((t) => t.state !== "concluida");
+  const order = ["em-andamento", "em-teste", "pendente"];
+  open.sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state));
+  return (
+    <div className="inspector-body brain-panel" onClick={onLink}>
+      <div className="brain-panel-head">
+        <button type="button" className="link-btn brain-panel-title" onClick={() => props.onOpenNote(project.name)}>
+          🎯 {project.name}
+        </button>
+        {project.stage && <span className="chip">{project.stage}</span>}
+      </div>
+      <div className="section-title brain-panel-section">
+        Tarefas abertas ({open.length})
+        <button type="button" className="link-btn" onClick={() => props.onOpenTasks(project.name)}>
+          kanban ›
+        </button>
+      </div>
+      {open.slice(0, 10).map((task) => (
+        <div key={task.id} className="brain-panel-task small">
+          <span className="kb-dot" style={{ background: STATE_DOT[task.state] }} title={STATE_NAME[task.state]} />
+          <span dangerouslySetInnerHTML={{ __html: renderInline(task.text) }} />
+        </div>
+      ))}
+      {!open.length && <p className="small brain-panel-none">Nenhuma tarefa aberta nas Próximas ações.</p>}
+      <div className="section-title brain-panel-section">Precedentes de outros projetos</div>
+      {(place.precedents ?? []).map((hit) => (
+        <button key={hit.path} type="button" className="brain-panel-prec" onClick={() => props.onOpenNote(hit.title)} title={hit.resumo}>
+          <span>
+            {TYPE_ICON[hit.tipo] ?? "·"} {hit.title}
+          </span>
+          <span className="small mono">
+            {hit.projeto}
+            {hit.status ? ` · ${hit.status}` : ""}
+          </span>
+        </button>
+      ))}
+      {!place.precedents?.length && <p className="small brain-panel-none">Nada de outro projeto bateu com as tarefas abertas.</p>}
+      <p className="small brain-panel-note">Busca por palavra: confira antes de seguir. Os agentes recebem esta lista ao abrir.</p>
     </div>
   );
 }
