@@ -2,6 +2,10 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v0.9.5 · correção
+
+- **A MÊTIS instalada abre pelo Finder, pelo Launchpad e pelo Dock.** Aberto fora de um terminal, o app recebia só o PATH mínimo do macOS (`/usr/bin:/bin:/usr/sbin:/sbin`) e não achava o `uv` para subir o núcleo, nem o núcleo achava o `claude` e o `codex`. Agora o app pergunta o PATH ao shell de login ao abrir sem terminal (até 5 s; se não responder, segue com o que veio).
+
 ## v0.9.4 · uso diário
 
 - **MÊTIS de uso instalada.** `scripts/instalar.sh [versão]` monta uma cópia da versão marcada em `~/.harness/versoes/<versão>`, com o núcleo dela, e põe o `MÊTIS.app` em `/Applications`. Os dados seguem em `~/.harness`.

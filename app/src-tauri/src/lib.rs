@@ -286,8 +286,60 @@ async fn core_restart(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, St
     Ok(info)
 }
 
+/// O PATH do shell de login do usuário. Aberto pelo Finder, pelo Launchpad ou pelo Dock,
+/// o app recebe só /usr/bin:/bin:/usr/sbin:/sbin e não acharia o `uv` (que sobe o núcleo)
+/// nem, no núcleo, o `claude` e o `codex`. O shell responde entre marcas, porque o -i
+/// pode imprimir outras coisas; se travar, desiste em 5 s e fica o PATH que veio.
+fn login_path() -> Option<String> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    let mut child = Command::new(shell)
+        .args(["-l", "-i", "-c", "printf '__METIS_PATH__%s__METIS_PATH__' \"$PATH\""])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            _ => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    let start = out.find("__METIS_PATH__")? + "__METIS_PATH__".len();
+    let end = start + out[start..].find("__METIS_PATH__")?;
+    let path = out[start..end].trim().to_string();
+    (!path.is_empty()).then_some(path)
+}
+
+/// Aberto fora de um terminal (sem TERM), o app passa a usar o PATH do shell de login,
+/// com o que já vinha no fim. Roda antes de qualquer thread, por isso o set_var é seguro.
+fn adopt_login_path() {
+    if std::env::var_os("TERM").is_some() {
+        return;
+    }
+    if let Some(login) = login_path() {
+        let current = std::env::var("PATH").unwrap_or_default();
+        let mut parts: Vec<&str> = login.split(':').filter(|p| !p.is_empty()).collect();
+        for p in current.split(':').filter(|p| !p.is_empty()) {
+            if !parts.contains(&p) {
+                parts.push(p);
+            }
+        }
+        // SAFETY: chamado no começo do run(), antes de o Tauri ou o núcleo criarem threads.
+        unsafe { std::env::set_var("PATH", parts.join(":")) };
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    adopt_login_path();
     let app = tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
