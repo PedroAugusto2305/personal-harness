@@ -3,6 +3,7 @@ import { Agents } from "./components/Agents";
 import { ICON, Icon } from "./icons";
 import { AgentSprite, spriteState } from "./components/AgentSprite";
 import { AutomationsView } from "./components/AutomationsView";
+import { BoardsView } from "./components/BoardsView";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
@@ -843,6 +844,7 @@ export default function App() {
           { id: "automations", group: "Automações", label: "Automações", hint: "passos ligados: ferramentas, agentes, condições e aprovações", run: () => setView("automations") },
           { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
           { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
+          { id: "boards", group: "Brain", label: "Quadros", hint: "quadro livre por projeto, o .canvas que abre no Obsidian", run: () => setView("boards") },
           ...(contextPlace ? [{ id: "brain-panel", group: "Brain", label: "Precedentes desta worktree", hint: "painel da worktree → Brain", run: () => (setInspectorOpen(true), setInspectorTab("brain")) }] : []),
           { id: "agents", group: "Ajustes", label: "Agentes", run: () => setView("agents") },
           { id: "settings-accounts", group: "Ajustes", label: "Contas e uso", hint: "⌘,", run: () => (setSection("contas"), setView("settings")) },
@@ -952,6 +954,19 @@ export default function App() {
             tick={harness.automationTick}
             event={harness.automationEvent}
             onOpenSession={select}
+            onToast={setToast}
+          />
+        )}
+        {view === "boards" && (
+          <BoardsView
+            client={harness.client}
+            sessions={harness.sessions}
+            agents={harness.agents}
+            onOpenSession={select}
+            onOpenNote={(target) => openNote(target)}
+            onOpenTasks={(project) => openTasks(project)}
+            onOpenWeb={(url, design) => openWeb(url, { design })}
+            onNewSession={(kind, cwd, agent) => create(kind, { cwd, agent })}
             onToast={setToast}
           />
         )}

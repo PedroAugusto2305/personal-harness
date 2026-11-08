@@ -66,7 +66,7 @@ const NAV: { key: keyof typeof ICON; label: string; version: string }[] = [
   { key: "plug", label: "Conectores", version: "v0.6" },
 ];
 
-const READY: Partial<Record<keyof typeof ICON, View>> = { home: "today", term: "term", study: "study", graph: "brain", kanban: "kanban", agents: "agents", flow: "automations", plug: "connectors" };
+const READY: Partial<Record<keyof typeof ICON, View>> = { home: "today", term: "term", study: "study", graph: "brain", kanban: "kanban", canvas: "boards", agents: "agents", flow: "automations", plug: "connectors" };
 
 /** Faixa de ícones. O que já existe abre a tela; o resto mostra a versão em que chega. */
 export function Ribbon({ view, onView }: { view: View; onView: (view: View) => void }) {

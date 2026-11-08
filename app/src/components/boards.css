@@ -1,0 +1,1566 @@
+/* Quadros (v0.9.1). O .canvas do Obsidian visto pela MÊTIS: a mesma grade de pontinhos das
+   Automações, cartões com a borda na cor do Obsidian (ou do estado da sessão), ligações curvas
+   com rótulo. Só tokens do tema: funciona no Drácula, no Grafite e no Claro. */
+
+.bd-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  background: var(--bg);
+}
+
+.bd-caps {
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fnt);
+}
+
+.bd-blank {
+  margin: auto;
+  max-width: 460px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--fnt);
+  line-height: 1.5;
+}
+
+.bd-blank p {
+  margin: 0;
+}
+
+/* --- lista de quadros e "Neste quadro" -------------------------------------------------------- */
+
+.bd-list {
+  width: 252px;
+  flex: 0 0 252px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--side);
+  border-right: 1px solid var(--line);
+}
+
+.bd-list-head {
+  height: 48px;
+  flex: 0 0 auto;
+  padding: 0 10px 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+}
+
+.bd-list-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bd-list-note {
+  margin: 0;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fnt);
+}
+
+.bd-list-note p {
+  margin: 0;
+}
+
+.bd-list-note .btn {
+  height: 28px;
+  font-size: 12px;
+}
+
+.bd-proj {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bd-proj-name {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fnt);
+}
+
+.bd-item {
+  min-height: 30px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mut);
+  text-align: left;
+}
+
+.bd-item:hover {
+  background: color-mix(in srgb, var(--elev) 60%, transparent);
+  color: var(--tx);
+}
+
+.bd-item[aria-current="true"] {
+  background: var(--sel);
+  color: var(--tx);
+}
+
+.bd-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-item-count {
+  font-size: 10.5px;
+  color: var(--fnt);
+}
+
+.bd-here {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bd-here-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bd-here-kind {
+  padding: 2px 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fnt);
+}
+
+.bd-here-item {
+  min-height: 26px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--mut);
+  text-align: left;
+  font-size: 12.5px;
+}
+
+.bd-here-item:hover {
+  background: color-mix(in srgb, var(--elev) 60%, transparent);
+  color: var(--tx);
+}
+
+.bd-here-item[aria-current="true"] {
+  background: var(--soft);
+  color: var(--tx);
+}
+
+.bd-here-mark {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+}
+
+.bd-here-glyph {
+  width: 12px;
+  flex: 0 0 auto;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.bd-here-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-list-foot {
+  flex: 0 0 auto;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.bd-list-foot > .btn {
+  height: 30px;
+  font-size: 12px;
+}
+
+/* Novo quadro: projeto e nome, sem janela. */
+.bd-create {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--fnt);
+}
+
+.bd-field select,
+.bd-field input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  color: var(--tx);
+  outline: none;
+  font-size: 12.5px;
+  user-select: text;
+}
+
+.bd-field select:focus,
+.bd-field input:focus {
+  border-color: var(--acc);
+}
+
+.bd-error {
+  margin: 0;
+  color: var(--err);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bd-row {
+  display: flex;
+  gap: 6px;
+}
+
+.bd-row .btn {
+  height: 30px;
+  font-size: 12px;
+}
+
+/* --- área do quadro ----------------------------------------------------------------------------- */
+
+.bd-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bd-welcome {
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+}
+
+.bd-welcome > div {
+  max-width: 520px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.bd-welcome h2 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--tx);
+}
+
+.bd-welcome p {
+  margin: 0;
+  color: var(--mut);
+  line-height: 1.6;
+}
+
+.bd-welcome .bd-create {
+  width: 100%;
+  max-width: 360px;
+}
+
+.bd-welcome-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--soft);
+  color: var(--acct);
+}
+
+.bd-bar {
+  position: relative;
+  z-index: 6; /* o menu Adicionar abre por cima do zoom do quadro (z 5) */
+  height: 48px;
+  flex: 0 0 auto;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.bd-bar-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.bd-title {
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-save {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fnt);
+}
+
+.bd-save[data-state="pendente"],
+.bd-save[data-state="salvando"] {
+  color: var(--mut);
+}
+
+.bd-save[data-state="erro"] {
+  color: var(--err);
+}
+
+.bd-addwrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.bd-add-btn {
+  height: 30px;
+  font-size: 12.5px;
+}
+
+.bd-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  overflow: clip; /* foco num campo de cartão não rola o quadro por baixo do pan */
+}
+
+.bd-foot {
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--bar);
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--mut);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.bd-foot .mono {
+  font-size: 11px;
+}
+
+.bd-foot-hint {
+  margin-left: auto;
+  min-width: 0;
+  color: var(--fnt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- o quadro (pan e zoom) ------------------------------------------------------------------------ */
+
+.bd-viewport {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  overflow: clip; /* foco num botão não rola o quadro por baixo do pan */
+  cursor: grab;
+  touch-action: none;
+  background-color: var(--term);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--line2) 90%, transparent) 1.1px, transparent 1.4px);
+}
+
+.bd-viewport:active {
+  cursor: grabbing;
+}
+
+.bd-viewport[data-linking="true"],
+.bd-viewport[data-linking="true"] * {
+  cursor: crosshair !important;
+}
+
+.bd-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.bd-hint-empty {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  line-height: 1.5;
+  color: var(--fnt);
+  pointer-events: none;
+}
+
+.bd-hint-empty b {
+  color: var(--mut);
+}
+
+/* --- ligações -------------------------------------------------------------------------------------- */
+
+.bd-edges {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bd-line {
+  fill: none;
+  stroke-width: 2;
+}
+
+.bd-edge[data-selected="true"] .bd-line {
+  stroke-width: 3;
+}
+
+.bd-draft {
+  stroke: var(--acc);
+  stroke-dasharray: 6 5;
+}
+
+.bd-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.bd-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--term);
+  color: var(--mut);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bd-edge-label[data-ctx="true"] {
+  border-color: color-mix(in srgb, var(--acc) 45%, transparent);
+  color: var(--acct);
+}
+
+/* --- cartões ----------------------------------------------------------------------------------------- */
+
+.bd-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--c, var(--line2));
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--tx);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+  transition:
+    box-shadow 140ms,
+    opacity 140ms;
+}
+
+/* O miolo corta o que passa; os pontinhos de ligar e o canto ficam de fora. */
+.bd-card > :not(.bd-handle):not(.bd-resize) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 7px;
+}
+
+.bd-card img {
+  max-width: 100%;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.bd-card[data-selected="true"] {
+  box-shadow:
+    0 0 0 2px var(--term),
+    0 0 0 4px var(--acc),
+    0 8px 22px rgba(0, 0, 0, 0.25);
+}
+
+.bd-card[data-missing="true"] {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+}
+
+.bd-card[data-link-target="true"],
+.bd-group[data-link-target="true"] {
+  box-shadow: 0 0 0 3px var(--acc);
+}
+
+/* Nota do Brain em cima de uma sessão: soltar vira contexto. */
+.bd-card[data-drop="true"] {
+  box-shadow:
+    0 0 0 3px var(--acc),
+    0 0 0 10px var(--soft);
+}
+
+.bd-card[data-drop="true"]::after {
+  content: "Soltar: a sessão recebe a nota como contexto";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--acc);
+  color: var(--onacc);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.bd-card[data-lifted="true"] {
+  z-index: 5;
+  opacity: 0.55;
+}
+
+/* Pontinhos de ligar (no meio de cada lado) e o canto de mudar o tamanho: aparecem ao passar o
+   mouse ou com o cartão selecionado, sempre do mesmo tamanho na tela. */
+.bd-handle {
+  position: absolute;
+  z-index: 3;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--acc);
+  background: var(--term);
+  transform: translate(-50%, -50%) scale(var(--inv, 1));
+  opacity: 0;
+  cursor: crosshair;
+  transition: opacity 120ms;
+}
+
+.bd-handle::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+}
+
+.bd-handle:hover {
+  background: var(--acc);
+}
+
+.bd-handle[data-side="top"] {
+  left: 50%;
+  top: -1px;
+}
+
+.bd-handle[data-side="bottom"] {
+  left: 50%;
+  top: calc(100% + 1px);
+}
+
+.bd-handle[data-side="left"] {
+  left: -1px;
+  top: 50%;
+}
+
+.bd-handle[data-side="right"] {
+  left: calc(100% + 1px);
+  top: 50%;
+}
+
+.bd-resize {
+  position: absolute;
+  z-index: 3;
+  right: -2px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  border-bottom-right-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    transparent 52%,
+    var(--fnt) 52%,
+    var(--fnt) 62%,
+    transparent 62%,
+    transparent 74%,
+    var(--fnt) 74%,
+    var(--fnt) 84%,
+    transparent 84%
+  );
+  transform: scale(var(--inv, 1));
+  transform-origin: 100% 100%;
+  opacity: 0;
+  cursor: nwse-resize;
+  transition: opacity 120ms;
+}
+
+.bd-card:hover > .bd-handle,
+.bd-card[data-selected="true"] > .bd-handle,
+.bd-group:hover > .bd-handle,
+.bd-group[data-selected="true"] > .bd-handle {
+  opacity: 1;
+}
+
+.bd-card:hover > .bd-resize,
+.bd-card[data-selected="true"] > .bd-resize,
+.bd-group:hover > .bd-resize,
+.bd-group[data-selected="true"] > .bd-resize {
+  opacity: 0.85;
+}
+
+.bd-viewport[data-linking="true"] .bd-handle,
+.bd-viewport[data-linking="true"] .bd-resize {
+  opacity: 0;
+}
+
+/* Grupo: moldura com nome, atrás dos cartões. */
+.bd-group {
+  position: absolute;
+  border: 2px solid var(--c, var(--line2));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--c, var(--line2)) 8%, transparent);
+  cursor: grab;
+}
+
+.bd-group[data-selected="true"] {
+  box-shadow: 0 0 0 2px var(--acc);
+}
+
+.bd-group-label {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--c, var(--line2)) 30%, var(--term));
+  color: var(--tx);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-group-label input {
+  width: 220px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--tx);
+  font: inherit;
+  user-select: text;
+}
+
+/* --- nota do Brain e anexo ------------------------------------------------------------------------- */
+
+.bd-note {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.bd-note-path {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--fnt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-note-title {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tx);
+  text-align: left;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+button.bd-note-title:hover {
+  color: var(--acct);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.bd-note-sum {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  color: var(--mut);
+  font-size: 12.5px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.bd-note-sum.mono {
+  font-size: 11px;
+}
+
+.bd-tags {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bd-tag {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--acct);
+  font-size: 11px;
+  line-height: 19px;
+}
+
+.bd-tag[data-status="proposta"] {
+  background: color-mix(in srgb, var(--wait) 16%, transparent);
+  color: var(--wait);
+}
+
+.bd-tag[data-status="substituida"] {
+  text-decoration: line-through;
+}
+
+.bd-missing-note {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px dashed var(--fnt);
+  border-radius: 6px;
+  color: var(--fnt);
+  font-size: 12px;
+}
+
+/* --- sessão ------------------------------------------------------------------------------------------ */
+
+.bd-session {
+  display: flex;
+  flex-direction: column;
+}
+
+.bd-session-head {
+  flex: 0 0 auto;
+  padding: 8px 10px 4px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.bd-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bd-glyph {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.bd-session-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bd-session-name b {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-session-name .mono {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.bd-open {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--acct);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.bd-open:hover {
+  background: var(--soft);
+}
+
+.bd-cwd {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  max-width: calc(100% - 20px);
+  margin: 0 10px 8px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--elev);
+  color: var(--mut);
+  font-size: 10.5px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-lines {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow-y: auto;
+  background: var(--term);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.bd-term {
+  margin: 0;
+  color: var(--tx);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bd-msg {
+  margin: 0 0 8px;
+  color: var(--tx);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bd-msg[data-role="voce"] {
+  color: var(--mut);
+}
+
+.bd-msg-who {
+  display: block;
+  margin-bottom: 1px;
+  font-size: 10px;
+  color: var(--fnt);
+}
+
+.bd-msg[data-role="agente"] .bd-msg-who {
+  color: var(--acct);
+}
+
+.bd-quiet {
+  margin: 0;
+  color: var(--fnt);
+  font-size: 12px;
+}
+
+.bd-ended p {
+  margin: 0;
+  color: var(--fnt);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bd-session-foot {
+  flex: 0 0 auto;
+  padding: 8px;
+  display: flex;
+}
+
+.bd-say {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--term);
+}
+
+.bd-say:focus-within {
+  border-color: var(--acc);
+}
+
+.bd-say input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--tx);
+  font-size: 12.5px;
+  user-select: text;
+}
+
+.bd-say-send {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: var(--acc);
+  color: var(--onacc);
+}
+
+.bd-say-send:disabled {
+  background: var(--elev);
+  color: var(--fnt);
+}
+
+.bd-reopen {
+  height: 30px;
+  font-size: 12px;
+}
+
+/* --- tarefa ------------------------------------------------------------------------------------------- */
+
+.bd-task {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bd-task-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bd-task-head .bd-open {
+  padding-left: 0;
+  color: var(--fnt);
+}
+
+.bd-task-head .bd-open:hover {
+  background: none;
+  color: var(--acct);
+}
+
+.bd-task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bd-task-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.bd-task-text[data-done="true"] {
+  color: var(--mut);
+}
+
+.bd-task-text a {
+  color: var(--acct);
+}
+
+.bd-task-meta {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--fnt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- link ---------------------------------------------------------------------------------------------- */
+
+.bd-link {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.bd-link-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fnt);
+}
+
+.bd-addr {
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--term);
+  color: var(--mut);
+  font-size: 11.5px;
+  line-height: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-addr b {
+  color: var(--tx);
+  font-weight: 500;
+}
+
+.bd-link-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bd-link-actions .btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* --- nota sua ----------------------------------------------------------------------------------------- */
+
+.bd-card[data-kind="sticky"] {
+  border-color: color-mix(in srgb, var(--c) 40%, transparent);
+  border-left: 4px solid var(--c);
+  background: color-mix(in srgb, var(--c) 9%, var(--bg));
+}
+
+.bd-sticky {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bd-sticky .bd-caps {
+  flex: 0 0 auto;
+  color: var(--c);
+}
+
+.bd-md.markdown {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  color: var(--tx);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.bd-md > :first-child {
+  margin-top: 0;
+}
+
+.bd-md > :last-child {
+  margin-bottom: 0;
+}
+
+.bd-md p,
+.bd-md ul,
+.bd-md ol {
+  margin: 0 0 0.6em;
+}
+
+.bd-md ul,
+.bd-md ol {
+  padding-left: 1.3em;
+}
+
+.bd-md h1,
+.bd-md h2,
+.bd-md h3 {
+  margin: 0.4em 0 0.3em;
+  padding: 0;
+  border: 0;
+  font-size: 15px;
+}
+
+.bd-sticky-edit {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  outline: none;
+  resize: none;
+  background: var(--term);
+  color: var(--tx);
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: text;
+  cursor: text;
+}
+
+.bd-sticky-edit:focus {
+  border-color: var(--acc);
+}
+
+/* --- barras sobre o quadro (zoom, cartão e ligação selecionados) ------------------------------------------ */
+
+.bd-zoom {
+  position: absolute;
+  z-index: 5;
+  right: 14px;
+  top: 14px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--side);
+  cursor: default;
+}
+
+.bd-zoom button {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mut);
+}
+
+.bd-zoom button:hover {
+  background: var(--elev);
+  color: var(--tx);
+}
+
+.bd-zoom span {
+  padding: 2px 0 1px;
+  font-size: 10.5px;
+  color: var(--fnt);
+}
+
+.bd-cardbar,
+.bd-edgebar {
+  position: absolute;
+  z-index: 6;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--side);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  cursor: default;
+}
+
+.bd-edgebar {
+  transform: translate(-50%, -50%);
+}
+
+.bd-edgebar input {
+  width: 170px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg);
+  color: var(--tx);
+  font-size: 12px;
+  user-select: text;
+}
+
+.bd-edgebar input:focus {
+  border-color: var(--acc);
+}
+
+.bd-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--sw);
+}
+
+.bd-swatch[data-none="true"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--fnt);
+}
+
+.bd-swatch[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--side),
+    0 0 0 3.5px var(--tx);
+}
+
+.bd-swatch[data-none="true"][aria-pressed="true"] {
+  box-shadow:
+    inset 0 0 0 2px var(--fnt),
+    0 0 0 2px var(--side),
+    0 0 0 3.5px var(--tx);
+}
+
+.bd-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--line2);
+}
+
+.bd-barbtn {
+  height: 24px;
+  min-width: 24px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--mut);
+  font-size: 12px;
+}
+
+.bd-barbtn:hover {
+  background: var(--elev);
+  color: var(--tx);
+}
+
+/* --- menu Adicionar ------------------------------------------------------------------------------------------ */
+
+.bd-add {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 360px;
+  max-height: min(520px, 70vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  background: var(--side);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.bd-add-list {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.bd-add-item {
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--tx);
+  text-align: left;
+}
+
+.bd-add-item:hover,
+.bd-add-item:focus-visible {
+  background: var(--elev);
+  outline: none;
+}
+
+.bd-add-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--acct);
+}
+
+.bd-add-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bd-add-text b {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bd-add-text span {
+  font-size: 11.5px;
+  color: var(--fnt);
+}
+
+.bd-add-head {
+  height: 40px;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+.bd-add-search {
+  flex: 0 0 auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bd-add-search input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  outline: none;
+  background: var(--bg);
+  color: var(--tx);
+  user-select: text;
+}
+
+.bd-add-search input:focus {
+  border-color: var(--acc);
+}
+
+.bd-add-search .segmented {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.bd-add-search .segmented button {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-add-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bd-add-actions .small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bd-add-actions .btn {
+  height: 30px;
+  font-size: 12px;
+}
+
+.bd-add-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.bd-add-row {
+  padding: 7px 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--tx);
+  text-align: left;
+}
+
+.bd-add-row:hover,
+.bd-add-row:focus-visible {
+  background: var(--elev);
+  outline: none;
+}
+
+.bd-add-row[data-primary="true"] {
+  margin-bottom: 4px;
+  border: 1px dashed color-mix(in srgb, var(--acc) 50%, transparent);
+}
+
+.bd-row-glyph {
+  width: 22px;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.bd-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bd-row-text b {
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-row-text b.bd-row-wrap {
+  white-space: normal;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.bd-row-text span {
+  font-size: 10.5px;
+  color: var(--fnt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bd-row-side {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--fnt);
+}
+
+.bd-add-note {
+  margin: 0;
+  padding: 10px;
+  color: var(--fnt);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bd-ctx {
+  color: var(--fnt);
+}

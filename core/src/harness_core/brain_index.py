@@ -574,6 +574,23 @@ class BrainIndex:
                 group["matches"].append(hit)
         return sorted(groups.values(), key=lambda g: -g["z"])[:projects]
 
+    def notes_by_path(self, paths: list[str]) -> dict[str, dict | None]:
+        """As notas do índice pelos caminhos dados (None para o que não existe mais)."""
+        if not paths:
+            return {}
+        self.refresh()
+        found: dict[str, dict | None] = dict.fromkeys(paths)
+        con = self._connect()
+        try:
+            unique = list(dict.fromkeys(paths))
+            for i in range(0, len(unique), 500):
+                chunk = unique[i : i + 500]
+                for row in con.execute(f"select * from notes where path in ({','.join('?' * len(chunk))})", chunk):
+                    found[row["path"]] = self._row(row)
+        finally:
+            con.close()
+        return found
+
     def records_since(self, projeto: str, since: float) -> list[dict]:
         """Registros do projeto escritos depois de `since` (time.time()): o que uma sessão deixou."""
         self.refresh()

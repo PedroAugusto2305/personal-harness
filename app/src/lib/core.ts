@@ -19,8 +19,12 @@ import type {
   AutoRun,
   AutoRunSummary,
   AutoSummary,
+  BoardFile,
+  BoardSummary,
   BrainPlace,
+  CanvasDoc,
   ContextWindow,
+  SessionGlance,
   SemanticStatus,
   SessionMap,
   Suggestion,
@@ -337,6 +341,39 @@ export class CoreClient {
 
   brainKnown(titles: string[]): Promise<string[]> {
     return this.request("POST", "/brain/known", { titles });
+  }
+
+  // --- Quadros (v0.9.1) -------------------------------------------------------------
+
+  boards(): Promise<BoardSummary[]> {
+    return this.request("GET", "/quadros");
+  }
+
+  createBoard(projeto: string, nome: string): Promise<BoardSummary> {
+    return this.request("POST", "/quadros", { projeto, nome });
+  }
+
+  board(path: string): Promise<BoardFile> {
+    return this.request("GET", `/quadros/abrir?${new URLSearchParams({ path })}`);
+  }
+
+  /** Salva o .canvas. `base` = o `alterado` que a tela conhece: 409 se o Obsidian salvou depois. */
+  saveBoard(path: string, canvas: CanvasDoc, base: number): Promise<{ alterado: number; notas: BoardFile["notas"] }> {
+    return this.request("PUT", "/quadros/salvar", { path, canvas, base });
+  }
+
+  /** Liga uma nota do Brain a uma sessão: a sessão recebe o pedido de ler a nota (vira contexto). */
+  linkNoteToSession(sessao: string, nota: string): Promise<{ mensagem: string }> {
+    return this.request("POST", "/quadros/ligar", { sessao, nota });
+  }
+
+  sessionGlance(sessionId: string): Promise<SessionGlance> {
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/resumo`);
+  }
+
+  /** Manda uma mensagem para a sessão (colagem + Enter no terminal dela). */
+  sendToSession(sessionId: string, texto: string): Promise<void> {
+    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/mensagem`, { texto });
   }
 
   // --- Automações (v0.9.0) ---------------------------------------------------------
