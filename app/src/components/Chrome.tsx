@@ -77,6 +77,7 @@ const NOTICE_GLYPH: Record<NoticeKind, { glyph: string; color: string }> = {
   espera: { glyph: "●", color: "var(--wait)" },
   aprovacao: { glyph: "?", color: "var(--warn)" },
   erro: { glyph: "!", color: "var(--err)" },
+  versao: { glyph: "↑", color: "var(--acc)" },
 };
 
 /** Sino dos avisos: o número é o que falta ler; o menu lista os últimos 50. */

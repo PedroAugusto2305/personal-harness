@@ -22,6 +22,8 @@
     --json                             nos comandos de listar: a saída em JSON, para agentes
     metis automacoes                   as automações, com estado e a última execução
     metis rodar <automação>            roda a versão publicada agora (id ou nome)
+    metis versao                       a versão em uso e se há uma nova (na MÊTIS instalada)
+    metis atualizar [versão]           instala a versão nova (ou a pedida) aqui, neste terminal
 
 O login acontece sempre no fluxo oficial da CLI, numa pasta só daquela conta.
 """
@@ -292,9 +294,37 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("automacoes", help="as automações, com estado e a última execução")
     run = sub.add_parser("rodar", help="roda a versão publicada de uma automação agora")
     run.add_argument("automacao", nargs="+", help="id ou nome da automação")
+    sub.add_parser("versao", help="a versão em uso e se há uma nova")
+    upgrade = sub.add_parser("atualizar", help="instala a versão nova da MÊTIS neste terminal")
+    upgrade.add_argument("versao", nargs="?", default="", help="ex.: v0.9.5 (padrão: a mais nova)")
     args = parser.parse_args(argv)
 
     home = load_settings().home
+
+    if args.command in ("versao", "atualizar"):
+        from . import updates
+
+        info = updates.check(home, fetch=True)
+        if args.command == "versao":
+            if args.json:
+                print(json.dumps(info, ensure_ascii=False))
+                return 0
+            where = f"instalada ({info['tag']})" if info["instalada"] else f"de desenvolvimento, em {info['pasta']}"
+            print(f"MÊTIS v{info['versao']} · {where}")
+            if info["nova"]:
+                print(f"versão nova: {info['nova']} (metis atualizar)")
+            elif info["instalada"]:
+                print("é a mais nova.")
+            return 0
+        if not info["repositorio"]:
+            print("não achei o repositório da MÊTIS para buscar a versão nova.", file=sys.stderr)
+            return 1
+        tag = args.versao or info["ultima"] or ""
+        if not updates.version_key(tag) or tag not in updates.tags(info["repositorio"]):
+            print(f"versão não encontrada no repositório: {tag or '(nenhuma tag v*)'}", file=sys.stderr)
+            return 1
+        command = updates.update_command(info["repositorio"], tag)
+        os.execvp("sh", ["sh", "-c", command])
 
     if args.command in ("sessoes", "sessao"):
         try:

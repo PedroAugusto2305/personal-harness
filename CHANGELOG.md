@@ -1,0 +1,91 @@
+# Mudanças da MÊTIS
+
+Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
+
+## v0.9.4 · uso diário
+
+- **MÊTIS de uso instalada.** `scripts/instalar.sh [versão]` monta uma cópia da versão marcada em `~/.harness/versoes/<versão>`, com o núcleo dela, e põe o `MÊTIS.app` em `/Applications`. Os dados seguem em `~/.harness`.
+- **Atualizar.** A MÊTIS instalada procura versão nova no repositório a cada 6 horas e avisa no sino. Ajustes → Sobre mostra a versão e atualiza num terminal à vista; `metis versao` e `metis atualizar` fazem o mesmo pelo terminal. O núcleo em uso só passa para a versão nova quando é reiniciado.
+- **MÊTIS de desenvolvimento separada.** `scripts/dev.sh` usa `~/.harness-dev` e a porta 47840, com outro identificador: não divide o núcleo, os terminais nem as rotinas com a de uso, e deixa o ⌥Espaço para ela.
+- **Kanban:** arrastar cartão funciona na janela do app (arrasto com o ponteiro).
+- **Codex avisa** quando termina o turno, pelo `notify` dele, sem desligar o `notify` que já estava no `config.toml`. Enter num Codex parado marca "trabalhando". O passo de agente das Automações no Codex também é cobrado quando termina sem devolver a saída.
+- **Agente que saiu** mostra o código de saída na faixa de reiniciar.
+- Este `CHANGELOG.md`.
+
+## v0.9.3 · terminal e navegação (paridade com o Orca, bloco B)
+
+- Divisão da tela em árvore, salva por worktree: dividir à direita (⌘D) e para baixo (⌘⇧D), arrastar a aba para a borda de um painel, divisórias arrastáveis, ⌘⇧W tira o painel, ⌘⌥ e as setas andam entre painéis.
+- Busca no terminal (⌘F), com maiúsculas, regex e contagem.
+- Comandos salvos (⌘⇧K), globais ou de um projeto.
+- ⌘J: abas pelas mais recentes, worktrees e telas.
+- Atalhos remapeáveis (Ajustes → Atalhos e `~/.harness/atalhos.json`).
+- Busca nos Ajustes, também em inglês e espanhol.
+- Tema do terminal importado do Ghostty, com o Ghostty Default Style Dark embutido.
+
+## v0.9.2 · sessões, agentes e avisos (paridade com o Orca, blocos A e E)
+
+- O núcleo roda por conta própria: fechar, recarregar ou recompilar a janela não fecha os terminais.
+- Histórico das conversas do Claude e do Codex com retomar; reiniciar e continuar o agente que saiu; passar o trabalho entre Claude e Codex.
+- Modo de permissão por CLI, pastas dos projetos como confiáveis, Mac acordado.
+- Avisos do macOS e sino com não lidos; Recursos; Skills; scripts de setup e arquivamento por projeto; `metis sessoes`, `metis sessao` e `--json`.
+- Correção: Reiniciar o núcleo não deixa mais a MÊTIS sem núcleo (porta em TIME_WAIT).
+
+## v0.9.1 · Quadros
+
+- Quadro livre por projeto, um `.canvas` do Obsidian na pasta do projeto no Brain, com notas, sessões vivas, tarefas, links, notas suas, grupos e ligações. Nota solta numa sessão vira contexto.
+
+## v0.9.0 · Automações
+
+- O "n8n da MÊTIS": canvas de passos (Ferramenta, Agente, Condição, Aprovação, Brain, Esperar), YAML com rascunho e publicada num git local, testar em ensaio, execuções, Pedir conserto e Reexecutar daqui; gatilhos manual, `metis rodar` e agendado.
+
+## v0.8.0 · Brain vivo
+
+- Busca por significado local (potion-multilingual-128M), `brain_conflitos` antes de decidir, sugestões de precedente entre projetos julgadas pelo Haiku, MCP `metis-brain` e hook de início de sessão também fora da MÊTIS, mini-mapa e janela de contexto.
+
+## v0.7.2
+
+- A barra de baixo é a única entrada dos terminais do Claude e do Codex; o terminal fica só para ler.
+
+## v0.7.1 · OS pessoal
+
+- Captura rápida no ⌥Espaço, Hermes (concierge), agente por descrição, sprites animadas por estado, Estudo com Pomodoro na nota do dia.
+
+## v0.7.0 · rotinas e Hoje
+
+- Rotinas que abrem um agente na hora marcada, com janela de recuperação para o Mac dormindo; tela Hoje.
+
+## v0.6.0 · conectores e avisos
+
+- Central de MCP em todo Claude e Codex, Slack (bot por workspace) e ClickUp (OAuth), `metis lembrete`, aprovação de escrita num cartão, Atividade.
+
+## v0.5.1
+
+- Grafo do Brain com uma nuvem por área, forças vivas e nomes no hover.
+
+## v0.5.0 · Brain e kanban
+
+- Busca no Brain, leitor de notas, kanban de projetos (estágio na nota) e de tarefas (Próximas ações), Executar com agente, precedentes v1, `metis brain` e `metis tarefa`.
+
+## v0.4.2
+
+- Correção: a página do navegador embutido não fica mais presa fora do lugar.
+
+## v0.4.1
+
+- Botão do navegador na barra lateral e `metis web`.
+
+## v0.4.0 · navegador embutido
+
+- Navegador por worktree (WebKit do macOS) com modo de design; sprites dos agentes por prompt ao Codex.
+
+## v0.3.0 · código
+
+- Projetos e worktrees, painel da worktree (mudanças, arquivos, portas), revisão do diff com notas, commit pelo agente, visualizadores, agentes em arquivo. O app passa a se chamar MÊTIS.
+
+## v0.2.0 · núcleo do dia a dia
+
+- Codex, várias contas por pasta, abas, tela dividida, terminal flutuante, ⌘K, barra de entrada com ditado (Whisper local) e anexos, Ajustes.
+
+## v0.1.0 · fatia vertical
+
+- Moldura do app (Tauri + React + núcleo Python), o Claude Code real num terminal, contexto e cota na barra de status.

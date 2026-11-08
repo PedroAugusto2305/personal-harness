@@ -11,7 +11,7 @@
   - **Fora** contraria um princípio do Harness.
 - A meta é uma **proposta**: mova o que quiser.
 
-## Situação da régua 1.0 (2026-11-08, `v0.9.3`)
+## Situação da régua 1.0 (2026-11-08, `v0.9.4`)
 
 | Bloco | Situação |
 |---|---|
@@ -22,8 +22,9 @@
 | **A. Sessões e agentes:** sobreviver a fechar o app, histórico e retomar, reiniciar e continuar, passar o trabalho Claude ↔ Codex, modo de permissão, confiar na pasta, Mac acordado, página de Skills | ✅ `v0.9.2` |
 | **E. Avisos e sistema:** aviso do macOS e som, sino com não lidos e badge no Dock, ajustes de aviso, gerenciador de recursos, scripts de setup e arquivamento, CLI com `--json` e leitura e escrita em terminais | ✅ `v0.9.2` |
 | **B. Terminal e navegação:** busca no terminal, comandos salvos, divisão aninhada salva por worktree (com arrastar a aba para a borda), ⌘J, atalhos remapeáveis, busca nas configurações, importar tema do Ghostty | ✅ `v0.9.3` |
-| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ próximo bloco |
-| **D. Editores:** editar arquivos da worktree, editar notas do Brain com `[[links]]` e callouts | ⏳ |
+| **Uso diário:** app instalado de uma versão marcada, atualização pelo app e pelo `metis`, MÊTIS de desenvolvimento separada | ✅ `v0.9.4` |
+| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ `v0.9.5` |
+| **D. Editores:** editar arquivos da worktree, editar notas do Brain com `[[links]]` e callouts | ⏳ `v0.9.6` (falta escolher o editor) |
 | Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ⏳ |
 | Fora da `v0.9.3` no bloco B: temas do Warp e do Kitty, copiar o contexto e o ID da sessão, teclado kitty e OSC 52 no terminal | ⏳ |
 
@@ -184,7 +185,7 @@
 | Ajustes de aviso | Som, volume, silenciar por máquina | ⭐ | 1.0 |
 | Plugins | 151 no catálogo, instalar por Git, atualização automática | ○ (desligado, só temas) | Depois (o catálogo); temas 1.0 |
 | Temas e aparência | Temas do app e do terminal, ícones, fontes, acento, densidade, zoom, 10 idiomas | ⭐ | 1.0 com a [`DESIGN.md`](DESIGN.md) |
-| Atualizações | Automáticas, canal RC, atraso configurável | ? | 1.0 |
+| Atualizações | Automáticas, canal RC, atraso configurável | ? | 1.0: ✅ `v0.9.4` (aviso de versão nova e atualizar num clique; o núcleo passa ao reiniciar) |
 | Telemetria | PostHog anônimo | ⭐ (ligada) | Fora (o Harness não manda dados para fora) |
 | Segredos | No Keychain | ? | 1.0 |
 

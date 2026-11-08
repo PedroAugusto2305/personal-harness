@@ -299,6 +299,10 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // A MÊTIS de desenvolvimento (scripts/dev.sh) deixa o ⌥Espaço para a de uso, a instalada.
+            if std::env::var("METIS_DEV").is_ok() {
+                return Ok(());
+            }
             if let Err(error) = app.global_shortcut().register(capture_shortcut()) {
                 eprintln!("metis: o ⌥Espaço está com outro app ({error}); a captura fica no ⌘K");
             }

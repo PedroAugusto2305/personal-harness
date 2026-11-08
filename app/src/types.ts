@@ -153,11 +153,12 @@ export type CoreEvent =
   | { type: "hello"; version?: string; sessions: Session[]; usage: Usage; accounts: Accounts; projects: Project[]; agents: Agent[] }
   | { type: "prefs"; prefs: Prefs }
   | { type: "comandos" }
+  | { type: "atualizacao"; nova: string; versao: string }
   | { type: "atalhos" }
   | { type: "awake"; ativo: boolean }
   | { type: "session.created"; session: Session }
   | { type: "session.closed"; id: string }
-  | { type: "session.status"; id: string; status: SessionStatus }
+  | { type: "session.status"; id: string; status: SessionStatus; exit_code?: number | null }
   | { type: "session.statusline"; id: string; statusline: Statusline }
   | { type: "session.hook"; id: string; name: string; message?: string | null }
   | { type: "usage"; usage: Usage }
@@ -768,4 +769,18 @@ export interface TerminalTheme {
 export interface GhosttyInfo {
   config: { arquivo: string; tema: string | null; cores_proprias: boolean } | null;
   temas: { nome: string; origem: "metis" | "ghostty" | "usuario" }[];
+}
+
+// --- Uso diário (v0.9.4) ---------------------------------------------------------------
+
+/** A versão em uso: a instalada (cópia de uma tag em ~/.harness/versoes) ou a de desenvolvimento. */
+export interface VersionInfo {
+  versao: string;
+  instalada: boolean;
+  tag: string | null;
+  pasta: string;
+  repositorio: string | null;
+  ultima: string | null;
+  /** Versão mais nova que a instalada, se houver. */
+  nova: string | null;
 }

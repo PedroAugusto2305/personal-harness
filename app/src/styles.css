@@ -6188,3 +6188,29 @@ body.capture-body {
 .term-theme select {
   max-width: 240px;
 }
+
+/* v0.9.4: arrastar cartão do kanban com o ponteiro. */
+.kb-card {
+  cursor: grab;
+}
+
+.kb-card[data-dragging="true"] {
+  opacity: 0.4;
+}
+
+.kb-ghost {
+  position: fixed;
+  z-index: 120;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 7px 11px;
+  border: 1px solid var(--acc);
+  border-radius: 8px;
+  background: var(--side);
+  color: var(--tx);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}

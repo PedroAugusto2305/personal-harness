@@ -8,7 +8,8 @@ import { chime } from "./pomodoro";
 import type { Prefs } from "../types";
 
 /** As chaves batem com as de `Prefs["avisos"]`: cada tipo liga e desliga nos Ajustes. */
-export type NoticeKind = "terminou" | "espera" | "aprovacao" | "erro";
+/** "versao" (v0.9.4): versão nova da MÊTIS instalada; não tem chave nos Ajustes, sempre avisa. */
+export type NoticeKind = "terminou" | "espera" | "aprovacao" | "erro" | "versao";
 
 export interface Notice {
   id: string;
@@ -74,7 +75,7 @@ export function useInbox(client: CoreClient | null, prefs: Prefs | null) {
   const push = useCallback((notice: NoticeInput) => {
     const { client: core, prefs: current } = live.current;
     const avisos = current?.avisos ?? DEFAULT_AVISOS;
-    if (!avisos[notice.kind]) return; // esse tipo de aviso está desligado nos Ajustes
+    if ((avisos as unknown as Record<string, unknown>)[notice.kind] === false) return; // desligado nos Ajustes
     const item: Notice = { ...notice, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`, at: Date.now(), lido: false };
     setItems((all) => [item, ...all].slice(0, MAX));
     if (avisos.silencio) return;

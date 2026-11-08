@@ -16,6 +16,28 @@ RELAY_SCRIPT = """#!/bin/sh
 # Repassa ao núcleo o JSON que o Claude Code manda para a statusline e para os hooks.
 kind="$1"
 name="$2"
+# Codex (v0.9.4): chamado pelo `notify` com o JSON no último argumento. Avisa o núcleo
+# (fim de turno = Stop; pedido de aprovação = Notification) e chama o notify que já
+# estava no config.toml da conta, se houver, com os mesmos argumentos.
+if [ "$kind" = "codex" ]; then
+  shift
+  payload=""
+  for payload; do :; done
+  case "$payload" in
+    *agent-turn-complete*) event=Stop ;;
+    *approval*) event=Notification ;;
+    *) event="" ;;
+  esac
+  if [ -n "$event" ] && [ -n "$HARNESS_CORE_URL" ] && [ -n "$HARNESS_SESSION_ID" ]; then
+    printf '%s' "$payload" | curl -s -m 2 -o /dev/null -X POST -H "Content-Type: application/json" \\
+      -H "X-Harness-Token: $HARNESS_TOKEN" --data-binary @- \\
+      "$HARNESS_CORE_URL/hooks/event?session=$HARNESS_SESSION_ID&name=$event" 2>/dev/null
+  fi
+  if [ "$#" -gt 1 ]; then
+    exec "$@"
+  fi
+  exit 0
+fi
 if [ -z "$HARNESS_CORE_URL" ] || [ -z "$HARNESS_SESSION_ID" ]; then
   cat >/dev/null
   exit 0

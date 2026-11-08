@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { CoreClient } from "../lib/core";
 import { renderInline } from "../lib/obsidian";
 import type { BoardProject, KanbanTask, Stage, TaskState } from "../types";
@@ -37,37 +37,90 @@ const STATES: { key: TaskState; label: string; dot: string }[] = [
 const DONE_SHOWN = 12;
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
-/** Uma coluna que aceita cartão arrastado. */
+/** Arrasto de cartão em andamento: qual cartão, onde está o ponteiro e a coluna embaixo dele. */
+interface CardDrag {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  col: string | null;
+}
+
+const colAt = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-col]")?.dataset.col ?? null;
+
+/**
+ * Arrastar cartão com o ponteiro (v0.9.4): o arrastar do HTML não chega na janela do Tauri
+ * (o arrastar nativo de arquivos engole). O ponteiro é capturado já no clique, senão o
+ * primeiro movimento rápido cai fora do cartão e o arrasto se perde; Esc cancela.
+ */
+function useCardDrag(onDrop: (col: string, id: string) => void) {
+  const [drag, setDrag] = useState<CardDrag | null>(null);
+  const moved = useRef(false);
+  const live = useRef(onDrop);
+  live.current = onDrop;
+
+  const start = (event: ReactPointerEvent<HTMLElement>, id: string, label: string) => {
+    if (event.button !== 0 || (event.target as HTMLElement).closest("button, a, input, textarea, select")) return;
+    event.preventDefault(); // sem seleção de texto ao arrastar; o clique continua chegando
+    const el = event.currentTarget;
+    const pointer = event.pointerId;
+    const x0 = event.clientX;
+    const y0 = event.clientY;
+    let moving = false;
+    moved.current = false;
+    el.setPointerCapture(pointer);
+    const move = (ev: PointerEvent) => {
+      if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+      moving = true;
+      moved.current = true;
+      setDrag({ id, label, x: ev.clientX, y: ev.clientY, col: colAt(ev.clientX, ev.clientY) });
+    };
+    const stop = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", stop);
+      el.removeEventListener("pointercancel", stop);
+      window.removeEventListener("keydown", escape, true);
+      if (!moving) return;
+      setDrag(null);
+      const col = ev.type === "pointerup" ? colAt(ev.clientX, ev.clientY) : null;
+      if (col) live.current(col, id);
+    };
+    const escape = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || !moving) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      moving = false;
+      setDrag(null);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", stop);
+    el.addEventListener("pointercancel", stop);
+    window.addEventListener("keydown", escape, true);
+  };
+
+  /** O clique que encerra um arrasto não abre o cartão. */
+  const consumeClick = () => {
+    const was = moved.current;
+    moved.current = false;
+    return was;
+  };
+
+  return { drag, start, consumeClick };
+}
+
+/** Uma coluna que aceita cartão arrastado (`colKey` é o que o arrasto devolve ao soltar). */
 function Column(props: {
+  colKey: string;
+  over: boolean;
   label: string;
   dot: string;
   count: number;
   hint?: string;
-  onDrop: (id: string) => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
-  const [over, setOver] = useState(false);
   return (
-    <section
-      className="kb-col"
-      data-over={over ? "true" : undefined}
-      onDragOver={(event) => {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        setOver(true);
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node)) setOver(false);
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        setOver(false);
-        const id = event.dataTransfer.getData("text/x-metis-card");
-        if (id) props.onDrop(id);
-      }}
-      aria-label={props.label}
-    >
+    <section className="kb-col" data-col={props.colKey} data-over={props.over ? "true" : undefined} aria-label={props.label}>
       <header className="kb-col-head">
         <span className="kb-dot" style={{ background: props.dot }} />
         <span>{props.label}</span>
@@ -90,6 +143,11 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
   const [loaded, setLoaded] = useState(false);
 
   const project = projects.find((p) => p.name === current) ?? null;
+  // Projetos: a coluna "none" é Sem estágio. Tarefas: a coluna é o estado.
+  const cardDrag = useCardDrag((col, id) => {
+    if (mode === "projects") void moveProject(id, (col === "none" ? "" : col) as Stage);
+    else void moveTask(id, col as TaskState);
+  });
 
   useEffect(() => {
     if (!client) return;
@@ -229,17 +287,22 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
           {STAGES.filter((s) => s.key !== "" || (byStage.get("")?.length ?? 0) > 0).map((stage) => {
             const list = byStage.get(stage.key) ?? [];
             return (
-              <Column key={stage.key || "none"} label={stage.label} dot={stage.dot} count={list.length} hint={stage.hint} onDrop={(name) => void moveProject(name, stage.key)}>
+              <Column
+                key={stage.key || "none"}
+                colKey={stage.key || "none"}
+                over={cardDrag.drag?.col === (stage.key || "none")}
+                label={stage.label}
+                dot={stage.dot}
+                count={list.length}
+                hint={stage.hint}
+              >
                 {list.map((p) => (
                   <article
                     key={p.name}
                     className="kb-card"
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData("text/x-metis-card", p.name);
-                      event.dataTransfer.effectAllowed = "move";
-                    }}
-                    onClick={() => showTasks(p.name)}
+                    data-dragging={cardDrag.drag?.id === p.name ? "true" : undefined}
+                    onPointerDown={(event) => cardDrag.start(event, p.name, p.name)}
+                    onClick={() => !cardDrag.consumeClick() && showTasks(p.name)}
                   >
                     <div className="kb-card-title">{p.name}</div>
                     <div className="kb-tags">
@@ -299,7 +362,8 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
                 label={state.label}
                 dot={state.dot}
                 count={list.length}
-                onDrop={(id) => void moveTask(id, state.key)}
+                colKey={state.key}
+                over={cardDrag.drag?.col === state.key}
                 footer={
                   state.key === "pendente" ? (
                     <form
@@ -323,11 +387,9 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
                     key={task.id}
                     className="kb-card kb-task"
                     data-cancelled={task.cancelled ? "true" : undefined}
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData("text/x-metis-card", task.id);
-                      event.dataTransfer.effectAllowed = "move";
-                    }}
+                    data-dragging={cardDrag.drag?.id === task.id ? "true" : undefined}
+                    onPointerDown={(event) => cardDrag.start(event, task.id, task.text.replace(/[*_`[\]]/g, "").slice(0, 70))}
+                    onClick={() => cardDrag.consumeClick()}
                   >
                     <div className="kb-task-text" dangerouslySetInnerHTML={{ __html: renderInline(task.text) }} />
                     <div className="kb-meta small mono">
@@ -350,6 +412,11 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
               </Column>
             );
           })}
+        </div>
+      )}
+      {cardDrag.drag && (
+        <div className="kb-ghost" style={{ left: cardDrag.drag.x + 12, top: cardDrag.drag.y + 8 }} aria-hidden="true">
+          {cardDrag.drag.label}
         </div>
       )}
     </div>

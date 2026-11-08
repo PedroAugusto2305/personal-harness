@@ -54,6 +54,7 @@ import type {
   GhosttyInfo,
   SavedCommand,
   TerminalTheme,
+  VersionInfo,
 } from "../types";
 
 export interface CoreInfo {
@@ -711,6 +712,16 @@ export class CoreClient {
 
   readGhosttyTheme(texto: string, nome?: string): Promise<TerminalTheme> {
     return this.request("POST", "/ghostty/ler", nome ? { texto, nome } : { texto });
+  }
+
+  /** A versão em uso e a nova, se houver; `buscar` traz as tags do GitHub antes (alguns segundos). */
+  systemVersion(buscar = false): Promise<VersionInfo> {
+    return this.request("GET", `/sistema/versao${buscar ? "?buscar=true" : ""}`);
+  }
+
+  /** Abre um terminal que instala a versão (a mais nova, sem versão) e devolve a sessão dele. */
+  systemUpdate(versao?: string): Promise<Session> {
+    return this.request("POST", "/sistema/atualizar", versao ? { versao } : {});
   }
 
   async upload(file: Blob, name: string): Promise<string> {
