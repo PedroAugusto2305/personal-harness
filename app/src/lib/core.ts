@@ -4,8 +4,10 @@ import type {
   BoardProject,
   ConnectorAccount,
   ConnectorCatalog,
+  AgentDraftSuggestion,
   Routine,
   RoutineDraft,
+  StudySummary,
   RoutineRun,
   TodayData,
   BrainGraphData,
@@ -71,6 +73,8 @@ export interface NewSessionOptions {
   agent?: string;
   cols?: number;
   rows?: number;
+  /** Agente ainda não salvo ("testar antes de salvar"). */
+  draft?: { name: string; cli: "claude" | "codex"; model: string; folder: string; prompt: string };
 }
 
 export class CoreClient {
@@ -394,6 +398,24 @@ export class CoreClient {
 
   decide(id: string, aprovar: boolean): Promise<void> {
     return this.request("POST", `/aprovacoes/${encodeURIComponent(id)}`, { aprovar });
+  }
+
+  // --- captura, estudo e agente por descrição ----------------------------------------
+
+  capture(texto: string): Promise<{ acao: string; mensagem: string }> {
+    return this.request("POST", "/captura", { texto });
+  }
+
+  study(): Promise<StudySummary> {
+    return this.request("GET", "/estudo");
+  }
+
+  studyBlock(minutos: number, assunto: string): Promise<{ line: string; note: string }> {
+    return this.request("POST", "/estudo/blocos", { minutos, assunto });
+  }
+
+  draftAgent(descricao: string): Promise<AgentDraftSuggestion> {
+    return this.request("POST", "/agents/rascunho", { descricao });
   }
 
   // --- rotinas e Hoje ------------------------------------------------------------

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "captura",
+  "description": "Permissões da caixinha de captura rápida (⌥Espaço): esconder-se e ouvir quando abre.",
+  "windows": ["captura"],
+  "permissions": ["core:default", "core:window:allow-hide", "core:window:allow-set-focus"]
+}

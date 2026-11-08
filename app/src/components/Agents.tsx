@@ -7,7 +7,7 @@ import { AgentSprite, GreekBust } from "./AgentSprite";
 import { SpriteChat } from "./SpriteChat";
 
 const SWATCHES = ["#82a0ff", "#007AFF", "#5AC8FA", "#8be9fd", "#bd93f9", "#AF52DE", "#FF2D55", "#FF3B30", "#d97757", "#a9aec9"];
-const EMPTY: AgentDraft = { name: "", description: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "" };
+const EMPTY: AgentDraft = { name: "", description: "", pain: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "" };
 const SPRITE_MAX = 256;
 
 interface Props {
@@ -16,12 +16,15 @@ interface Props {
   accounts: Accounts;
   run: <T>(action: (core: CoreClient) => Promise<T>) => Promise<T | null>;
   onLaunch: (agent: Agent) => void;
+  /** Abre um terminal com o rascunho, sem salvar ("testar antes de salvar"). */
+  onTest: (draft: AgentDraft) => void;
   connectors: ConnectorAccount[];
 }
 
 const toDraft = (agent: Agent): AgentDraft => ({
   name: agent.name,
   description: agent.description,
+  pain: agent.pain ?? "",
   cli: agent.cli,
   model: agent.model,
   account: agent.account,
@@ -45,7 +48,10 @@ async function toPng(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("não deu para converter"))), "image/png"));
 }
 
-export function Agents({ client, agents, accounts, run, onLaunch, connectors }: Props) {
+export function Agents({ client, agents, accounts, run, onLaunch, onTest, connectors }: Props) {
+  const [describe, setDescribe] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [spriteIdea, setSpriteIdea] = useState("");
   const [selectedId, setSelectedId] = useState<string | "novo" | null>(agents[0]?.id ?? null);
   const [draft, setDraft] = useState<AgentDraft>(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
@@ -203,6 +209,50 @@ export function Agents({ client, agents, accounts, run, onLaunch, connectors }: 
               </div>
             </div>
 
+            {selectedId === "novo" && (
+              <div className="card agent-describe">
+                <span className="setting-label">
+                  Descrever o agente
+                  <span className="small">Em uma frase: o que ele faz e qual dor sua resolve. O Claude rascunha os campos e você revisa antes de criar.</span>
+                </span>
+                <textarea
+                  rows={2}
+                  value={describe}
+                  onChange={(e) => setDescribe(e.target.value)}
+                  placeholder="Ex.: um agente que lê minhas capturas do dia toda noite e transforma em tarefas nos projetos certos"
+                />
+                <div className="form-buttons">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={drafting || describe.trim().length < 8}
+                    onClick={async () => {
+                      setDrafting(true);
+                      setNotice("Rascunhando com o Claude (uns 20 a 60 segundos)…");
+                      const suggestion = await run((c) => c.draftAgent(describe));
+                      setDrafting(false);
+                      if (!suggestion) return setNotice(null);
+                      setDraft((d) => ({
+                        ...d,
+                        name: suggestion.name,
+                        description: suggestion.description,
+                        pain: suggestion.pain,
+                        cli: suggestion.cli,
+                        color: suggestion.color,
+                        folder: suggestion.folder,
+                        prompt: suggestion.prompt,
+                      }));
+                      setSpriteIdea(suggestion.sprite);
+                      setNotice("Rascunho pronto: revise os campos, teste e crie.");
+                    }}
+                  >
+                    {drafting ? "Rascunhando…" : "Rascunhar com o Claude"}
+                  </button>
+                  {spriteIdea && <span className="small agent-sprite-idea">Ideia de sprite: {spriteIdea}</span>}
+                </div>
+              </div>
+            )}
+
             <SpriteChat
               key={selectedId}
               client={client}
@@ -221,6 +271,10 @@ export function Agents({ client, agents, accounts, run, onLaunch, connectors }: 
               <label>
                 <span className="setting-label">Descrição</span>
                 <input value={draft.description} onChange={(e) => set("description", e.target.value)} placeholder="Ex.: Revisa o diff antes do PR" />
+              </label>
+              <label className="wide">
+                <span className="setting-label">Qual dor resolve?</span>
+                <input value={draft.pain} onChange={(e) => set("pain", e.target.value)} placeholder="Um agente, uma tarefa: agente novo só com dor real" />
               </label>
               <div>
                 <span className="setting-label">CLI</span>
@@ -320,6 +374,17 @@ export function Agents({ client, agents, accounts, run, onLaunch, connectors }: 
               <button type="submit" className="btn primary" disabled={!dirty || !draft.name.trim()}>
                 {selectedId === "novo" ? "Criar agente" : "Salvar"}
               </button>
+              {(selectedId === "novo" || dirty) && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!draft.name.trim() || !draft.prompt.trim()}
+                  title="Abre um terminal com este papel, sem salvar"
+                  onClick={() => onTest(draft)}
+                >
+                  Testar sem salvar
+                </button>
+              )}
               {current && (
                 <button type="button" className="btn" onClick={() => onLaunch(current)} disabled={dirty} title={dirty ? "Salve antes de abrir" : undefined}>
                   Abrir agente {current.folder ? `em ${shortPath(current.folder)}` : "na worktree escolhida"}

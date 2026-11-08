@@ -4,7 +4,17 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.7.0)
+## O que já faz (v0.7.1)
+
+**Novo na 0.7.1, o resto do OS pessoal:**
+
+- **Captura rápida** (⌥Espaço de qualquer app, ou ⌘K → "Captura rápida"): uma caixinha por cima de tudo. "me lembra de pagar o boleto sexta 9h" vira lembrete no Slack; "tarefa revisar o PR no Personal Harness" vira linha nas Próximas ações do projeto; "tarefa…" ou "anota…" sem projeto vai para as Capturas do dia no Brain; o resto vai para o **Hermes**, o concierge, num terminal da MÊTIS, que age pela central de MCP.
+- **Hermes**: agente novo, concierge da captura rápida.
+- **Agente por descrição**: em "Novo agente", descreva numa frase e o Claude rascunha nome, papel, dor, cor e pasta; "Testar sem salvar" abre um terminal com o rascunho. Todo agente ganhou o campo "Qual dor resolve?".
+- **Sprites animadas** por estado na barra lateral e nas abas: respira parado, balança trabalhando, "!" esperando você, pulinho ao concluir, treme no erro.
+- **Estudo** (ícone de livro): Pomodoro (25/5, 50/10 ou 15/3) que continua ao trocar de tela, com o relógio na barra de título; cada foco vira uma linha em "📚 Estudo" na nota do dia do Brain. Placar com o piso de 20 minutos, a semana, a sequência e o aviso de dois dias seguidos sem estudar; botões para a Aurora e o Sócrates.
+
+**Desde a 0.7.0:**
 
 **Novo na 0.7, rotinas e Hoje:**
 

@@ -92,6 +92,9 @@ export function useHarness() {
         case "routines":
           setRoutinesTick((n) => n + 1);
           break;
+        case "study":
+          setRoutinesTick((n) => n + 1);
+          break;
         case "routine.run":
           setRoutinesTick((n) => n + 1);
           setRoutineRun({ id: event.run.id, name: event.routine.name, status: event.run.status, session: event.session, detail: event.run.detail });

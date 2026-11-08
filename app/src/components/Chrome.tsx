@@ -4,7 +4,20 @@ import type { ThemeName, View } from "../types";
 
 export const THEME_LABEL: Record<ThemeName, string> = { dracula: "Drácula azul", grafite: "Grafite", claro: "Claro" };
 
-export function TitleBar({ theme, onCycleTheme, onPalette }: { theme: ThemeName; onCycleTheme: () => void; onPalette: () => void }) {
+export function TitleBar({
+  theme,
+  onCycleTheme,
+  onPalette,
+  pomodoro,
+  onPomodoro,
+}: {
+  theme: ThemeName;
+  onCycleTheme: () => void;
+  onPalette: () => void;
+  /** Relógio do Pomodoro quando está correndo (foco ou pausa). */
+  pomodoro?: { label: string; phase: string } | null;
+  onPomodoro?: () => void;
+}) {
   return (
     <header className="titlebar" data-tauri-drag-region>
       <div className="traffic">
@@ -28,6 +41,11 @@ export function TitleBar({ theme, onCycleTheme, onPalette }: { theme: ThemeName;
           ⌘K
         </span>
       </button>
+      {pomodoro && (
+        <button type="button" className="chip pomodoro-chip" data-phase={pomodoro.phase} onClick={onPomodoro} title="Estudo">
+          🍅 {pomodoro.label}
+        </button>
+      )}
       <button type="button" className="chip" onClick={onCycleTheme} title="Trocar tema (mais opções em Ajustes)">
         tema: {THEME_LABEL[theme]}
       </button>
@@ -47,7 +65,7 @@ const NAV: { key: keyof typeof ICON; label: string; version: string }[] = [
   { key: "plug", label: "Conectores", version: "v0.6" },
 ];
 
-const READY: Partial<Record<keyof typeof ICON, View>> = { home: "today", term: "term", graph: "brain", kanban: "kanban", agents: "agents", plug: "connectors" };
+const READY: Partial<Record<keyof typeof ICON, View>> = { home: "today", term: "term", study: "study", graph: "brain", kanban: "kanban", agents: "agents", plug: "connectors" };
 
 /** Faixa de ícones. Terminais, Brain, Kanban, Agentes e Ajustes já existem; o resto mostra quando chega. */
 export function Ribbon({ view, onView }: { view: View; onView: (view: View) => void }) {

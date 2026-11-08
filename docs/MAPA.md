@@ -182,6 +182,8 @@ Cada fase entregue sobe o número do meio. Os itens marcados com ⭐ são o seu 
 
 > **`v0.7.0` (2026-11-08):** rotinas e Hoje, a primeira parte do OS pessoal, escolha do Pedro para chegar logo ao "a rotina da Aurora roda pela MÊTIS". Rotina = agente aberto num terminal na hora marcada com o pedido como primeira mensagem (interativo, pelo plano), aviso no Slack e janela de recuperação para o Mac dormindo. Tela Hoje com as rotinas do dia, tarefas em andamento, aprovações e lembrete; editor de rotinas. Aurora (seg a sáb, 20h50) e Alexandria (sexta, 22h10, trazida do Maestri) já cadastradas. Ficou para a 0.7.x: captura rápida, concierge, criar agente por descrição, sprites animadas por estado e Estudo com Pomodoro.
 
+> **`v0.7.1` (2026-11-08):** o resto do OS pessoal da v0.7. Captura rápida no ⌥Espaço (plugin de atalho global do Tauri e uma janela pequena por cima de tudo): lembrete, tarefa e anotação na hora, o resto para o Hermes, concierge novo. Agente por descrição (`claude -p` rascunha, o Pedro revisa) com "Testar sem salvar" e o campo "Qual dor resolve?". Sprites animadas por estado. Estudo com Pomodoro, placar das regras da Aurora e uma linha por bloco na nota do dia. Escolhas do Pedro: ⌥Espaço, ações diretas mais concierge, nome Hermes, minutos na MÊTIS e na nota do dia.
+
 ## 10. Riscos
 
 | Risco | Como tratar |
