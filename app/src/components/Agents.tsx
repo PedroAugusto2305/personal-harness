@@ -3,7 +3,8 @@ import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { KIND_LABEL, shortPath } from "../lib/format";
 import type { Accounts, Agent, AgentDraft } from "../types";
-import { AgentSprite, PixelAvatar } from "./AgentSprite";
+import { AgentSprite, GreekBust } from "./AgentSprite";
+import { SpriteChat } from "./SpriteChat";
 
 const SWATCHES = ["#82a0ff", "#007AFF", "#5AC8FA", "#8be9fd", "#bd93f9", "#AF52DE", "#FF2D55", "#FF3B30", "#d97757", "#a9aec9"];
 const EMPTY: AgentDraft = { name: "", description: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", prompt: "" };
@@ -47,6 +48,8 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
   const [draft, setDraft] = useState<AgentDraft>(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Sprite escolhida no chat: num agente novo, só é aplicada ao criar. */
+  const [chosenSprite, setChosenSprite] = useState<string | null>(null);
   const spriteInput = useRef<HTMLInputElement>(null);
   const current = agents.find((a) => a.id === selectedId) ?? null;
 
@@ -57,6 +60,7 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
 
   useEffect(() => {
     setConfirmDelete(false);
+    setChosenSprite(null);
     if (selectedId === "novo") setDraft(EMPTY);
     else if (current) setDraft(toDraft(current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -66,11 +70,21 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
   const set = <K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
   const save = async () => {
-    const saved =
-      selectedId === "novo" || !current ? await run((c) => c.createAgent(draft)) : await run((c) => c.updateAgent(current.id, draft));
+    const creating = selectedId === "novo" || !current;
+    const saved = creating ? await run((c) => c.createAgent(draft)) : await run((c) => c.updateAgent(current.id, draft));
     if (saved) {
+      if (creating && chosenSprite) await run((c) => c.useSpriteJob(saved.id, chosenSprite));
       setSelectedId(saved.id);
       setNotice("Salvo.");
+    }
+  };
+
+  const applySprite = async (job: string) => {
+    if (current) {
+      const ok = await run((c) => c.useSpriteJob(current.id, job));
+      if (ok !== null) setChosenSprite(job);
+    } else {
+      setChosenSprite(job); // agente novo: aplica ao criar
     }
   };
 
@@ -136,10 +150,12 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
           >
             <div className="agent-hero">
               <div className="sprite-box" style={{ borderColor: draft.color }}>
-                {current ? (
+                {!current && chosenSprite && client ? (
+                  <img className="pixel sprite-img" src={client.spriteJobUrl(chosenSprite)} width={96} height={96} alt="" />
+                ) : current ? (
                   <AgentSprite agent={{ ...current, color: draft.color, name: draft.name || current.name }} client={client} size={96} />
                 ) : (
-                  <PixelAvatar seed={`novo${draft.name}`} color={draft.color} size={96} />
+                  <GreekBust seed={`novo${draft.name}`} color={draft.color} size={96} />
                 )}
               </div>
               <div className="agent-hero-text">
@@ -151,7 +167,7 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
                 {current && (
                   <div className="form-buttons">
                     <button type="button" className="pill" onClick={() => spriteInput.current?.click()}>
-                      Trocar sprite
+                      Enviar PNG
                     </button>
                     {current.sprite && (
                       <button type="button" className="pill ghost" onClick={() => run((c) => c.clearSprite(current.id))}>
@@ -177,9 +193,23 @@ export function Agents({ client, agents, accounts, run, onLaunch }: Props) {
                     />
                   </div>
                 )}
-                {!current && <p className="small">Salve primeiro para escolher a sprite.</p>}
+                {!current && (
+                  <p className="small">
+                    {chosenSprite ? "Sprite escolhida: entra quando você criar o agente." : "Sem sprite escolhida, fica o busto padrão na cor do agente."}
+                  </p>
+                )}
               </div>
             </div>
+
+            <SpriteChat
+              key={selectedId}
+              client={client}
+              name={draft.name}
+              description={draft.description}
+              color={draft.color}
+              chosen={chosenSprite}
+              onUse={(job) => void applySprite(job)}
+            />
 
             <div className="card form-grid">
               <label>

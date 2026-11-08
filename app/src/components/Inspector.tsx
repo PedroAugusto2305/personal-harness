@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, fold } from "../lib/format";
+import { openExternal } from "../lib/browser";
 import { buildTree, type TreeNode } from "../lib/tree";
 import type { GitFile, GitStatus, ReviewNote, Session } from "../types";
 import { worktreeLabel, type Place } from "../useWorktrees";
@@ -18,6 +19,7 @@ interface Props {
   tick: number;
   onOpenDiff: (file: GitFile) => void;
   onOpenFile: (path: string) => void;
+  onOpenUrl: (url: string) => void;
   onAskCommit: (staged: number) => void;
   onSendNotes: () => void;
   onClearNotes: () => void;
@@ -92,7 +94,7 @@ export function Inspector(props: Props) {
       ) : tab === "files" ? (
         <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
       ) : (
-        <Ports client={client} sessions={props.sessions} onError={props.onError} />
+        <Ports sessions={props.sessions} onOpenUrl={props.onOpenUrl} />
       )}
     </aside>
   );
@@ -342,7 +344,7 @@ function Files({
   );
 }
 
-function Ports({ client, sessions, onError }: { client: CoreClient | null; sessions: Session[]; onError: (m: string) => void }) {
+function Ports({ sessions, onOpenUrl }: { sessions: Session[]; onOpenUrl: (url: string) => void }) {
   const withPorts = sessions.filter((s) => s.ports.length > 0);
   return (
     <div className="inspector-body">
@@ -364,12 +366,17 @@ function Ports({ client, sessions, onError }: { client: CoreClient | null; sessi
               <Icon d={ICON.port} size={13} />
               <span className="mono">localhost:{port}</span>
               <span className="grow" />
+              <button type="button" className="pill" title="Abrir no navegador da MÊTIS" onClick={() => onOpenUrl(`http://localhost:${port}`)}>
+                Abrir
+              </button>
               <button
                 type="button"
-                className="pill"
-                onClick={() => client?.open({ url: `http://localhost:${port}` }).catch((e) => onError(e.message))}
+                className="icon-btn"
+                title="Abrir no navegador do Mac"
+                aria-label={`Abrir localhost:${port} no navegador do Mac`}
+                onClick={() => void openExternal(`http://localhost:${port}`)}
               >
-                Abrir
+                <Icon d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" size={13} strokeWidth={1.9} />
               </button>
             </div>
           ))}

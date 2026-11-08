@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Agents } from "./components/Agents";
 import { AgentSprite } from "./components/AgentSprite";
+import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
@@ -12,6 +13,7 @@ import { Sidebar, type Selected } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { Tabs, type TabItem } from "./components/Tabs";
 import { TerminalView, type Slot } from "./components/TerminalView";
+import { browser, describePick, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
 import { CoreError, inTauri, type NewSessionOptions } from "./lib/core";
 import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, shortPath } from "./lib/format";
 import { quotePaths, submit, terminals } from "./lib/terminals";
@@ -80,6 +82,10 @@ export default function App() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [webInfo, setWebInfo] = useState<Record<string, WebInfo>>({});
+  /** Para onde a barra de entrada manda quando o foco está numa aba que não é terminal. */
+  const [dockOverride, setDockOverride] = useState<string | null>(null);
+  const [urlFocusTick, setUrlFocusTick] = useState(0);
   const dock = useRef<DockHandle>(null);
   const lastTerm = useRef<string | null>(null);
 
@@ -144,7 +150,11 @@ export default function App() {
   const focusedSession = harness.sessions.find((s) => s.id === focusedKey) ?? null;
   const focusedDoc = docs.find((d) => d.key === focusedKey) ?? null;
   if (focusedSession) lastTerm.current = focusedSession.id;
-  const dockTarget = focusedSession ?? harness.sessions.find((s) => s.id === lastTerm.current) ?? null;
+  const dockTarget =
+    focusedSession ??
+    harness.sessions.find((s) => s.id === dockOverride) ??
+    harness.sessions.find((s) => s.id === lastTerm.current) ??
+    null;
   const ready = harness.connection === "online" && harness.client !== null;
 
   const selectedPlace: Place | null = useMemo(() => {
@@ -280,6 +290,21 @@ export default function App() {
   };
   const openFile = (path: string, root = contextPlace?.worktree.path) => {
     if (root) openDoc({ type: "file", root, path });
+  };
+
+  const webCount = useRef(0);
+  /** Aba de navegador nova, ligada à worktree em foco (é para o agente dela que o modo de design manda). */
+  const openWeb = (url?: string, options: { root?: string; incognito?: boolean } = {}) => {
+    const root = options.root ?? contextPlace?.worktree.path ?? "";
+    const port = contextPlace ? harness.sessions.find((s) => placeFor(s.cwd)?.worktree.path === root && s.ports.length)?.ports[0] : undefined;
+    const start = url ?? (port ? `http://localhost:${port}` : "about:blank");
+    webCount.current += 1;
+    const label = `browser-${Date.now().toString(36)}${webCount.current}`;
+    const key = `doc:web:${label}`;
+    setDocs((all) => [...all, { key, type: "web", root, path: start, label, incognito: options.incognito }]);
+    setWebInfo((all) => ({ ...all, [label]: { url: start, title: null, loading: start !== "about:blank", design: false } }));
+    select(key);
+    if (start === "about:blank") window.setTimeout(() => setUrlFocusTick((n) => n + 1), 50);
   };
 
   const closeTab = (key: string) => {
@@ -480,7 +505,10 @@ export default function App() {
       dock.current?.toggleVoice();
     } else if (cmd && !event.shiftKey && key === "l") {
       setView("term");
-      dock.current?.focus();
+      if (focusedDoc?.type === "web") setUrlFocusTick((n) => n + 1);
+      else dock.current?.focus();
+    } else if (cmd && !event.shiftKey && focusedDoc?.type === "web" && (key === "r" || key === "[" || key === "]")) {
+      void browser.go(focusedDoc.label!, key === "r" ? "reload" : key === "[" ? "back" : "forward").catch(() => undefined);
     } else if (cmd && event.key === ",") setView((v) => (v === "settings" ? "term" : "settings"));
     else if (cmd && /^[1-9]$/.test(event.key) && tabKeys[Number(event.key) - 1]) select(tabKeys[Number(event.key) - 1]);
     else if (event.ctrlKey && !event.metaKey && event.code === "Backquote") void toggleFloat();
@@ -495,6 +523,100 @@ export default function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+
+  // --- navegador embutido: eventos que vêm das páginas ---------------------------
+
+  const browserLive = useRef({ docs, placeFor, keys, openWeb, setToast });
+  browserLive.current = { docs, placeFor, keys, openWeb, setToast };
+
+  const handlePick = async (label: string, data: string) => {
+    const doc = docs.find((d) => d.label === label);
+    let pick: DesignPick;
+    try {
+      pick = JSON.parse(data) as DesignPick;
+    } catch {
+      return;
+    }
+    const place = doc?.root ? placeFor(doc.root) : null;
+    const text = describePick(pick, doc?.root || null);
+    let target: Session | null = null;
+    if (place) {
+      const inside = tabs.filter((s) => s.kind !== "shell" && s.status !== "exited" && placeFor(s.cwd)?.worktree.path === place.worktree.path);
+      target = inside.find((s) => s.id === lastTerm.current) ?? inside[inside.length - 1] ?? null;
+      if (!target) {
+        target = await agentSessionIn(place); // abre um Claude na worktree
+        if (doc) select(doc.key); // e volta para a página
+      }
+    }
+    if (target) setDockOverride(target.id);
+    window.setTimeout(() => dock.current?.insert(text), 30);
+    setToast(target ? `Elemento mandado para a barra de entrada de ${target.title}.` : "Elemento na barra de entrada. Escolha um terminal para mandar.");
+  };
+  const pickRef = useRef(handlePick);
+  pickRef.current = handlePick;
+
+  useEffect(() => {
+    if (!inTauri()) return;
+    const stops: Promise<() => void>[] = [
+      onBrowserEvent<BrowserState>("browser:state", (state) =>
+        setWebInfo((all) => {
+          const prev = all[state.label] ?? { url: "about:blank", title: null, loading: false, design: false };
+          return {
+            ...all,
+            [state.label]: {
+              ...prev,
+              url: state.url ?? prev.url,
+              title: state.title ?? (state.url && state.url !== prev.url ? null : prev.title),
+              loading: state.loading ?? prev.loading,
+            },
+          };
+        }),
+      ),
+      onBrowserEvent<{ label: string; data: string }>("browser:pick", ({ label, data }) => void pickRef.current(label, data)),
+      onBrowserEvent<{ label: string; data: string }>("browser:design", ({ label }) =>
+        setWebInfo((all) => (all[label] ? { ...all, [label]: { ...all[label], design: false } } : all)),
+      ),
+      onBrowserEvent<{ label: string; data: string }>("browser:key", ({ data }) => {
+        try {
+          const k = JSON.parse(data) as ForwardedKey;
+          const fake = {
+            key: k.key,
+            code: k.code,
+            metaKey: k.meta,
+            shiftKey: k.shift,
+            ctrlKey: k.ctrl,
+            altKey: k.alt,
+            preventDefault: () => undefined,
+            stopPropagation: () => undefined,
+          } as unknown as KeyboardEvent;
+          browserLive.current.keys.current(fake);
+        } catch {
+          // tecla malformada: ignora
+        }
+      }),
+      onBrowserEvent<{ label: string; data: string }>("browser:new-window", ({ label, data }) => {
+        const from = browserLive.current.docs.find((d) => d.label === label);
+        browserLive.current.openWeb(data, { root: from?.root });
+      }),
+      onBrowserEvent<{ label: string; url: string; path: string | null; success: boolean | null }>("browser:download", (event) => {
+        if (event.success === true) browserLive.current.setToast(`Baixado em ${event.path ? shortPath(event.path) : "~/Downloads"}.`);
+        else if (event.success === false) browserLive.current.setToast("O download falhou.");
+        else browserLive.current.setToast(`Baixando para ${event.path ? shortPath(event.path) : "~/Downloads"}…`);
+      }),
+    ];
+    return () => {
+      stops.forEach((stop) => void stop.then((fn) => fn()));
+    };
+  }, []);
+
+  const setDesign = (doc: DocTab, on: boolean) => {
+    setWebInfo((all) => ({ ...all, [doc.label!]: { ...(all[doc.label!] ?? { url: doc.path, title: null, loading: false }), design: on } }));
+    void browser.design(doc.label!, on).catch((cause) => setToast(String(cause)));
+    if (on) void browser.go(doc.label!, "focus").catch(() => undefined);
+  };
+
+  // Páginas nativas ficam por cima de tudo; somem quando algo da interface precisa aparecer em cima.
+  const overlayOpen = !!palette || !!pendingDelete || floatOpen;
 
   // --- abas e salto rápido -------------------------------------------------
 
@@ -511,8 +633,8 @@ export default function App() {
     }),
     ...docs.map((doc) => ({
       key: doc.key,
-      title: docTitle(doc),
-      glyph: <span className="mono doc-glyph">{doc.type === "diff" ? "±" : "▤"}</span>,
+      title: docTitle(doc, doc.label ? webInfo[doc.label]?.title : null),
+      glyph: <span className="mono doc-glyph">{doc.type === "diff" ? "±" : doc.type === "web" ? "◍" : "▤"}</span>,
       hint: doc.path,
     })),
   ];
@@ -558,6 +680,11 @@ export default function App() {
               run: () => setSelected({ project: project.id, path: worktree.path }),
             })),
           ),
+          { id: "web", group: "Navegador", label: "Abrir navegador", hint: contextPlace ? worktreeLabel(contextPlace.worktree) : undefined, run: () => openWeb() },
+          { id: "web-private", group: "Navegador", label: "Abrir aba anônima", run: () => openWeb(undefined, { incognito: true }) },
+          ...harness.sessions.flatMap((s) =>
+            s.ports.map((port) => ({ id: `port-${s.id}-${port}`, group: "Navegador", label: `Abrir localhost:${port}`, hint: s.title, run: () => openWeb(`http://localhost:${port}`, { root: placeFor(s.cwd)?.worktree.path }) })),
+          ),
           { id: "files", group: "Tela", label: "Abrir arquivo da worktree", hint: "⌘P", run: () => void openFilePalette() },
           { id: "split", group: "Tela", label: split ? "Juntar a tela" : "Dividir a tela", hint: "⌘D", run: toggleSplit },
           { id: "float", group: "Tela", label: floatOpen ? "Esconder o terminal flutuante" : "Terminal flutuante", hint: "⌃`", run: () => void toggleFloat() },
@@ -586,6 +713,7 @@ export default function App() {
   };
 
   const focusSlot = (key: string) => {
+    if (!key.startsWith("doc:")) setDockOverride(null);
     if (floatSession?.id === key) return setFocus("float");
     if (split && slots[1] === key) return setFocus(1);
     if (slots[0] === key) return setFocus(0);
@@ -697,6 +825,7 @@ export default function App() {
                       badge={agent ? <AgentSprite agent={agent} client={harness.client} size={16} /> : undefined}
                       place={place ? `${place.project.name} · ${worktreeLabel(place.worktree)}` : null}
                       dropping={drop === session.id}
+                      onLink={(url, external) => (external ? void openExternal(url) : openWeb(url, { root: place?.worktree.path }))}
                       onFocus={() => focusSlot(session.id)}
                       onHide={
                         slot === "float"
@@ -712,6 +841,24 @@ export default function App() {
                 docs.map((doc) => {
                   const slot = slotOf(doc.key);
                   const docSlot = slot === "float" ? "hidden" : slot;
+                  if (doc.type === "web") {
+                    return (
+                      <BrowserView
+                        key={doc.key}
+                        label={doc.label!}
+                        initialUrl={doc.path}
+                        incognito={!!doc.incognito}
+                        info={webInfo[doc.label!]}
+                        shown={docSlot !== "hidden" && view === "term" && !overlayOpen}
+                        slot={docSlot}
+                        focused={doc.key === focusedKey}
+                        focusUrlSignal={urlFocusTick}
+                        onFocus={() => focusSlot(doc.key)}
+                        onDesign={(on) => setDesign(doc, on)}
+                        onError={setToast}
+                      />
+                    );
+                  }
                   return (
                     <DocView
                       key={doc.key}
@@ -780,6 +927,7 @@ export default function App() {
                 notes={contextNotes}
                 tick={gitTick}
                 onOpenDiff={openDiff}
+                onOpenUrl={(url) => openWeb(url, { root: contextPlace?.worktree.path })}
                 onOpenFile={(path) => openFile(path)}
                 onAskCommit={(staged) => void askCommit(staged)}
                 onSendNotes={() => void sendNotes()}

@@ -17,6 +17,7 @@ Núcleo do Personal Harness. Roda em `127.0.0.1` e é dono dos terminais dos age
 - `agents.py`: agentes em arquivo (`~/.harness/agentes/*.md`), sprite e importação do Maestri.
 - `ports.py`: portas em escuta dos processos de cada terminal (`ps` + `lsof`).
 - `files.py`: leitura de arquivos dentro da worktree, para o explorador e os visualizadores.
+- `sprites.py`: sprites dos agentes por prompt (`codex exec` com a ferramenta de imagem, estilo greco-romano obrigatório) e a pixelização em 48 × 48.
 - `app.py`: API HTTP e WebSocket.
 
 ```sh

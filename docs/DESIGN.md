@@ -121,17 +121,18 @@ Cada agente tem um personagem em pixel art. É o único lugar do app onde a cor 
 
 | Regra | Valor |
 |---|---|
-| Grade | 32 × 32 pixels, corpo inteiro, vista de frente ou 3/4 |
-| Paleta | Até 16 cores, com a cor do agente como cor principal; contorno escuro de 1 px |
+| Estilo | **Greco-romano, sempre** (pedido do Pedro, 2026-11-07): quíton, peplo ou toga, clâmide com fíbula, sandálias; louros, elmo coríntio ou ático, diadema, lança, escudo, pergaminho ou lira; detalhes de mármore, bronze e ouro |
+| Grade | 48 × 48 pixels, corpo inteiro, de frente (a sprite padrão é um busto 16 × 16) |
+| Paleta | Até 24 cores, tiradas do próprio personagem, com a cor do agente no manto ou na faixa da toga; contorno escuro de 1 px |
 | Fundo | Transparente |
 | Exibição | Só em múltiplos inteiros (2×, 3×, 4×), com `image-rendering: pixelated`, para o pixel não borrar |
 | Onde aparece | Barra lateral, cabeçalho do terminal (com um selinho pequeno da CLI: Claude ou Codex), cartões do kanban (quem está trabalhando), Hoje |
 
-**Como nasce:**
-1. No "Novo agente", o Harness pede ao Codex (`codex exec` com geração de imagem) 4 variações a partir da descrição do agente e deste guia.
-2. O Harness **pixeliza** o resultado: encaixa numa grade de 32 × 32, reduz a paleta e limpa o fundo. Modelo de imagem costuma fazer "pixel art falsa", com pixels de tamanhos diferentes; esse passo garante que todos pareçam do mesmo jogo.
-3. Você escolhe uma variação ou pede outra rodada. O arquivo fica em `agents/<nome>/sprite.png`, junto com o prompt usado.
-4. Sem Codex disponível, o Harness desenha um personagem simples a partir do nome, para nenhum agente ficar sem rosto.
+**Como nasce** (feito na `v0.4.0`):
+1. Na tela de Agentes, inclusive em "Novo agente", há um **chat da sprite**. Você descreve o personagem e a MÊTIS pede ao Codex (`codex exec` com a ferramenta de imagem) um desenho, sempre com a regra de estilo acima no pedido.
+2. A MÊTIS pega a imagem original em alta (em `$CODEX_HOME/generated_images`, se o Codex tiver reduzido a cópia) e **pixeliza**: tira o fundo, recorta, monta a paleta só com as cores do personagem, reduz para 48 × 48 pela cor mais frequente de cada bloco (a média deixa tudo marrom) e redesenha o contorno. Modelo de imagem faz "pixel art falsa"; esse passo deixa todas as sprites do mesmo jogo.
+3. A sprite aparece no chat com "Usar esta". A próxima mensagem ajusta a última sprite (a imagem anterior vai junto para o Codex), até você pedir outra do zero. Os rascunhos ficam em `~/.harness/agentes/sprites/rascunhos/`, com o pedido.
+4. Sem sprite escolhida, o agente ganha um **busto greco-romano padrão**, desenhado a partir do nome: elmo coríntio com crista, coroa de louros, diadema, véu ou só o cabelo, com pele, cabelo e barba variando e a clâmide na cor do agente. Também dá para enviar um PNG pronto.
 
 **Estados animados** (feitos por código em cima do sprite parado, então o personagem nunca muda de cara):
 

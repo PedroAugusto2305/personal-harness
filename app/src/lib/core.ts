@@ -8,6 +8,7 @@ import type {
   Provider,
   Session,
   SessionKind,
+  SpriteJob,
   TextFile,
   Usage,
   VoiceStatus,
@@ -257,6 +258,24 @@ export class CoreClient {
 
   spriteUrl(id: string, version: number): string {
     return `${this.info.url}/agents/${encodeURIComponent(id)}/sprite?${new URLSearchParams({ token: this.info.token, v: String(version) })}`;
+  }
+
+  // --- sprites por prompt
+
+  startSprite(request: { prompt: string; name: string; description: string; color: string; base?: string | null }): Promise<SpriteJob> {
+    return this.request("POST", "/sprites/jobs", request);
+  }
+
+  spriteJob(id: string): Promise<SpriteJob> {
+    return this.request("GET", `/sprites/jobs/${encodeURIComponent(id)}`);
+  }
+
+  spriteJobUrl(id: string): string {
+    return `${this.info.url}/sprites/jobs/${encodeURIComponent(id)}/image?${new URLSearchParams({ token: this.info.token })}`;
+  }
+
+  useSpriteJob(agentId: string, job: string): Promise<void> {
+    return this.request("POST", `/agents/${encodeURIComponent(agentId)}/sprite/from-job`, { job });
   }
 
   importMaestri(): Promise<{ imported: string[] }> {

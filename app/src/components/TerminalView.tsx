@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
 import { terminals } from "../lib/terminals";
@@ -75,17 +76,21 @@ interface Props {
   /** "projeto · worktree" quando o terminal está dentro de um projeto. */
   place?: string | null;
   dropping: boolean;
+  /** ⌘ + clique num link: abre no navegador da MÊTIS (com ⇧, no do Mac). */
+  onLink?: (url: string, external: boolean) => void;
   onFocus: () => void;
   onHide?: () => void;
 }
 
-export function TerminalView({ session, client, theme, slot, focused, split, accountName, badge, place, dropping, onFocus, onHide }: Props) {
+export function TerminalView({ session, client, theme, slot, focused, split, accountName, badge, place, dropping, onLink, onFocus, onHide }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fitter = useRef<FitAddon | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const focusRef = useRef(onFocus);
   focusRef.current = onFocus;
+  const linkRef = useRef(onLink);
+  linkRef.current = onLink;
 
   const sendInput = (data: string) => {
     if (socket.current?.readyState === WebSocket.OPEN) {
@@ -121,6 +126,11 @@ export function TerminalView({ session, client, theme, slot, focused, split, acc
     });
     const addon = new FitAddon();
     terminal.loadAddon(addon);
+    terminal.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (event.metaKey) linkRef.current?.(uri, event.shiftKey);
+      }),
+    );
     term.current = terminal;
     fitter.current = addon;
 

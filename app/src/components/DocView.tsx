@@ -10,13 +10,22 @@ import type { ReviewNote, TextFile } from "../types";
 /** Aba que não é terminal: o diff de um arquivo ou um arquivo aberto. */
 export interface DocTab {
   key: string;
-  type: "diff" | "file";
+  type: "diff" | "file" | "web";
   root: string;
+  /** Caminho do arquivo; numa aba de navegador, o endereço inicial. */
   path: string;
   untracked?: boolean;
+  /** Só nas abas de navegador: o rótulo da página nativa. */
+  label?: string;
+  incognito?: boolean;
 }
 
-export function docTitle(doc: DocTab): string {
+export function docTitle(doc: DocTab, webTitle?: string | null): string {
+  if (doc.type === "web") {
+    if (webTitle) return webTitle;
+    const host = doc.path.replace(/^https?:\/\//, "").split("/")[0];
+    return host && doc.path !== "about:blank" ? host : "Nova aba";
+  }
   return doc.type === "diff" ? `Δ ${baseName(doc.path)}` : baseName(doc.path);
 }
 
