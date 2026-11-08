@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 import secrets
 from contextlib import asynccontextmanager, suppress
 
@@ -31,6 +32,7 @@ from .mcp_hub import Hub, ToolError
 from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
 from .relay import install_cli_shim, install_relay
+from .routines import DAYS, Routine, RoutineError, RoutineStore, decide, next_slot, slot_on
 from .sessions import ExecutableNotFound, SessionManager, UnknownKind
 from .statusline import render_statusline
 from .voice import AudioFormatError, Transcriber
@@ -157,6 +159,19 @@ class ReminderBody(BaseModel):
     conta: str = ""
 
 
+class RoutineBody(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    agent: str = ""
+    cli: str = Field(default="claude", pattern="^(claude|codex)$")
+    folder: str = ""
+    days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
+    time: str = Field(min_length=1, max_length=8)
+    catchup: int = Field(default=60, ge=0, le=7 * 24 * 60)
+    notify: bool = True
+    active: bool = True
+    prompt: str = Field(min_length=1, max_length=8000)
+
+
 class Decision(BaseModel):
     aprovar: bool
 
@@ -173,6 +188,7 @@ def create_app(
     poll_ports: bool = True,
     keychain: SecretVault | None = None,
     http=None,
+    run_scheduler: bool = True,
 ) -> FastAPI:
     settings = settings or load_settings()
     manager = SessionManager(settings, accounts)
@@ -219,6 +235,61 @@ def create_app(
     )
     manager.mcp_token = hub.register
     manager.mcp_forget = hub.forget
+    routines = RoutineStore(settings.home)
+
+    def notify_routine(routine: Routine, who: str, slot) -> str:
+        """Aviso no Slack (conta de lembretes) de que a rotina abriu. Devolve o que deu errado, se deu."""
+        account = next((a for a in connectors.list() if a.reminders), None)
+        if account is None:
+            return "sem conta do Slack para avisar"
+        try:
+            _, slack = connectors.slack(account.id)
+            when = f" das {slot:%H:%M}" if slot else ""
+            slack.send(account.meta["dm"], f"🔔 {who} te chamou na MÊTIS: {routine.name}{when}. Abra o terminal dela no Mac.")
+        except (ConnectorError, SlackError, OSError, KeyError) as exc:
+            return f"aviso no Slack falhou: {exc}"
+        return ""
+
+    async def run_routine(routine: Routine, slot, status: str) -> dict:
+        """Abre o terminal da rotina (no loop: o PTY nasce nele) e avisa no Slack."""
+        try:
+            agent = agents.get(routine.agent) if routine.agent else None
+            session = manager.create(
+                agent.cli if agent else routine.cli,
+                routine.folder or None,
+                title=None if agent else routine.name,
+                tag="rotina",
+                agent=agent,
+                prompt=routine.prompt,
+            )
+        except (AgentError, UnknownKind, ExecutableNotFound, OSError) as exc:
+            run = routines.record(routine.id, slot, "erro", detail=str(exc))
+            manager.events.publish({"type": "routine.run", "routine": routine.to_dict(), "run": run})
+            return run
+        problem = await asyncio.to_thread(notify_routine, routine, session.title, slot) if routine.notify else ""
+        run = routines.record(routine.id, slot, status, session.id, problem)
+        manager.events.publish({"type": "routine.run", "routine": routine.to_dict(), "run": run, "session": session.id})
+        return run
+
+    async def scheduler() -> None:
+        """A cada 20 s: rotina na hora roda; atrasada (Mac dormindo) recupera na janela ou pula."""
+        await asyncio.sleep(3)
+        while True:
+            now = datetime.now().astimezone()
+            for routine in routines.list():
+                try:
+                    verdict = decide(routine, now, routines.last_handled(routine.id))
+                except RoutineError:
+                    continue
+                if verdict is None:
+                    continue
+                action, slot = verdict
+                if action == "pular":
+                    run = routines.record(routine.id, slot, "pulou", detail=f"o Mac estava dormindo às {slot:%H:%M}")
+                    manager.events.publish({"type": "routine.run", "routine": routine.to_dict(), "run": run})
+                else:
+                    await run_routine(routine, slot, "rodou" if action == "rodar" else "recuperada")
+            await asyncio.sleep(20)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -231,6 +302,8 @@ def create_app(
             pollers.append(asyncio.create_task(manager.poll_codex_usage()))
         if poll_ports:
             pollers.append(asyncio.create_task(manager.poll_ports()))
+        if run_scheduler:
+            pollers.append(asyncio.create_task(scheduler()))
         yield
         for poller in pollers:
             poller.cancel()
@@ -768,6 +841,86 @@ def create_app(
     def decide_approval(approval_id: str, body: Decision) -> None:
         if not hub.decide(approval_id, body.aprovar):
             raise HTTPException(status_code=404, detail="aprovação não encontrada ou já respondida")
+
+    # --- rotinas e Hoje -------------------------------------------------------------
+
+    def routine_view(routine: Routine, now: datetime) -> dict:
+        nxt = next_slot(routine, now)
+        return {**routine.to_dict(), "next": nxt.isoformat() if nxt else None}
+
+    def routines_changed() -> None:
+        now = datetime.now().astimezone()
+        manager.events.publish({"type": "routines", "routines": [routine_view(r, now) for r in routines.list()]})
+
+    @app.get("/rotinas", dependencies=[Depends(require_token)])
+    def list_routines() -> dict:
+        now = datetime.now().astimezone()
+        return {"routines": [routine_view(r, now) for r in routines.list()], "runs": routines.runs(60)}
+
+    @app.post("/rotinas", dependencies=[Depends(require_token)], status_code=201)
+    def create_routine(body: RoutineBody) -> dict:
+        try:
+            routine = routines.save(body.model_dump())
+        except RoutineError as exc:
+            raise fail(exc) from exc
+        routines_changed()
+        return routine_view(routine, datetime.now().astimezone())
+
+    @app.put("/rotinas/{routine_id}", dependencies=[Depends(require_token)])
+    def update_routine(routine_id: str, body: RoutineBody) -> dict:
+        try:
+            routines.get(routine_id)
+            routine = routines.save(body.model_dump(), routine_id)
+        except RoutineError as exc:
+            raise fail(exc, 404) from exc
+        routines_changed()
+        return routine_view(routine, datetime.now().astimezone())
+
+    @app.delete("/rotinas/{routine_id}", dependencies=[Depends(require_token)], status_code=204)
+    def delete_routine(routine_id: str) -> None:
+        try:
+            routines.delete(routine_id)
+        except RoutineError as exc:
+            raise fail(exc, 404) from exc
+        routines_changed()
+
+    @app.post("/rotinas/{routine_id}/rodar", dependencies=[Depends(require_token)])
+    async def run_routine_now(routine_id: str) -> dict:
+        try:
+            routine = routines.get(routine_id)
+        except RoutineError as exc:
+            raise fail(exc, 404) from exc
+        return await run_routine(routine, None, "manual")
+
+    @app.get("/hoje", dependencies=[Depends(require_token)])
+    def today() -> dict:
+        """O dia num lugar só: rotinas de hoje, tarefas em andamento, aprovações e lembretes."""
+        now = datetime.now().astimezone()
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        runs_today = routines.runs(200, start.timestamp())
+        slots = []
+        for routine in routines.list():
+            slot = slot_on(routine, now) if routine.active else None
+            if slot is None:
+                continue
+            run = next((r for r in runs_today if r["routine"] == routine.id and abs(r["slot"] - slot.timestamp()) < 1), None)
+            slots.append({"routine": routine_view(routine, now), "slot": slot.isoformat(), "run": run})
+        manual = [r for r in runs_today if not r["slot"]]
+        doing = []
+        for project in kanban.projects():
+            if not (project["tasks"]["em-andamento"] or project["tasks"]["em-teste"]):
+                continue
+            for task in kanban.tasks(project["name"]):
+                if task["state"] in ("em-andamento", "em-teste"):
+                    doing.append({"project": project["name"], **task})
+        return {
+            "now": now.isoformat(),
+            "weekday": DAYS[now.weekday()],
+            "slots": sorted(slots, key=lambda s: s["slot"]),
+            "manual": manual,
+            "doing": doing,
+            "approvals": [p.to_dict() for p in hub.pending.values()],
+        }
 
     # --- agentes em arquivo --------------------------------------------------
 

@@ -251,7 +251,7 @@ function AccountRow({ client, account, onToast }: { client: CoreClient; account:
   );
 }
 
-function ReminderTry({ client, onToast }: { client: CoreClient; onToast: (m: string) => void }) {
+export function ReminderTry({ client, onToast }: { client: CoreClient; onToast: (m: string) => void }) {
   const [text, setText] = useState("Teste da MÊTIS: este lembrete tocou no iPhone?");
   const [whenText, setWhen] = useState("em 2 min");
   const [busy, setBusy] = useState(false);

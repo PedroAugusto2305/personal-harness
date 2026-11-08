@@ -27,6 +27,7 @@ Núcleo do Personal Harness. Roda em `127.0.0.1` e é dono dos terminais dos age
 - `slack.py`: Web API do Slack para o bot (DM, mensagem, mensagem agendada) e o manifesto do app.
 - `mcp_client.py` e `oauth.py`: cliente MCP por HTTP e login OAuth com registro dinâmico e PKCE (retorno em `127.0.0.1`).
 - `when.py`: datas em português para lembretes ("sexta 9h", "em 20 min").
+- `routines.py`: rotinas (`~/.harness/rotinas/*.md`), a regra de rodar, recuperar ou pular com o Mac dormindo e o histórico em `~/.harness/rotinas.db`; o agendador roda no núcleo a cada 20 s.
 - `activity.py`: Atividade em `~/.harness/atividade.db`.
 - `app.py`: API HTTP e WebSocket.
 
