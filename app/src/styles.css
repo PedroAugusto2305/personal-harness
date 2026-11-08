@@ -21,6 +21,13 @@
   --warn: #ff79c6;
   --err: #ff5555;
   --sel: #44475a;
+  /* Nuvens do grafo do Brain, por área (DESIGN.md). */
+  --g-carreira: #a9b87c;
+  --g-trabalho: #6db3c2;
+  --g-clientes: #b49ddc;
+  --g-pessoal: #e39fc2;
+  --g-brain: #7fc9a2;
+  --g-semarea: #7c819c;
 }
 
 [data-theme="grafite"] {
@@ -43,6 +50,13 @@
   --warn: #ffa198;
   --err: #ff7b72;
   --sel: #34343b;
+  /* Nuvens do grafo do Brain, por área (DESIGN.md). */
+  --g-carreira: #a3b07a;
+  --g-trabalho: #6fb0bd;
+  --g-clientes: #ad9bd6;
+  --g-pessoal: #d99bba;
+  --g-brain: #7fbf9c;
+  --g-semarea: #7d7d88;
 }
 
 [data-theme="claro"] {
@@ -65,6 +79,13 @@
   --warn: #c2307a;
   --err: #d03030;
   --sel: #e3e6f0;
+  /* Nuvens do grafo do Brain, por área (DESIGN.md). */
+  --g-carreira: #6b7a2c;
+  --g-trabalho: #1d7487;
+  --g-clientes: #6a4ab3;
+  --g-pessoal: #b0457a;
+  --g-brain: #2b8556;
+  --g-semarea: #8a8fa3;
 }
 
 * {
@@ -3474,4 +3495,190 @@ kbd {
 
 .brain-panel-note {
   margin-top: 12px;
+}
+
+/* --- Grafo do Brain (v0.5.1): céu com nuvens por área, ligações entre projetos em acento ------- */
+
+.graph {
+  position: relative;
+  height: 100%;
+  min-height: 320px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.graph-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.graph-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--fnt);
+}
+
+.graph-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.graph-bar > * {
+  pointer-events: auto;
+}
+
+.graph-bar .filter-chip {
+  background: var(--side);
+}
+
+.graph-bar .filter-chip[aria-pressed="false"] {
+  color: var(--fnt);
+  text-decoration: line-through;
+  text-decoration-color: var(--line2);
+}
+
+.graph-bar .filter-chip[aria-pressed="true"] {
+  background: var(--soft);
+}
+
+.graph-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line2);
+}
+
+.graph-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--side);
+}
+
+.graph-legend-item {
+  height: 24px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--tx);
+  font-size: 12px;
+  text-align: left;
+}
+
+.graph-legend-item:hover {
+  background: var(--elev);
+}
+
+.graph-legend-item .mono {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--fnt);
+  font-size: 10.5px;
+}
+
+.graph-legend-item[aria-pressed="false"] {
+  color: var(--fnt);
+}
+
+.graph-legend-item[aria-pressed="false"] .graph-dot {
+  opacity: 0.25;
+}
+
+.graph-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+}
+
+.graph-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--side);
+}
+
+.graph-zoom .small {
+  margin-right: 6px;
+  color: var(--fnt);
+}
+
+.graph-zoom .icon-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  color: var(--mut);
+}
+
+.graph-fit {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.graph-tip {
+  position: absolute;
+  max-width: 340px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line2);
+  background: var(--side);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.graph-tip-title {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--tx);
+}
+
+.graph-tip .small {
+  margin-top: 3px;
+  color: var(--fnt);
+  font-size: 10.5px;
+}
+
+.brain-note-actions .btn svg {
+  margin-right: 2px;
+}
+
+/* Botão do painel da worktree quando não há abas (sem a barra de abas, ele sumia). */
+.panel-reopen {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  color: var(--mut);
 }

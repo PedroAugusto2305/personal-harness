@@ -305,3 +305,24 @@ def test_claude_settings_inject_brain_context_on_session_start(tmp_path):
     hooks = build_claude_settings(tmp_path / "relay.sh")["hooks"]["SessionStart"][0]["hooks"]
     assert [h["command"].split()[-1] for h in hooks] == ["SessionStart", "context"]
     assert 'kind" = "context"' in RELAY_SCRIPT and "/brain/session-context?session=" in RELAY_SCRIPT
+
+
+def test_graph_resolves_links_and_groups_by_project_area(vault, settings):
+    index = BrainIndex(Vault(vault), settings.home / "brain.db")
+    data = index.graph()
+    by_title = {n["title"]: i for i, n in enumerate(data["nodes"])}
+    alfa, beta = by_title["Alfa"], by_title["Beta"]
+    webhook = by_title["Webhook passa por fila com chave de idempotência"]
+    edges = {tuple(e) for e in data["edges"]}
+    assert (min(webhook, alfa), max(webhook, alfa)) in edges  # [[Alfa]] no corpo
+    assert (min(webhook, beta), max(webhook, beta)) in edges  # projeto: "[[Beta]]"
+    assert all(a != b for a, b in edges)
+    assert data["nodes"][alfa]["group"] == "carreira"  # area: [[Carreira]]
+    assert data["nodes"][beta]["group"] == "semarea"  # Beta não tem área
+    assert data["nodes"][alfa]["degree"] >= 2
+    assert {g["key"] for g in data["groups"]} == {"carreira", "semarea"}
+
+
+def test_api_graph(client):
+    data = client.get("/brain/graph", headers=AUTH).json()
+    assert len(data["nodes"]) == 5 and data["edges"]

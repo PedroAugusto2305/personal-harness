@@ -1,5 +1,6 @@
 import type {
   BoardProject,
+  BrainGraphData,
   BrainHit,
   BrainNote,
   BrainPlace,
@@ -306,6 +307,10 @@ export class CoreClient {
 
   openInObsidian(path: string): Promise<void> {
     return this.request("POST", "/brain/obsidian", { path });
+  }
+
+  brainGraph(): Promise<BrainGraphData> {
+    return this.request("GET", "/brain/graph");
   }
 
   brainKnown(titles: string[]): Promise<string[]> {

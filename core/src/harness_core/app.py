@@ -490,6 +490,10 @@ def create_app(
         tipos = [x for x in tipo.split(",") if x]
         return brain.search(q, tipos or None, projeto or None, limit)
 
+    @app.get("/brain/graph", dependencies=[Depends(require_token)])
+    def brain_graph() -> dict:
+        return brain.graph()
+
     @app.get("/brain/note", dependencies=[Depends(require_token)])
     def brain_note(path: str = "", title: str = "") -> dict:
         try:

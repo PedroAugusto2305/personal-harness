@@ -47,6 +47,24 @@ STOPWORDS = set(
 )
 
 
+# Nuvens do grafo por área do projeto (docs/DESIGN.md): o grupo sai da `area:` da nota do projeto.
+GRAPH_GROUPS = (
+    ("carreira", "Carreira e estudo", ("carreira", "estudo")),
+    ("trabalho", "Trabalho", ("crm", "marketing", "seller", "trabalho")),
+    ("clientes", "Clientes", ("client",)),
+    ("pessoal", "Pessoal", ("financ", "saude", "rotina", "pessoal")),
+)
+GROUP_LABEL = {key: label for key, label, _ in GRAPH_GROUPS} | {"brain": "Brain e conhecimento", "semarea": "Projeto sem área"}
+
+
+def area_group(area: str) -> str:
+    folded = fold(area)
+    for key, _label, needles in GRAPH_GROUPS:
+        if any(n in folded for n in needles):
+            return key
+    return "semarea"
+
+
 def fold(text: str) -> str:
     """minúsculas e sem acento: 'Decisão' → 'decisao'."""
     return "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
@@ -227,6 +245,51 @@ class BrainIndex:
             con.close()
         meta, body = split_frontmatter(self.vault.resolve(row["path"]).read_text(encoding="utf-8"))
         return {**self._row(row), "meta": meta, "body": body, "backlinks": backlinks}
+
+    def graph(self) -> dict:
+        """Notas e ligações do vault para o grafo: [[links]] resolvidos para notas que existem."""
+        self.refresh()
+        areas = {p.name: link_target(p.meta.get("area", "")) for p in self.vault.projects()}
+        con = self._connect()
+        try:
+            rows = con.execute("select id, path, title, folded, tipo, projeto, status, data from notes order by length(path)").fetchall()
+            position: dict[int, int] = {}
+            by_title: dict[str, int] = {}
+            nodes: list[dict] = []
+            for r in rows:
+                position[r["id"]] = len(nodes)
+                by_title.setdefault(r["folded"], r["id"])
+                projeto = r["projeto"] or ""
+                group = area_group(areas.get(projeto, "")) if projeto else "brain"
+                nodes.append(
+                    {
+                        "path": r["path"],
+                        "title": r["title"],
+                        "tipo": r["tipo"] or "",
+                        "projeto": projeto,
+                        "status": r["status"] or "",
+                        "data": r["data"] or "",
+                        "group": group,
+                        "degree": 0,
+                    }
+                )
+            edges: set[tuple[int, int]] = set()
+            for src, dst in con.execute("select src, dst from links"):
+                target = by_title.get(dst)
+                if target is None or target == src or src not in position:
+                    continue
+                a, b = position[src], position[target]
+                edges.add((a, b) if a < b else (b, a))
+        finally:
+            con.close()
+        for a, b in edges:
+            nodes[a]["degree"] += 1
+            nodes[b]["degree"] += 1
+        counts: dict[str, int] = {}
+        for node in nodes:
+            counts[node["group"]] = counts.get(node["group"], 0) + 1
+        groups = [{"key": k, "label": GROUP_LABEL[k], "count": counts[k]} for k in [*(g[0] for g in GRAPH_GROUPS), "brain", "semarea"] if counts.get(k)]
+        return {"nodes": nodes, "edges": sorted(edges), "groups": groups}
 
     def known_titles(self, titles: list[str]) -> list[str]:
         """Quais destes títulos existem no vault (para a tela marcar link quebrado)."""
