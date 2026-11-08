@@ -672,6 +672,11 @@ export default function App() {
   const openNotice = (notice: Notice) => {
     harness.inbox.markRead(notice.id);
     setBellOpen(false);
+    if (notice.kind === "versao") {
+      setSection("sobre");
+      setView("settings");
+      return;
+    }
     const sessionOpen = !!notice.sessao && harness.sessions.some((s) => s.id === notice.sessao);
     if (notice.aprovacao) {
       // O cartão da aprovação aparece em toda tela menos Conectores: basta ir ao agente que pediu.
@@ -1556,6 +1561,11 @@ export default function App() {
             onRunCommand={runCommand}
             termTheme={termTheme}
             onTermTheme={setTermTheme}
+            onUpdateStarted={(session) => {
+              harness.adopt(session);
+              select(session.id, placeKeyOf(session.cwd));
+              setToast("Atualizando num terminal à vista. Quando terminar, feche e abra a MÊTIS.");
+            }}
           />
         )}
         {view === "agents" && (

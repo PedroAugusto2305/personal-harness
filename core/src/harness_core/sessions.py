@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import os
 import shutil
 import sys
 import time
+import tomllib
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -187,6 +189,21 @@ def child_env(settings: Settings, session_id: str, extra: dict[str, str] | None 
     return env
 
 
+def codex_notify_args(relay: Path, config_file: Path) -> list[str]:
+    """Aviso do Codex (v0.9.4): ele não tem hooks, mas chama o programa do `notify` ao fim
+    de cada turno, com um JSON no último argumento. A sessão passa a chamar o relay da MÊTIS,
+    que avisa o núcleo e em seguida chama o `notify` que já estava no config.toml da conta
+    (o do Computer Use do Codex, por exemplo), para não desligar o que o Pedro já usa."""
+    try:
+        with config_file.open("rb") as handle:
+            current = tomllib.load(handle).get("notify")
+    except (OSError, tomllib.TOMLDecodeError):
+        current = None
+    chained = [str(x) for x in current] if isinstance(current, list) and all(isinstance(x, str) for x in current) else []
+    # Lista de strings em JSON é um array válido em TOML.
+    return ["-c", "notify=" + json.dumps([str(relay), "codex", *chained], ensure_ascii=False)]
+
+
 def resolve_argv(kind: str, settings: Settings) -> list[str]:
     if kind in ("claude", "codex"):
         executable = shutil.which(kind)
@@ -267,6 +284,9 @@ class SessionManager:
                     trust_claude_folder(Path(folder) / ".claude.json" if folder else self.settings.claude_json, workdir)
                 else:
                     argv = argv + codex_trust_args(workdir)
+            if kind == "codex":
+                codex_home = Path(env["CODEX_HOME"]) if env.get("CODEX_HOME") else Path.home() / ".codex"
+                argv = argv + codex_notify_args(self.settings.relay_path, codex_home / "config.toml")
             if extra_args:
                 argv = argv + list(extra_args)
             if resume:
@@ -386,7 +406,10 @@ class SessionManager:
         if session.status == status:
             return
         before, session.status = session.status, status
-        self.events.publish({"type": "session.status", "id": session.id, "status": status})
+        event: dict[str, Any] = {"type": "session.status", "id": session.id, "status": status}
+        if status == "exited":
+            event["exit_code"] = session.exit_code  # a faixa do agente que saiu mostra o código
+        self.events.publish(event)
         if self.on_status is not None:
             self.on_status(session, before, status)
 
@@ -414,6 +437,12 @@ class SessionManager:
             self.usage.claude[account] = {**parsed["rate_limits"], "updated_at": time.time()}
             self._publish_usage()
         return parsed
+
+    def note_input(self, session_id: str, data: str) -> None:
+        """Enter num Codex parado é um turno novo: ele não tem o UserPromptSubmit do Claude."""
+        session = self.sessions.get(session_id)
+        if session is not None and session.kind == "codex" and "\r" in data and session.status in ("waiting", "running") and session.pty.alive:
+            self._set_status(session, "working")
 
     def record_hook(self, session_id: str, name: str, payload: dict | None = None) -> bool:
         session = self.sessions.get(session_id)

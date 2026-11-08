@@ -3,7 +3,7 @@ import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, PROVIDERS, fold, shortPath } from "../lib/format";
 import { ACTIONS, formatCombo, hintFor, type Overrides } from "../lib/keymap";
 import { ICON, Icon } from "../icons";
-import type { Accounts, Prefs, Project, Provider, SavedCommand, TerminalTheme, ThemeName, Usage, VoiceStatus } from "../types";
+import type { Accounts, Prefs, Project, Provider, SavedCommand, Session, TerminalTheme, ThemeName, Usage, VersionInfo, VoiceStatus } from "../types";
 import { THEME_LABEL } from "./Chrome";
 import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
 import { CommandsSection, KeymapSection, TerminalThemeCard, type FindEntry } from "./SettingsTerminal";
@@ -102,6 +102,8 @@ interface Props {
   onRunCommand: (command: SavedCommand) => void;
   termTheme: TerminalTheme | null;
   onTermTheme: (theme: TerminalTheme | null) => void;
+  /** v0.9.4: o terminal da atualização nasceu; a tela vai para ele. */
+  onUpdateStarted: (session: Session) => void;
 }
 
 /**
@@ -267,7 +269,7 @@ export function Settings(props: Props) {
           />
         )}
         {props.section === "voz" && <VoiceSection {...props} />}
-        {props.section === "sobre" && <AboutSection client={props.client} />}
+        {props.section === "sobre" && <AboutSection client={props.client} onUpdateStarted={props.onUpdateStarted} />}
       </div>
     </div>
   );
@@ -504,14 +506,106 @@ function VoiceSection({ client, language, onLanguage, run }: Props) {
   );
 }
 
-function AboutSection({ client }: { client: CoreClient | null }) {
+/**
+ * Sobre (v0.9.4): a versão em uso e de onde ela roda. A MÊTIS instalada (scripts/instalar.sh)
+ * procura versão nova no repositório e atualiza num terminal à vista; a de desenvolvimento
+ * (scripts/dev.sh) só mostra de onde roda.
+ */
+function AboutSection({ client, onUpdateStarted }: { client: CoreClient | null; onUpdateStarted: (session: Session) => void }) {
+  const [info, setInfo] = useState<VersionInfo | null>(null);
+  const [busy, setBusy] = useState<"buscar" | "atualizar" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (buscar: boolean) => {
+    if (!client) return;
+    setBusy(buscar ? "buscar" : null);
+    setError(null);
+    try {
+      setInfo(await client.systemVersion(buscar));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  useEffect(() => {
+    void load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client]);
+
+  const update = async () => {
+    if (!client || !info?.nova) return;
+    setBusy("atualizar");
+    setError(null);
+    try {
+      onUpdateStarted(await client.systemUpdate(info.nova));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const coreOld = info && info.versao !== __APP_VERSION__;
   return (
     <section className="settings-page">
       <h1>Sobre</h1>
       <div className="card">
         <div className="setting-row">
-          <span className="setting-label">Versão</span>
+          <span className="setting-label">
+            Versão
+            <span className="small">
+              {!info
+                ? "…"
+                : info.instalada
+                  ? `A MÊTIS de uso, instalada da versão ${info.tag}.`
+                  : `A MÊTIS de desenvolvimento, rodando do repositório.`}
+              {coreOld ? ` O núcleo em execução é a v${info!.versao}.` : ""}
+            </span>
+          </span>
           <span className="mono">v{__APP_VERSION__}</span>
+        </div>
+        {info?.instalada ? (
+          <div className="setting-row">
+            <span className="setting-label">
+              Atualização
+              <span className="small">
+                {info.nova
+                  ? `A ${info.nova} está no repositório. Atualizar abre um terminal que monta a versão nova (a primeira compilação demora alguns minutos); depois é fechar e abrir a MÊTIS.`
+                  : `Esta é a mais nova${info.ultima ? ` (${info.ultima})` : ""}. A MÊTIS procura sozinha a cada 6 horas.`}
+              </span>
+            </span>
+            {info.nova ? (
+              <button type="button" className="pill" disabled={!!busy} onClick={() => void update()}>
+                {busy === "atualizar" ? "Abrindo…" : `Atualizar para ${info.nova}`}
+              </button>
+            ) : (
+              <button type="button" className="pill ghost" disabled={!!busy} onClick={() => void load(true)}>
+                {busy === "buscar" ? "Procurando…" : "Procurar agora"}
+              </button>
+            )}
+          </div>
+        ) : (
+          info && (
+            <div className="setting-row">
+              <span className="setting-label">
+                Instalar a de uso
+                <span className="small">
+                  Esta janela recompila quando o código muda. Para o dia a dia, instale a versão marcada mais nova
+                  {info.ultima ? ` (${info.ultima})` : ""} com <span className="mono">scripts/instalar.sh</span>: ela vai para
+                  /Applications e usa os seus dados em ~/.harness.
+                </span>
+              </span>
+            </div>
+          )
+        )}
+        {error && <div className="error-box">{error}</div>}
+        <div className="setting-row">
+          <span className="setting-label">
+            Pasta
+            <span className="small mono">{info?.pasta ?? "—"}</span>
+          </span>
         </div>
         <div className="setting-row">
           <span className="setting-label">Núcleo</span>
@@ -522,7 +616,7 @@ function AboutSection({ client }: { client: CoreClient | null }) {
           <span className="mono small">github.com/PedroAugusto2305/personal-harness</span>
         </div>
       </div>
-      <p className="small">Os atalhos estão em Ajustes → Atalhos, onde dá para mudar qualquer um.</p>
+      <p className="small">Os atalhos estão em Ajustes → Atalhos, onde dá para mudar qualquer um. A lista de mudanças de cada versão está no CHANGELOG.md.</p>
     </section>
   );
 }

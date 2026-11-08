@@ -3,7 +3,8 @@
 # Sobe o núcleo com um token novo e o Vite em http://localhost:1420.
 set -e
 cd "$(dirname "$0")/.."
-PORT="${HARNESS_PORT:-47830}"
+export HARNESS_HOME="${HARNESS_HOME:-$HOME/.harness-dev}"
+PORT="${HARNESS_PORT:-47840}"
 TOKEN="${HARNESS_TOKEN:-$(head -c 24 /dev/urandom | xxd -p | tr -d '\n')}"
 (cd core && uv sync --quiet)
 (cd app && [ -d node_modules ] || npm install)

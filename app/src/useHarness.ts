@@ -139,9 +139,16 @@ export function useHarness() {
         case "session.status": {
           const before = seen.current[event.id];
           if (before) seen.current[event.id] = { ...before, status: event.status };
-          setSessions((all) => (all[event.id] ? { ...all, [event.id]: { ...all[event.id], status: event.status } } : all));
+          setSessions((all) =>
+            all[event.id]
+              ? { ...all, [event.id]: { ...all[event.id], status: event.status, ...(event.exit_code !== undefined ? { exit_code: event.exit_code } : {}) } }
+              : all,
+          );
           break;
         }
+        case "atualizacao":
+          notify.current({ kind: "versao", titulo: `MÊTIS ${event.nova} disponível`, texto: `Você usa a v${event.versao}. Ajustes → Sobre → Atualizar.` });
+          break;
         case "prefs":
           setPrefs(event.prefs);
           break;

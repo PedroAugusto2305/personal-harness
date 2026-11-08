@@ -4,9 +4,19 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.3)
+## O que já faz (v0.9.4)
 
-**Novo na 0.9.3, terminal e navegação (paridade com o Orca):**
+**Novo na 0.9.4, uso diário:**
+
+- **A MÊTIS de uso fica instalada** em `/Applications/MÊTIS.app`, montada de uma versão marcada (`scripts/instalar.sh`, ver [Instalar e atualizar](#instalar-e-atualizar)). Ela não recompila quando o código muda, então dá para usá-la o dia todo enquanto a MÊTIS é desenvolvida.
+- **Atualizar:** a instalada procura versão nova a cada 6 horas e avisa no sino; Ajustes → Sobre atualiza num terminal à vista (ou `metis atualizar`). Os terminais abertos continuam; o núcleo passa para a versão nova quando você o reinicia.
+- **A de desenvolvimento** (`scripts/dev.sh`) usa outros dados (`~/.harness-dev`) e outra porta, então as duas abrem juntas sem dividir terminais nem rodar as rotinas duas vezes.
+- **Kanban:** arrastar cartão funciona na janela do app.
+- **Codex avisa** quando termina (pelo `notify` dele, sem desligar o que você já tinha no `config.toml`), e o estado dele passa a "trabalhando" quando você manda uma mensagem.
+- **Agente que saiu** mostra o código de saída.
+- A lista de mudanças de cada versão está no [`CHANGELOG.md`](CHANGELOG.md).
+
+**Na 0.9.3, terminal e navegação (paridade com o Orca):**
 
 - **Divisão da tela por worktree.** Cada worktree guarda a própria divisão (e "fora dos projetos" também), e ela volta como estava ao reabrir a MÊTIS. Escolher uma worktree na barra lateral, ou uma aba dela, mostra a divisão de lá; as abas das outras worktrees ficam em cinza na barra de abas.
   - ⌘D divide à direita e ⌘⇧D para baixo, quantas vezes quiser; o painel novo ganha a aba mais nova da worktree que não está à vista, ou fica vazio com os botões de abrir.
@@ -147,18 +157,34 @@ metis automacoes                   # as automações, com estado e a última exe
 metis rodar "Briefing da manhã"    # roda a versão publicada agora
 metis tarefas                      # Próximas ações do projeto desta pasta, com o id
 metis tarefa mover 4ea9e8ea em-teste
+metis versao                       # a versão em uso e se há uma nova
+metis atualizar                    # instala a versão nova neste terminal (ou: metis atualizar v0.9.4)
 ```
 
 O nome antigo, `harness`, continua funcionando como apelido. Os dados seguem em `~/.harness`.
 
-## Rodar
+## Instalar e atualizar
 
 Precisa de `uv`, Node 22+, Rust e o Xcode Command Line Tools.
 
 ```sh
-./scripts/dev.sh        # abre a janela; o app sobe o núcleo sozinho
+./scripts/instalar.sh           # a versão marcada mais nova (a maior tag v*)
+./scripts/instalar.sh v0.9.4    # uma versão específica (também serve para voltar)
+```
+
+- Cada versão vira uma cópia em `~/.harness/versoes/<versão>`, com o núcleo dela; o app vai para `/Applications/MÊTIS.app`. Ficam as duas cópias mais novas (e qualquer uma cujo núcleo ainda esteja rodando).
+- A primeira instalação compila o app inteiro e demora vários minutos num Mac Intel; as seguintes reaproveitam o cache em `~/.harness/build`.
+- Os dados (agentes, rotinas, automações, contas, conectores) seguem em `~/.harness`, de qualquer versão.
+- Depois de instalar ou atualizar: feche a MÊTIS (⌘Q) e abra de novo. Os terminais continuam; quando quiser, a janela oferece reiniciar o núcleo para a versão nova (isso fecha os terminais).
+
+## Desenvolver
+
+```sh
+./scripts/dev.sh        # a janela do Tauri deste repositório (recompila ao editar)
 ./scripts/dev-web.sh    # só no navegador, em http://localhost:1420
 ```
+
+A MÊTIS de desenvolvimento usa `~/.harness-dev` (os modelos são os da de uso, por link, e os agentes vêm copiados na primeira vez; as rotinas não) e a porta 47840, e deixa o ⌥Espaço para a de uso. Para abrir os dados de uso de propósito: `HARNESS_HOME=~/.harness ./scripts/dev.sh`.
 
 Testes do núcleo:
 
@@ -193,5 +219,5 @@ app/ (Tauri + React + xterm.js)  ──HTTP/WebSocket em 127.0.0.1──►  cor
 core/   núcleo em Python (uv): sessões, PTY, relay, API
 app/    janela Tauri e tela React
 docs/   mapa, design e paridade com o Orca
-scripts/ dev.sh e dev-web.sh
+scripts/ instalar.sh (MÊTIS de uso), dev.sh e dev-web.sh (desenvolvimento)
 ```

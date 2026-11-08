@@ -39,7 +39,7 @@ from .history import codex_rollout_for
 from .history import list_sessions as history_sessions
 from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
 from .prefs import PrefsError
-from . import ghostty
+from . import ghostty, updates
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
@@ -508,6 +508,23 @@ def create_app(
             embedder.tick()
             await asyncio.sleep(120)
 
+    update_state: dict = {"info": None, "avisada": None}
+
+    async def update_watch() -> None:
+        """A cada 6 h (e logo ao subir), a MÊTIS instalada procura uma versão nova no repositório
+        e avisa uma vez por versão. Sem rede, só fica para a próxima rodada."""
+        await asyncio.sleep(20)
+        while True:
+            try:
+                info = await asyncio.to_thread(updates.check, settings.home, True)
+                update_state["info"] = info
+                if info["nova"] and info["nova"] != update_state["avisada"]:
+                    update_state["avisada"] = info["nova"]
+                    manager.events.publish({"type": "atualizacao", "nova": info["nova"], "versao": info["versao"]})
+            except Exception:  # noqa: BLE001 - a busca de versão nunca derruba o núcleo
+                pass
+            await asyncio.sleep(6 * 3600)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         install_relay(settings.relay_path)
@@ -522,6 +539,7 @@ def create_app(
         if run_scheduler:
             pollers.append(asyncio.create_task(scheduler()))
             pollers.append(asyncio.create_task(brain_worker()))
+            pollers.append(asyncio.create_task(update_watch()))
         yield
         for poller in pollers:
             poller.cancel()
@@ -566,6 +584,30 @@ def create_app(
     @app.get("/health")
     def health() -> dict:
         return {"ok": True, "version": __version__}
+
+    # --- v0.9.4: versão instalada e atualização -------------------------------------------
+
+    @app.get("/sistema/versao", dependencies=[Depends(require_token)])
+    async def system_version(buscar: bool = False) -> dict:
+        """A versão em uso, se é a instalada ou a de desenvolvimento, e a nova, se houver.
+        `buscar` traz as tags do GitHub antes (alguns segundos); sem ele, só o repositório local."""
+        info = await asyncio.to_thread(updates.check, settings.home, buscar)
+        update_state["info"] = info
+        return info
+
+    @app.post("/sistema/atualizar", dependencies=[Depends(require_token)])
+    async def system_update(body: dict) -> dict:
+        """Abre um terminal à vista que roda o instalar.sh da versão pedida (a mais nova, sem versão).
+        O núcleo em uso segue até o Pedro reiniciá-lo; a janela nova oferece isso."""
+        info = await asyncio.to_thread(updates.check, settings.home, False)
+        if not info["repositorio"]:
+            raise HTTPException(status_code=409, detail="não achei o repositório da MÊTIS para buscar a versão nova")
+        tag = str(body.get("versao") or info["ultima"] or "")
+        if tag not in await asyncio.to_thread(updates.tags, info["repositorio"]):
+            raise HTTPException(status_code=400, detail=f"versão não encontrada no repositório: {tag or '(nenhuma)'}")
+        session = manager.create("shell", info["repositorio"], title=f"Atualizar a MÊTIS · {tag}")
+        manager.send_text(session.id, updates.update_command(info["repositorio"], tag), paste=False)
+        return session.to_dict()
 
     @app.post("/desligar", dependencies=[Depends(require_token)], status_code=202)
     async def shutdown() -> dict:
@@ -1967,7 +2009,9 @@ def create_app(
             while True:
                 data = json.loads(await websocket.receive_text())
                 if data.get("type") == "input":
-                    session.pty.write(str(data.get("data", "")).encode("utf-8"))
+                    text = str(data.get("data", ""))
+                    session.pty.write(text.encode("utf-8"))
+                    manager.note_input(session.id, text)
                 elif data.get("type") == "resize":
                     session.pty.resize(int(data["cols"]), int(data["rows"]))
 
