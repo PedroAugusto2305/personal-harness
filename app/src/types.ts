@@ -111,6 +111,7 @@ export interface Agent {
   updated_at: number;
   /** Contas de conector liberadas pela central: "" = todas; "nenhum" = nenhuma; senão ids separados por vírgula. */
   connectors: string;
+  pain: string;
 }
 
 export interface SpriteJob {
@@ -124,7 +125,7 @@ export interface SpriteJob {
   finished_at: number | null;
 }
 
-export type AgentDraft = Pick<Agent, "name" | "description" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt">;
+export type AgentDraft = Pick<Agent, "name" | "description" | "pain" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt">;
 
 export interface TextFile {
   path: string;
@@ -166,13 +167,14 @@ export type CoreEvent =
   | { type: "activity"; item: ActivityItem }
   | { type: "connector.error"; account: string; error: string }
   | { type: "routines"; routines: Routine[] }
-  | { type: "routine.run"; routine: Routine; run: RoutineRun; session?: string };
+  | { type: "routine.run"; routine: Routine; run: RoutineRun; session?: string }
+  | { type: "study"; summary: StudySummary };
 
 export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today" | "study";
 
 // --- Rotinas e Hoje (v0.7) ---------------------------------------------------------------
 
@@ -207,6 +209,28 @@ export interface RoutineRun {
   detail: string;
 }
 
+export interface StudySummary {
+  today: number;
+  floor: number;
+  week: { day: string; minutes: number }[];
+  week_total: number;
+  streak: number;
+  rest_day: boolean;
+  risk: boolean;
+  recent: { id: number; started: number; ended: number; minutes: number; subject: string; day: string }[];
+}
+
+export interface AgentDraftSuggestion {
+  name: string;
+  description: string;
+  pain: string;
+  cli: "claude" | "codex";
+  color: string;
+  folder: string;
+  prompt: string;
+  sprite: string;
+}
+
 export interface TodayData {
   now: string;
   weekday: string;
@@ -214,6 +238,7 @@ export interface TodayData {
   manual: RoutineRun[];
   doing: (KanbanTask & { project: string })[];
   approvals: Approval[];
+  study: StudySummary;
 }
 
 // --- Conectores, aprovação e Atividade (v0.6) ------------------------------------------------

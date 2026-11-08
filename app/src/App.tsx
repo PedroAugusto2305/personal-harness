@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Agents } from "./components/Agents";
 import { ICON, Icon } from "./icons";
-import { AgentSprite } from "./components/AgentSprite";
+import { AgentSprite, spriteState } from "./components/AgentSprite";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { ApprovalCard, ConnectorsView } from "./components/ConnectorsView";
+import { StudyView } from "./components/StudyView";
 import { TodayView } from "./components/TodayView";
+import { usePomodoro } from "./lib/pomodoro";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
 import { Inspector, type InspectorTab } from "./components/Inspector";
@@ -65,6 +67,8 @@ const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : 
 
 export default function App() {
   const harness = useHarness();
+  const [pomodoroToast, setPomodoroToast] = useState<string | null>(null);
+  const pomodoro = usePomodoro(harness.client, setPomodoroToast);
   const wt = useWorktrees(harness.client, harness.projects, harness.worktreesTick);
   const [view, setView] = useState<View>("term");
   const [section, setSection] = useState<SettingsSection>("contas");
@@ -186,7 +190,7 @@ export default function App() {
   const sessionGlyph = (session: Session, size = 14) => {
     const agent = agentById(session.agent);
     return agent ? (
-      <AgentSprite agent={agent} client={harness.client} size={size} />
+      <AgentSprite agent={agent} client={harness.client} size={size} state={spriteState(session)} />
     ) : (
       <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span>
     );
@@ -453,6 +457,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harness.client, view, harness.brainTick]);
 
+  // O Pomodoro nasce antes do aviso da tela; o que ele tem a dizer passa por aqui.
+  useEffect(() => {
+    if (!pomodoroToast) return;
+    setToast(pomodoroToast);
+    setPomodoroToast(null);
+  }, [pomodoroToast]);
+
   // Rotina que rodou (ou pulou) vira aviso; o terminal dela aparece nas abas.
   useEffect(() => {
     const run = harness.routineRun;
@@ -462,6 +473,12 @@ export default function App() {
     else setToast(`Rotina "${run.name}" abriu num terminal${run.detail ? ` (${run.detail})` : ""}.`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harness.routineRun?.id]);
+
+  /** Captura rápida: a mesma caixinha do ⌥Espaço, aberta pelo ⌘K. */
+  const openCapture = () => {
+    if (!inTauri()) return setToast("A captura rápida abre no app (⌥Espaço).");
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("capture_open")).catch((cause) => setToast(String(cause)));
+  };
 
   /** Resposta do Pedro a um pedido de aprovação da central de MCP. */
   const decide = (id: string, approve: boolean) => {
@@ -813,6 +830,11 @@ export default function App() {
             .filter((a) => !a.active)
             .map((a) => ({ id: `acc-codex-${a.id}`, group: "Contas", label: `Usar a conta ${a.name} no Codex`, run: () => void harness.run((c) => c.activateAccount("codex", a.id)) })),
           ...THEMES.filter((t) => t !== theme).map((t) => ({ id: `theme-${t}`, group: "Aparência", label: `Tema ${THEME_LABEL[t]}`, run: () => setTheme(t) })),
+          { id: "capture", group: "Hoje", label: "Captura rápida", hint: "⌥Espaço de qualquer app", run: openCapture },
+          { id: "study", group: "Estudo", label: "Estudo", hint: "Pomodoro e placar", run: () => setView("study") },
+          pomodoro.state.phase === "idle"
+            ? { id: "pomodoro", group: "Estudo", label: `Começar Pomodoro de ${pomodoro.state.focusMin} min`, run: () => (pomodoro.start(pomodoro.state.subject), setView("study")) }
+            : { id: "pomodoro", group: "Estudo", label: "Parar o Pomodoro", hint: pomodoro.label, run: pomodoro.stop },
           { id: "today", group: "Hoje", label: "Hoje", hint: "rotinas do dia, em andamento, aprovações", run: () => setView("today") },
           { id: "routine-new", group: "Hoje", label: "Rotinas", hint: "agendar um agente", run: () => setView("today") },
           { id: "connectors", group: "Conectores", label: "Conectores", hint: "Slack, ClickUp e lembretes", run: () => setView("connectors") },
@@ -849,6 +871,8 @@ export default function App() {
         theme={theme}
         onCycleTheme={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
         onPalette={() => setPalette("all")}
+        pomodoro={pomodoro.state.phase !== "idle" ? { label: pomodoro.label, phase: pomodoro.state.phase } : null}
+        onPomodoro={() => setView("study")}
       />
       <div className="body">
         <Ribbon view={view} onView={setView} />
@@ -877,8 +901,19 @@ export default function App() {
             accounts={harness.accounts}
             run={harness.run}
             onLaunch={launchAgent}
+            onTest={(draft) => {
+              setView("term");
+              void create(draft.cli, {
+                cwd: draft.folder || null,
+                title: `${draft.name} (teste)`,
+                draft: { name: draft.name, cli: draft.cli, model: draft.model, folder: draft.folder, prompt: draft.prompt },
+              });
+            }}
             connectors={harness.connectors ?? []}
           />
+        )}
+        {view === "study" && (
+          <StudyView client={harness.client} tick={harness.routinesTick} pomodoro={pomodoro} agents={harness.agents} onLaunch={launchAgent} />
         )}
         {view === "today" && (
           <TodayView

@@ -117,6 +117,33 @@ def iter_notes(root: Path):
                 yield Path(folder) / name
 
 
+def add_to_section(text: str, heading: str, line: str, before: tuple[str, ...] = ()) -> str:
+    """Acrescenta `line` no fim da seção `## …heading` (troca o "- " vazio do modelo, se houver).
+    Sem a seção, ela nasce antes do primeiro título de `before` que existir, ou no fim."""
+    lines = text.split("\n")
+    start = next((i for i, l in enumerate(lines) if l.startswith("## ") and heading in l), None)
+    if start is None:
+        at = next((i for i, l in enumerate(lines) if any(l.startswith(b) for b in before)), None)
+        block = [f"## {heading}", "", line, ""]
+        if at is None:
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines += ["", *block]
+        else:
+            lines[at:at] = block
+        return "\n".join(lines)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    placeholder = next((i for i in range(start + 1, end) if lines[i].strip() in ("-", "- [ ]")), None)
+    if placeholder is not None:
+        lines[placeholder] = line
+        return "\n".join(lines)
+    at = end
+    while at > start + 1 and not lines[at - 1].strip():
+        at -= 1
+    lines.insert(at, line)
+    return "\n".join(lines)
+
+
 @dataclass(frozen=True)
 class ProjectNote:
     name: str
@@ -144,6 +171,30 @@ class Vault:
         if not target.is_file():
             raise VaultError(f"nota não encontrada: {rel_path}")
         return target
+
+    # --- nota do dia (06-DIARIO) ----------------------------------------------
+
+    def daily(self, day: str) -> Path:
+        """A nota do dia, criada pelo modelo do vault se ainda não existir (como faz o brain.py)."""
+        path = self.root / "06-DIARIO" / f"{day}.md"
+        if not path.exists():
+            template = self.root / "_templates" / "T-daily.md"
+            text = (
+                template.read_text(encoding="utf-8")
+                if template.is_file()
+                else f"---\ntipo: daily\ndata: {day}\ntags: [diario]\n---\n\n# 📅 {day}\n"
+            )
+            text = re.sub(r"\{\{date(:[^}]*)?\}\}", day, text).replace("{{title}}", day)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_atomic(path, text)
+        return path
+
+    def append_daily(self, day: str, heading: str, line: str, before: tuple[str, ...] = ()) -> Path:
+        path = self.daily(day)
+        text = path.read_text(encoding="utf-8")
+        new = add_to_section(text, heading, line, before)
+        write_atomic(path, new if new.endswith("\n") else new + "\n")
+        return path
 
     # --- projetos -------------------------------------------------------------
 

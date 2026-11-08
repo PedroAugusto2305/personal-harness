@@ -26,7 +26,7 @@ from pathlib import Path
 from .accounts import slugify
 
 CLIS = ("claude", "codex")
-FIELDS = ("nome", "descricao", "cli", "modelo", "conta", "pasta", "cor", "origem", "conectores")
+FIELDS = ("nome", "descricao", "dor", "cli", "modelo", "conta", "pasta", "cor", "origem", "conectores")
 MAX_SPRITE_BYTES = 2 * 1024 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
@@ -40,6 +40,8 @@ class Agent:
     id: str
     name: str
     description: str = ""
+    #: Qual dor do Pedro o agente resolve ("um agente, uma tarefa": agente novo só com dor real).
+    pain: str = ""
     cli: str = "claude"
     model: str = ""
     account: str = ""
@@ -108,6 +110,7 @@ class AgentStore:
             id=agent_id,
             name=meta.get("nome") or agent_id,
             description=meta.get("descricao", ""),
+            pain=meta.get("dor", ""),
             cli=cli if cli in CLIS else "claude",
             model=meta.get("modelo", ""),
             account=meta.get("conta", ""),
@@ -155,6 +158,7 @@ class AgentStore:
         meta = {
             "nome": name,
             "descricao": str(data.get("description", "")).strip(),
+            "dor": str(data.get("pain", "") or "").strip(),
             "cli": cli,
             "modelo": str(data.get("model", "")).strip(),
             "conta": str(data.get("account", "")).strip(),

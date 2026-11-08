@@ -11,11 +11,53 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{Manager, RunEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 mod browser;
 
 const DEFAULT_PORT: u16 = 47830;
+/// Janela da captura rápida (⌥Espaço), a mesma tela React com `?captura=1`.
+const CAPTURE: &str = "captura";
+
+fn capture_shortcut() -> Shortcut {
+    Shortcut::new(Some(Modifiers::ALT), Code::Space)
+}
+
+/// Abre a caixinha de captura por cima de qualquer app (ou fecha, se já estiver na frente).
+fn toggle_capture(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE) {
+        if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.center();
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit("captura:abrir", ());
+        }
+        return;
+    }
+    let built = WebviewWindowBuilder::new(app, CAPTURE, WebviewUrl::App("index.html?captura=1".into()))
+        .title("MÊTIS · captura")
+        .inner_size(640.0, 156.0)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .center()
+        .focused(true)
+        .build();
+    if let Err(error) = built {
+        eprintln!("metis: não consegui abrir a captura: {error}");
+    }
+}
+
+/// O ⌘K da janela principal abre a mesma caixinha.
+#[tauri::command]
+fn capture_open(app: AppHandle) {
+    toggle_capture(&app);
+}
 
 #[derive(Clone, serde::Serialize)]
 struct CoreInfo {
@@ -130,10 +172,26 @@ async fn core_info(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, Strin
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == ShortcutState::Pressed && shortcut.matches(Modifiers::ALT, Code::Space) {
+                        toggle_capture(app);
+                    }
+                })
+                .build(),
+        )
+        .setup(|app| {
+            if let Err(error) = app.global_shortcut().register(capture_shortcut()) {
+                eprintln!("metis: o ⌥Espaço está com outro app ({error}); a captura fica no ⌘K");
+            }
+            Ok(())
+        })
         .manage(start_core())
         .manage(browser::Browsers::default())
         .invoke_handler(tauri::generate_handler![
             core_info,
+            capture_open,
             browser::browser_open,
             browser::browser_bounds,
             browser::browser_visible,

@@ -224,6 +224,12 @@ export function TodayView(props: Props) {
     <div className="today-screen">
       <section className="today-main">
         <h1 className="today-title">Hoje · {title}</h1>
+        {today?.study && !today.study.rest_day && (
+          <p className="today-study small" data-risk={today.study.risk ? "true" : undefined}>
+            📚 {Math.round(today.study.today)} min de estudo hoje (piso {today.study.floor})
+            {today.study.risk ? " · ontem ficou abaixo do piso: hoje não pode passar em branco" : ""}
+          </p>
+        )}
 
         <div className="section-title">Rotinas de hoje</div>
         {today?.slots.length ? (

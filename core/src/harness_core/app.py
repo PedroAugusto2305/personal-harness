@@ -18,7 +18,10 @@ from . import files as fs
 from . import gitops
 from .accounts import PROVIDERS, AccountStore, UnknownAccount
 from .activity import ActivityLog
-from .agents import AgentError, AgentStore, allowed_connectors
+from .agent_draft import DraftError, draft_agent
+from .agents import Agent, AgentError, AgentStore, allowed_connectors
+from .capture import interpret
+from .study import DAILY_BEFORE, StudyLog
 from .brain_index import BrainIndex
 from .kanban import Kanban
 from .vault import Vault, VaultError
@@ -55,6 +58,17 @@ class NewSession(BaseModel):
     account: str | None = None
     tag: str | None = Field(default=None, pattern="^[a-z]{1,20}$")
     agent: str | None = None
+    draft: DraftAgent | None = None
+
+
+class DraftAgent(BaseModel):
+    """Agente ainda não salvo, para "testar antes de salvar"."""
+
+    name: str = Field(min_length=1, max_length=60)
+    cli: str = Field(default="claude", pattern="^(claude|codex)$")
+    model: str = ""
+    folder: str = ""
+    prompt: str = ""
 
 
 class NewAccount(BaseModel):
@@ -89,6 +103,7 @@ class GitPath(BaseModel):
 class AgentBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     description: str = ""
+    pain: str = ""
     cli: str = Field(default="claude", pattern="^(claude|codex)$")
     model: str = ""
     account: str = ""
@@ -172,6 +187,19 @@ class RoutineBody(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
 
 
+class CaptureBody(BaseModel):
+    texto: str = Field(min_length=1, max_length=4000)
+
+
+class StudyBlock(BaseModel):
+    minutos: float = Field(gt=0, le=240)
+    assunto: str = Field(default="", max_length=200)
+
+
+class DraftRequest(BaseModel):
+    descricao: str = Field(min_length=1, max_length=2000)
+
+
 class Decision(BaseModel):
     aprovar: bool
 
@@ -236,6 +264,7 @@ def create_app(
     manager.mcp_token = hub.register
     manager.mcp_forget = hub.forget
     routines = RoutineStore(settings.home)
+    study = StudyLog(settings.home, vault)
 
     def notify_routine(routine: Routine, who: str, slot) -> str:
         """Aviso no Slack (conta de lembretes) de que a rotina abriu. Devolve o que deu errado, se deu."""
@@ -352,6 +381,9 @@ def create_app(
         # async de propósito: o PTY é lido pelo loop do asyncio, então precisa nascer nele.
         try:
             agent = agents.get(body.agent) if body.agent else None
+            if body.draft is not None:
+                d = body.draft
+                agent = Agent(id="rascunho", name=d.name, cli=d.cli, model=d.model, folder=d.folder, prompt=d.prompt)
             session = manager.create(body.kind, body.cwd, body.cols, body.rows, body.title, body.account, body.tag, agent)
         except AgentError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -892,6 +924,73 @@ def create_app(
             raise fail(exc, 404) from exc
         return await run_routine(routine, None, "manual")
 
+    # --- captura rápida, concierge e estudo -------------------------------------------
+
+    def reminder_account() -> str:
+        return next((a.id for a in connectors.list() if a.reminders), "")
+
+    async def to_concierge(text: str) -> str:
+        """Manda ao Hermes: no terminal dele, se já estiver aberto; senão abre um com o pedido."""
+        live = next((s for s in manager.sessions.values() if s.agent == "hermes" and s.status != "exited"), None)
+        if live is not None:
+            live.pty.write(text.replace("\n", " ").encode("utf-8"))
+            await asyncio.sleep(0.15)
+            live.pty.write(b"\r")
+            return f"Mandei para o {live.title}, no terminal dele."
+        try:
+            hermes = agents.get("hermes")
+        except AgentError:
+            hermes = None
+        session = manager.create("claude", None, title=None if hermes else "Concierge", tag="concierge", agent=hermes, prompt=text)
+        return f"{session.title} abriu na MÊTIS com o seu pedido."
+
+    @app.post("/captura", dependencies=[Depends(require_token)])
+    async def capture(body: CaptureBody) -> dict:
+        names = [p.name for p in vault.projects()] if vault.available else []
+        try:
+            item = interpret(body.texto, names)
+        except ValueError as exc:
+            raise fail(exc) from exc
+        today_str = datetime.now().astimezone().date().isoformat()
+        try:
+            if item.kind == "lembrete" and reminder_account():
+                message = await asyncio.to_thread(hub.remind, reminder_account(), item.text, item.when.isoformat())
+            elif item.kind == "tarefa" and item.project:
+                task = await asyncio.to_thread(kanban.add, item.project, item.text)
+                manager.events.publish({"type": "brain.changed", "project": item.project})
+                message = f"Tarefa {task['id']} nas Próximas ações de {item.project}."
+            elif item.kind in ("tarefa", "nota"):
+                line = f"- [ ] {item.text}" if item.kind == "tarefa" else f"- {item.text}"
+                await asyncio.to_thread(vault.append_daily, today_str, "📥 Capturas do dia", line, DAILY_BEFORE)
+                message = f"{'Tarefa' if item.kind == 'tarefa' else 'Nota'} nas Capturas do dia ({today_str})."
+            else:
+                # Lembrete sem Slack conectado também vai para o Hermes, que avisa o que falta.
+                message = await to_concierge(body.texto)
+                item.kind = "concierge"
+        except (ToolError, ConnectorError, SlackError, VaultError, OSError) as exc:
+            raise fail(exc) from exc
+        return {"acao": item.kind, "mensagem": message}
+
+    @app.get("/estudo", dependencies=[Depends(require_token)])
+    def study_summary() -> dict:
+        return study.summary()
+
+    @app.post("/estudo/blocos", dependencies=[Depends(require_token)], status_code=201)
+    def study_block(body: StudyBlock) -> dict:
+        block = study.add(body.minutos, body.assunto)
+        manager.events.publish({"type": "study", "summary": study.summary()})
+        return block
+
+    @app.post("/agents/rascunho", dependencies=[Depends(require_token)])
+    def agent_draft(body: DraftRequest) -> dict:
+        from .sessions import clean_env
+
+        env = {**clean_env(), **manager.accounts.env("claude", manager.accounts.active("claude"))}
+        try:
+            return draft_agent(body.descricao, [a["name"] for a in agents.list()], env)
+        except DraftError as exc:
+            raise fail(exc) from exc
+
     @app.get("/hoje", dependencies=[Depends(require_token)])
     def today() -> dict:
         """O dia num lugar só: rotinas de hoje, tarefas em andamento, aprovações e lembretes."""
@@ -920,6 +1019,7 @@ def create_app(
             "manual": manual,
             "doing": doing,
             "approvals": [p.to_dict() for p in hub.pending.values()],
+            "study": study.summary(now),
         }
 
     # --- agentes em arquivo --------------------------------------------------

@@ -4,7 +4,7 @@ import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, PROVIDERS, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
 import type { Accounts, Agent, Project, Session, SessionKind, Worktree } from "../types";
 import { placeOf, worktreeLabel } from "../useWorktrees";
-import { AgentSprite } from "./AgentSprite";
+import { AgentSprite, spriteState } from "./AgentSprite";
 
 export interface Selected {
   project: string;
@@ -89,7 +89,7 @@ export function Sidebar(props: Props) {
           onClick={() => props.onSelect(session.id)}
         >
           {agent ? (
-            <AgentSprite agent={agent} client={props.client} size={18} />
+            <AgentSprite agent={agent} client={props.client} size={18} state={spriteState(session)} />
           ) : (
             <span className="session-glyph" style={{ color: KIND_COLOR[session.kind] }}>
               {KIND_GLYPH[session.kind]}

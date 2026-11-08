@@ -132,7 +132,36 @@ export function GreekBust({ seed, color, size = 32 }: { seed: string; color: str
 /** Mantido para quem ainda importa o nome antigo. */
 export const PixelAvatar = GreekBust;
 
-export function AgentSprite({ agent, client, size = 32 }: { agent: Agent; client: CoreClient | null; size?: number }) {
+/** Estados animados do DESIGN.md: código por cima da sprite parada, o personagem nunca muda de cara. */
+export type SpriteState = "idle" | "working" | "waiting" | "sleeping" | "done" | "error";
+
+export function spriteState(session: { status: string; exit_code: number | null }): SpriteState {
+  if (session.status === "working") return "working";
+  if (session.status === "waiting") return "waiting";
+  if (session.status === "exited") return session.exit_code ? "error" : "done";
+  return "idle";
+}
+
+export function AgentSprite({ agent, client, size = 32, state }: { agent: Agent; client: CoreClient | null; size?: number; state?: SpriteState }) {
+  const figure = <AgentFigure agent={agent} client={client} size={size} />;
+  if (!state) return figure;
+  return (
+    <span className="sprite-anim" data-state={state} style={{ ["--s" as string]: `${size}px` }} title={STATE_TITLE[state]}>
+      {figure}
+    </span>
+  );
+}
+
+const STATE_TITLE: Record<SpriteState, string> = {
+  idle: "parado",
+  working: "trabalhando",
+  waiting: "esperando você",
+  sleeping: "dormindo",
+  done: "concluiu",
+  error: "erro",
+};
+
+function AgentFigure({ agent, client, size }: { agent: Agent; client: CoreClient | null; size: number }) {
   if (agent.sprite && client) {
     return (
       <img
