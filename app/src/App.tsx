@@ -54,7 +54,8 @@ import {
 import type {
   Agent,
   BoardProject,
-  GitFile,
+  DiffMode,
+  GithubIssue,
   HistoryItem,
   KanbanTask,
   Project,
@@ -460,8 +461,10 @@ export default function App() {
     const found =
       inside.find((s) => s.id === focusedKey) ?? inside.find((s) => s.id === lastTerm.current) ?? inside[inside.length - 1] ?? null;
     if (found) return found;
-    setToast("Abrindo o Claude nesta worktree…");
-    const session = await create("claude", { cwd: place.worktree.path });
+    // O agente do git dos Ajustes (v0.9.6) abre quando não há nenhum na worktree.
+    const kind = harness.prefs?.agente_git ?? "claude";
+    setToast(`Abrindo o ${KIND_LABEL[kind]} nesta worktree…`);
+    const session = await create(kind, { cwd: place.worktree.path });
     if (!session) return null;
     await whenReady(session.id);
     return session;
@@ -469,9 +472,12 @@ export default function App() {
 
   const askCommit = async (staged: number) => {
     if (!contextPlace) return;
+    // As receitas vêm de Ajustes → Git (v0.9.6); sem núcleo novo, os textos de antes.
     const prompt = staged
-      ? "Escreva a mensagem e faça o commit só das mudanças já marcadas nesta worktree (git diff --cached), no padrão das mensagens recentes (git log -5 --oneline). Não marque nem desmarque outros arquivos."
-      : "Veja as mudanças desta worktree (git status e git diff), marque o que faz parte do mesmo trabalho e faça o commit com uma mensagem no padrão das mensagens recentes (git log -5 --oneline). Se houver mais de um assunto, me pergunte antes.";
+      ? (harness.prefs?.receita_commit_marcado ??
+        "Escreva a mensagem e faça o commit só das mudanças já marcadas nesta worktree (git diff --cached), no padrão das mensagens recentes (git log -5 --oneline). Não marque nem desmarque outros arquivos.")
+      : (harness.prefs?.receita_commit ??
+        "Veja as mudanças desta worktree (git status e git diff), marque o que faz parte do mesmo trabalho e faça o commit com uma mensagem no padrão das mensagens recentes (git log -5 --oneline). Se houver mais de um assunto, me pergunte antes.");
     const session = await agentSessionIn(contextPlace);
     if (!session) return;
     select(session.id);
@@ -498,12 +504,32 @@ export default function App() {
   const removeNote = (root: string, id: string) => setNotes((all) => ({ ...all, [root]: (all[root] ?? []).filter((n) => n.id !== id) }));
 
   const openDoc = (doc: Omit<DocTab, "key">) => {
-    const key = `doc:${doc.type}:${doc.root}:${doc.path}`;
-    setDocs((all) => (all.some((d) => d.key === key) ? all : [...all, { ...doc, key }]));
+    // Comparar com uma ref é outra aba (dá para ter o diff normal e o contra o main lado a lado).
+    const key = `doc:${doc.type}:${doc.root}:${doc.path}${doc.mode === "ref" && doc.ref ? `@${doc.ref}` : ""}`;
+    setDocs((all) =>
+      all.some((d) => d.key === key)
+        ? // Pedida de novo com outro modo: a aba segue o pedido.
+          doc.mode
+          ? all.map((d) => (d.key === key ? { ...d, mode: doc.mode, ref: doc.ref, seq: (d.seq ?? 0) + 1 } : d))
+          : all
+        : [...all, { ...doc, key }],
+    );
     select(key, doc.root ? placeKeyOf(doc.root) : "");
   };
-  const openDiff = (file: GitFile) => {
-    if (contextPlace) openDoc({ type: "diff", root: contextPlace.worktree.path, path: file.path, untracked: file.untracked });
+  const openDiff = (file: { path: string; untracked?: boolean }, options: { mode?: DiffMode; ref?: string } = {}) => {
+    if (contextPlace) openDoc({ type: "diff", root: contextPlace.worktree.path, path: file.path, untracked: file.untracked, ...options });
+  };
+  const openConflict = (path: string) => {
+    if (contextPlace) openDoc({ type: "conflict", root: contextPlace.worktree.path, path });
+  };
+  /** Pedido ao agente da worktree em foco (abre um, se não houver), mandado na hora. */
+  const askAgent = async (prompt: string, root = contextPlace?.worktree.path) => {
+    const place = root ? placeFor(root) : null;
+    if (!place) return setToast("Escolha uma worktree para pedir ao agente.");
+    const session = await agentSessionIn(place);
+    if (!session) return;
+    select(session.id);
+    submit(session.id, prompt);
   };
   const openFile = (path: string, root = contextPlace?.worktree.path) => {
     if (root) openDoc({ type: "file", root, path });
@@ -752,6 +778,43 @@ export default function App() {
     setDockOverride(session.id);
     window.setTimeout(() => dock.current?.insert(prompt), 50);
     setToast(`Claude aberto em ${where}. O pedido está na barra de entrada: revise e mande.`);
+  };
+
+  /**
+   * Issue do GitHub no kanban (v0.9.6): como "Executar com agente" de uma tarefa, com a
+   * worktree issue-<n>-<título> e o pedido de resolver e abrir o PR que fecha a issue.
+   */
+  const runIssue = async (project: BoardProject, issue: GithubIssue) => {
+    const client = harness.client;
+    if (!client || !project.directory) return;
+    setView("term");
+    let cwd = project.directory;
+    let where = project.directory;
+    try {
+      const repo = await client.addProject(project.directory);
+      const slug = fold(issue.titulo).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30).replace(/-+$/, "");
+      const created = await client.createWorktree(repo.id, `issue-${issue.numero}-${slug}`, true);
+      await wt.refresh();
+      harness.bumpWorktrees();
+      setSelected({ project: repo.id, path: created.path });
+      cwd = created.path;
+      where = `a worktree ${created.branch}`;
+    } catch (cause) {
+      setToast(`Sem worktree (${cause instanceof Error ? cause.message : String(cause)}); o agente abre na pasta do projeto.`);
+    }
+    const kind = harness.prefs?.agente_git ?? "claude";
+    const session = await create(kind, { cwd });
+    if (!session) return;
+    await whenReady(session.id);
+    const prompt = [
+      `Issue #${issue.numero} do GitHub · ${issue.titulo}`,
+      issue.url,
+      "",
+      `Leia a issue com \`gh issue view ${issue.numero}\` (e os comentários) e resolva nesta worktree. Quando estiver pronto, abra um PR com "Closes #${issue.numero}" no texto. Se precisar de uma decisão minha, pergunte antes de seguir.`,
+    ].join("\n");
+    setDockOverride(session.id);
+    window.setTimeout(() => dock.current?.insert(prompt), 50);
+    setToast(`${KIND_LABEL[kind]} aberto em ${where}. O pedido está na barra de entrada: revise e mande.`);
   };
 
   // Nomes dos projetos do Brain, para o filtro da busca.
@@ -1152,7 +1215,7 @@ export default function App() {
     ...docs.map((doc) => ({
       key: doc.key,
       title: docTitle(doc, doc.label ? webInfo[doc.label]?.title : null),
-      glyph: <span className="mono doc-glyph">{doc.type === "diff" ? "±" : doc.type === "web" ? "◍" : "▤"}</span>,
+      glyph: <span className="mono doc-glyph">{doc.type === "diff" ? "±" : doc.type === "web" ? "◍" : doc.type === "conflict" ? "!" : "▤"}</span>,
       hint: doc.path,
       away: (doc.root ? placeKeyOf(doc.root) : "") !== placeKey,
     })),
@@ -1658,6 +1721,8 @@ export default function App() {
             onOpenNote={(title) => openNote({ title })}
             onOpenProject={(project) => void openBoardProject(project)}
             onRunTask={(project, task) => void runTask(project, task)}
+            onRunIssue={(project, issue) => void runIssue(project, issue)}
+            onOpenUrl={(url) => openWeb(url)}
             onError={setToast}
           />
         )}
@@ -1811,6 +1876,11 @@ export default function App() {
                       onFocus={() => focusSlot(doc.key)}
                       onOpenFile={(path) => openFile(path, doc.root)}
                       onError={setToast}
+                      onGitChanged={() => {
+                        setGitTick((n) => n + 1);
+                        void wt.refresh();
+                      }}
+                      onAgent={(prompt) => void askAgent(prompt, doc.root)}
                     />
                   );
                 })}
@@ -1922,6 +1992,9 @@ export default function App() {
                 notes={contextNotes}
                 tick={gitTick}
                 onOpenDiff={openDiff}
+                onOpenConflict={openConflict}
+                onAgent={(prompt) => void askAgent(prompt)}
+                prefs={harness.prefs}
                 onOpenUrl={(url) => openWeb(url, { root: contextPlace?.worktree.path })}
                 onOpenFile={(path) => openFile(path)}
                 onAskCommit={(staged) => void askCommit(staged)}

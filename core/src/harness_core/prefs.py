@@ -20,6 +20,23 @@ from typing import Any
 
 PERMISSION_MODES = ("padrao", "manual", "auto", "yolo")
 AWAKE_MODES = ("nunca", "agente", "sempre")
+GIT_AGENTS = ("claude", "codex")
+RECIPE_MAX = 4000
+
+# Receitas de IA por ação (v0.9.6): o pedido que vai ao agente da worktree. {base} vira o branch alvo do PR.
+RECIPE_COMMIT = (
+    "Veja as mudanças desta worktree (git status e git diff), marque o que faz parte do mesmo trabalho e faça o "
+    "commit com uma mensagem no padrão das mensagens recentes (git log -5 --oneline). Se houver mais de um assunto, "
+    "me pergunte antes."
+)
+RECIPE_COMMIT_STAGED = (
+    "Escreva a mensagem e faça o commit só das mudanças já marcadas nesta worktree (git diff --cached), no padrão das "
+    "mensagens recentes (git log -5 --oneline). Não marque nem desmarque outros arquivos."
+)
+RECIPE_PR = (
+    "Abra um pull request deste branch para o {base} com o gh: título curto no padrão dos commits recentes e corpo com "
+    "o que mudou, o porquê e como testar. Se o branch não subiu, suba antes. Me devolva o link."
+)
 
 DEFAULTS: dict[str, Any] = {
     "permissao_claude": "padrao",
@@ -27,6 +44,11 @@ DEFAULTS: dict[str, Any] = {
     "confiar_pastas": True,
     "manter_acordado": "agente",
     "avisos": {"terminou": True, "espera": True, "aprovacao": True, "erro": True, "som": True, "volume": 0.6, "silencio": False},
+    "receita_commit": RECIPE_COMMIT,
+    "receita_commit_marcado": RECIPE_COMMIT_STAGED,
+    "receita_pr": RECIPE_PR,
+    "agente_git": "claude",
+    "editor_externo": "",
 }
 
 
@@ -66,6 +88,16 @@ class Prefs:
                     value["volume"] = max(0.0, min(1.0, float(value["volume"])))
                 if key == "confiar_pastas":
                     value = bool(value)
+                if key.startswith("receita_"):
+                    if not isinstance(value, str) or len(value) > RECIPE_MAX:
+                        raise PrefsError(f"a receita é um texto de até {RECIPE_MAX} caracteres")
+                    value = value.strip() or DEFAULTS[key]  # vazia volta ao padrão
+                if key == "agente_git" and value not in GIT_AGENTS:
+                    raise PrefsError(f"o agente do git é {', '.join(GIT_AGENTS)}")
+                if key == "editor_externo":
+                    if not isinstance(value, str) or len(value) > 40:
+                        raise PrefsError("editor externo inválido")
+                    value = value.strip()
                 data[key] = value
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

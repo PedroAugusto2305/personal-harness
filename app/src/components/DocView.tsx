@@ -4,17 +4,23 @@ import { marked } from "marked";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { parseDiff, type DiffLine } from "../lib/diff";
+import { buildPatch, splitPatch } from "../lib/patch";
 import { baseName, viewerFor } from "../lib/tree";
-import type { ReviewNote, TextFile } from "../types";
+import type { ConflictBlock, ConflictChoice, DiffMode, ReviewNote, TextFile } from "../types";
 
 /** Aba que não é terminal: o diff de um arquivo ou um arquivo aberto. */
 export interface DocTab {
   key: string;
-  type: "diff" | "file" | "web";
+  type: "diff" | "file" | "web" | "conflict";
   root: string;
   /** Caminho do arquivo; numa aba de navegador, o endereço inicial. */
   path: string;
   untracked?: boolean;
+  /** v0.9.6: modo do diff ao abrir e a ref, quando é comparar com um branch, tag ou commit. */
+  mode?: DiffMode;
+  ref?: string;
+  /** Sobe quando a aba é pedida de novo com outro modo (o diff troca para ele). */
+  seq?: number;
   /** Só nas abas de navegador: o rótulo da página nativa. */
   label?: string;
   incognito?: boolean;
@@ -26,7 +32,8 @@ export function docTitle(doc: DocTab, webTitle?: string | null): string {
     const host = doc.path.replace(/^https?:\/\//, "").split("/")[0];
     return host && doc.path !== "about:blank" ? host : "Nova aba";
   }
-  return doc.type === "diff" ? `Δ ${baseName(doc.path)}` : baseName(doc.path);
+  if (doc.type === "conflict") return `Conflito · ${baseName(doc.path)}`;
+  return doc.type === "diff" ? `Δ ${baseName(doc.path)}${doc.mode === "ref" && doc.ref ? ` · ${doc.ref}` : ""}` : baseName(doc.path);
 }
 
 interface DocProps {
@@ -43,6 +50,10 @@ interface DocProps {
   onFocus: () => void;
   onOpenFile: (path: string) => void;
   onError: (message: string) => void;
+  /** v0.9.6: o diff marcou, desmarcou ou descartou algo (o painel de mudanças recarrega). */
+  onGitChanged?: () => void;
+  /** Manda um pedido ao agente da worktree (conflito: "resolva este arquivo"). */
+  onAgent?: (prompt: string) => void;
 }
 
 export function DocView(props: DocProps) {
@@ -56,22 +67,59 @@ export function DocView(props: DocProps) {
       onMouseDown={props.onFocus}
       aria-label={docTitle(props.doc)}
     >
-      {props.doc.type === "diff" ? <DiffView {...props} /> : <FileView {...props} />}
+      {props.doc.type === "diff" ? <DiffView {...props} /> : props.doc.type === "conflict" ? <ConflictView {...props} /> : <FileView {...props} />}
     </section>
   );
 }
 
-function DiffView({ doc, client, visible, notes, onAddNote, onRemoveNote, onOpenFile }: DocProps) {
-  const [mode, setMode] = useState<"head" | "staged" | "worktree">("head");
+/** Uma ação no diff que pede confirmação no segundo clique (descartar não volta). */
+function useArmed(timeoutMs = 4000) {
+  const [armed, setArmed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = window.setTimeout(() => setArmed(null), timeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [armed, timeoutMs]);
+  return { armed, arm: setArmed };
+}
+
+const MODE_LABEL: Record<DiffMode, string> = { head: "Tudo", staged: "Marcado", worktree: "Não marcado", ref: "Comparar" };
+
+/**
+ * Diff de um arquivo (v0.9.6): marcar, desmarcar e descartar por trecho ou por linha
+ * (clique no número da linha; ⇧ + clique escolhe um intervalo), comparar com qualquer ref
+ * (desde que o branch saiu dela) e, para imagem, as duas versões lado a lado.
+ */
+function DiffView({ doc, client, visible, notes, onAddNote, onRemoveNote, onOpenFile, onError, onGitChanged }: DocProps) {
+  const [mode, setMode] = useState<DiffMode>(doc.mode ?? "head");
+  const [ref, setRef] = useState(doc.ref ?? "");
+  const [refDraft, setRefDraft] = useState(doc.ref ?? "");
+  const [refs, setRefs] = useState<string[]>([]);
   const [raw, setRaw] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [reload, setReload] = useState(0);
+  const { armed, arm } = useArmed();
+  const image = viewerFor(doc.path) === "image";
+  const staging = (mode === "worktree" || mode === "staged") && !doc.untracked;
+
+  // Pedida de novo (outra linha do painel, outra ref): segue o modo pedido.
+  useEffect(() => {
+    if (doc.mode) setMode(doc.mode);
+    if (doc.ref) {
+      setRef(doc.ref);
+      setRefDraft(doc.ref);
+    }
+  }, [doc.mode, doc.ref, doc.seq]);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || (mode === "ref" && !ref)) return;
     let alive = true;
     const load = () =>
-      client.gitDiff(doc.root, doc.path, mode, !!doc.untracked).then(
+      client.gitDiff(doc.root, doc.path, mode, !!doc.untracked, ref).then(
         (text) => alive && setRaw(text),
         (cause) => alive && setRaw(`erro: ${cause instanceof Error ? cause.message : String(cause)}`),
       );
@@ -81,12 +129,35 @@ function DiffView({ doc, client, visible, notes, onAddNote, onRemoveNote, onOpen
       alive = false;
       window.clearInterval(timer);
     };
-  }, [client, doc.root, doc.path, doc.untracked, mode, visible]);
+  }, [client, doc.root, doc.path, doc.untracked, mode, ref, visible, reload]);
+
+  // A escolha de linhas vale para um diff só: trocar de modo ou o diff mudar a desfaz.
+  useEffect(() => {
+    setPicked(new Set());
+    setAnchor(null);
+  }, [mode, ref, raw]);
+
+  useEffect(() => {
+    if (mode !== "ref" || refs.length) return;
+    void client
+      .gitRefs(doc.root)
+      .then((r) => {
+        setRefs([...r.branches, ...r.remotos, ...r.tags]);
+        if (!ref) {
+          setRefDraft(r.padrao);
+          setRef(r.padrao);
+        }
+      })
+      .catch(() => undefined);
+  }, [client, doc.root, mode, ref, refs.length]);
 
   const parsed = useMemo(() => parseDiff(raw ?? ""), [raw]);
+  const patch = useMemo(() => splitPatch(raw ?? ""), [raw]);
   const fileNotes = notes.filter((n) => n.file === doc.path);
   const noteAt = (line: DiffLine) =>
     fileNotes.filter((n) => (n.side === "new" ? n.line === line.new : n.line === line.old && line.new == null));
+  const keyOf = (line: DiffLine) => `${line.hunk}:${line.pos}`;
+  const changeable = (line: DiffLine) => line.kind === "add" || line.kind === "del";
 
   const save = (line: DiffLine) => {
     if (!draft.trim()) return setEditing(null);
@@ -101,6 +172,70 @@ function DiffView({ doc, client, visible, notes, onAddNote, onRemoveNote, onOpen
     setEditing(null);
   };
 
+  /** Clique no número: escolhe a linha; com ⇧, todas as mudanças entre a última escolhida e esta. */
+  const toggle = (index: number, shift: boolean) => {
+    const line = parsed.lines[index];
+    if (!staging || !changeable(line)) return;
+    setPicked((current) => {
+      const next = new Set(current);
+      if (shift && anchor !== null) {
+        const [from, to] = anchor < index ? [anchor, index] : [index, anchor];
+        for (let i = from; i <= to; i += 1) if (changeable(parsed.lines[i])) next.add(keyOf(parsed.lines[i]));
+      } else if (next.has(keyOf(line))) next.delete(keyOf(line));
+      else next.add(keyOf(line));
+      return next;
+    });
+    setAnchor(index);
+  };
+
+  /** Aplica a escolha: marcar (no índice), desmarcar (índice, ao contrário) ou descartar (árvore, ao contrário). */
+  const apply = async (action: "marcar" | "desmarcar" | "descartar", pick: (hunk: number, line: number) => boolean) => {
+    const text = buildPatch(patch, pick, action !== "marcar");
+    if (!text) return;
+    setBusy(true);
+    try {
+      await client.gitApply(doc.root, text, action !== "descartar", action !== "marcar");
+      setPicked(new Set());
+      setReload((n) => n + 1);
+      onGitChanged?.();
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+      arm(null);
+    }
+  };
+
+  const hunkActions = (hunk: number) => {
+    const all = (h: number) => h === hunk;
+    if (mode === "staged") {
+      return (
+        <button type="button" className="link-btn" disabled={busy} onClick={() => void apply("desmarcar", all)}>
+          desmarcar trecho
+        </button>
+      );
+    }
+    const key = `hunk-${hunk}`;
+    return (
+      <>
+        <button type="button" className="link-btn" disabled={busy} onClick={() => void apply("marcar", all)}>
+          marcar trecho
+        </button>
+        <button
+          type="button"
+          className="link-btn danger"
+          disabled={busy}
+          title="Volta este trecho ao que está marcado (ou ao último commit). Não dá para desfazer."
+          onClick={() => (armed === key ? void apply("descartar", all) : arm(key))}
+        >
+          {armed === key ? "confirmar descarte" : "descartar trecho"}
+        </button>
+      </>
+    );
+  };
+
+  const pickedFn = (h: number, i: number) => picked.has(`${h}:${i}`);
+
   return (
     <>
       <div className="doc-head">
@@ -114,97 +249,313 @@ function DiffView({ doc, client, visible, notes, onAddNote, onRemoveNote, onOpen
         <span className="grow" />
         {!doc.untracked && (
           <div className="segmented" role="radiogroup" aria-label="O que comparar">
-            {(
-              [
-                ["head", "Tudo"],
-                ["staged", "Marcado"],
-                ["worktree", "Não marcado"],
-              ] as const
-            ).map(([key, label]) => (
+            {(["head", "staged", "worktree", "ref"] as const).map((key) => (
               <button key={key} type="button" role="radio" aria-checked={mode === key} onClick={() => setMode(key)}>
-                {label}
+                {MODE_LABEL[key]}
               </button>
             ))}
           </div>
+        )}
+        {mode === "ref" && (
+          <form
+            className="ref-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setRef(refDraft.trim());
+            }}
+          >
+            <input
+              className="mono"
+              list={`refs-${doc.key}`}
+              value={refDraft}
+              placeholder="main, origin/main, v0.9.5, HEAD~3"
+              spellCheck={false}
+              onChange={(event) => setRefDraft(event.target.value)}
+              onBlur={() => setRef(refDraft.trim())}
+              aria-label="Comparar com"
+            />
+            <datalist id={`refs-${doc.key}`}>
+              {refs.map((r) => (
+                <option key={r} value={r} />
+              ))}
+            </datalist>
+          </form>
         )}
         <button type="button" className="pill" onClick={() => onOpenFile(doc.path)}>
           Abrir arquivo
         </button>
       </div>
+      {staging && picked.size > 0 && (
+        <div className="diff-pickbar">
+          <span>
+            {picked.size} linha{picked.size > 1 ? "s" : ""} escolhida{picked.size > 1 ? "s" : ""}
+          </span>
+          {mode === "worktree" ? (
+            <>
+              <button type="button" className="pill" disabled={busy} onClick={() => void apply("marcar", pickedFn)}>
+                Marcar linhas
+              </button>
+              <button
+                type="button"
+                className="pill ghost danger"
+                disabled={busy}
+                onClick={() => (armed === "linhas" ? void apply("descartar", pickedFn) : arm("linhas"))}
+              >
+                {armed === "linhas" ? "Confirmar descarte" : "Descartar linhas"}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="pill" disabled={busy} onClick={() => void apply("desmarcar", pickedFn)}>
+              Desmarcar linhas
+            </button>
+          )}
+          <button type="button" className="link-btn" onClick={() => setPicked(new Set())}>
+            limpar
+          </button>
+        </div>
+      )}
+      {mode === "head" && !doc.untracked && parsed.lines.length > 0 && (
+        <p className="small diff-tip">Para marcar ou descartar por trecho ou por linha, escolha Não marcado (ou Marcado, para desmarcar).</p>
+      )}
+      {staging && picked.size === 0 && parsed.lines.length > 0 && (
+        <p className="small diff-tip">Clique no número de uma linha para escolhê-la (⇧ + clique escolhe um intervalo).</p>
+      )}
+      {image && !doc.untracked && (
+        <div className="diff-images">
+          <figure>
+            <figcaption className="small">{mode === "ref" ? ref || "ref" : "último commit"}</figcaption>
+            <img src={client.gitBlobUrl(doc.root, doc.path, mode === "ref" && ref ? ref : "HEAD")} alt="antes" />
+          </figure>
+          <figure>
+            <figcaption className="small">agora</figcaption>
+            <img src={`${client.rawUrl(doc.root, doc.path)}&v=${reload}`} alt="agora" />
+          </figure>
+        </div>
+      )}
       <div className="diff-body mono">
-        {raw == null && <p className="small doc-empty">carregando…</p>}
+        {mode === "ref" && !ref && <p className="small doc-empty">Escolha com o que comparar: um branch, uma tag ou um commit.</p>}
+        {raw == null && !(mode === "ref" && !ref) && <p className="small doc-empty">carregando…</p>}
         {raw?.startsWith("erro:") && <div className="error-box">{raw.slice(5)}</div>}
-        {raw != null && !raw.startsWith("erro:") && parsed.binary && <p className="small doc-empty">Arquivo binário: abra para ver.</p>}
+        {raw != null && !raw.startsWith("erro:") && parsed.binary && !image && <p className="small doc-empty">Arquivo binário: abra para ver.</p>}
         {raw != null && !raw.startsWith("erro:") && !parsed.binary && parsed.lines.length === 0 && (
           <p className="small doc-empty">Sem diferenças neste modo.</p>
         )}
-        {parsed.lines.map((line, index) => {
-          if (line.kind === "hunk") {
-            return (
-              <div key={index} className="diff-hunk">
-                {line.text || "···"}
-              </div>
-            );
-          }
-          const lineNotes = noteAt(line);
-          return (
-            <div key={index}>
-              <div className={`diff-line ${line.kind}`}>
-                <span className="ln">{line.old ?? ""}</span>
-                <span className="ln">{line.new ?? ""}</span>
-                <button
-                  type="button"
-                  className="add-note"
-                  title="Anotar esta linha para o agente"
-                  aria-label="Anotar esta linha"
-                  onClick={() => {
-                    setEditing(index);
-                    setDraft("");
-                  }}
-                >
-                  <Icon d={ICON.plus} size={11} strokeWidth={2.4} />
-                </button>
-                <span className="sign">{line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}</span>
-                <span className="code">{line.text || " "}</span>
-              </div>
-              {lineNotes.map((note) => (
-                <div key={note.id} className="diff-note">
-                  <Icon d={ICON.note} size={12} />
-                  <span>{note.text}</span>
-                  <button type="button" className="icon-btn" aria-label="Apagar nota" onClick={() => onRemoveNote(note.id)}>
-                    <Icon d={ICON.close} size={11} strokeWidth={2} />
-                  </button>
+        {!parsed.binary &&
+          parsed.lines.map((line, index) => {
+            if (line.kind === "hunk") {
+              return (
+                <div key={index} className="diff-hunk">
+                  <span className="diff-hunk-text">{line.text || "···"}</span>
+                  {staging && line.hunk !== undefined && <span className="diff-hunk-actions">{hunkActions(line.hunk)}</span>}
                 </div>
-              ))}
-              {editing === index && (
-                <div className="diff-note editing">
-                  <textarea
-                    autoFocus
-                    rows={2}
-                    value={draft}
-                    placeholder="O que o agente deve mudar aqui? (⌘⏎ salva, Esc cancela)"
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        save(line);
-                      } else if (e.key === "Escape") setEditing(null);
+              );
+            }
+            const lineNotes = noteAt(line);
+            const isPicked = changeable(line) && picked.has(keyOf(line));
+            return (
+              <div key={index}>
+                <div className={`diff-line ${line.kind}`} data-picked={isPicked ? "true" : undefined}>
+                  <span
+                    className="ln"
+                    data-pickable={staging && changeable(line) ? "true" : undefined}
+                    onClick={(event) => toggle(index, event.shiftKey)}
+                  >
+                    {line.old ?? ""}
+                  </span>
+                  <span
+                    className="ln"
+                    data-pickable={staging && changeable(line) ? "true" : undefined}
+                    onClick={(event) => toggle(index, event.shiftKey)}
+                  >
+                    {line.new ?? ""}
+                  </span>
+                  <button
+                    type="button"
+                    className="add-note"
+                    title="Anotar esta linha para o agente"
+                    aria-label="Anotar esta linha"
+                    onClick={() => {
+                      setEditing(index);
+                      setDraft("");
                     }}
-                  />
-                  <div className="form-buttons">
-                    <button type="button" className="btn primary" onClick={() => save(line)} disabled={!draft.trim()}>
-                      Salvar nota
-                    </button>
-                    <button type="button" className="btn" onClick={() => setEditing(null)}>
-                      Cancelar
+                  >
+                    <Icon d={ICON.plus} size={11} strokeWidth={2.4} />
+                  </button>
+                  <span className="sign">{line.kind === "add" ? "+" : line.kind === "del" ? "−" : " "}</span>
+                  <span className="code">{line.text || " "}</span>
+                </div>
+                {lineNotes.map((note) => (
+                  <div key={note.id} className="diff-note">
+                    <Icon d={ICON.note} size={12} />
+                    <span>{note.text}</span>
+                    <button type="button" className="icon-btn" aria-label="Apagar nota" onClick={() => onRemoveNote(note.id)}>
+                      <Icon d={ICON.close} size={11} strokeWidth={2} />
                     </button>
                   </div>
+                ))}
+                {editing === index && (
+                  <div className="diff-note editing">
+                    <textarea
+                      autoFocus
+                      rows={2}
+                      value={draft}
+                      placeholder="O que o agente deve mudar aqui? (⌘⏎ salva, Esc cancela)"
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          save(line);
+                        } else if (e.key === "Escape") setEditing(null);
+                      }}
+                    />
+                    <div className="form-buttons">
+                      <button type="button" className="btn primary" onClick={() => save(line)} disabled={!draft.trim()}>
+                        Salvar nota
+                      </button>
+                      <button type="button" className="btn" onClick={() => setEditing(null)}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+      </div>
+    </>
+  );
+}
+
+const CHOICE_LABEL: Record<ConflictChoice, string> = { nosso: "o nosso", deles: "o deles", ambos: "os dois", base: "a base" };
+
+/**
+ * Conflito bloco a bloco (v0.9.6): cada trecho em conflito mostra o lado deste branch e o
+ * que está entrando; escolha um, os dois (o nosso primeiro) ou a base, e aplique. Sem
+ * marcador sobrando, o arquivo é marcado como resolvido.
+ */
+function ConflictView({ doc, client, visible, onOpenFile, onError, onGitChanged, onAgent }: DocProps) {
+  const [blocks, setBlocks] = useState<ConflictBlock[] | null>(null);
+  const [choices, setChoices] = useState<Record<number, ConflictChoice>>({});
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    if (!visible) return;
+    let alive = true;
+    client.gitConflict(doc.root, doc.path).then(
+      (answer) => {
+        if (!alive) return;
+        setBlocks(answer.blocos);
+        setChoices({});
+      },
+      (cause) => alive && onError(cause instanceof Error ? cause.message : String(cause)),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [client, doc.root, doc.path, visible, reload, onError]);
+
+  const apply = async () => {
+    if (!blocks) return;
+    setBusy(true);
+    try {
+      const answer = await client.resolveConflict(
+        doc.root,
+        doc.path,
+        blocks.map((b) => choices[b.indice] ?? "nosso"),
+      );
+      setDone(answer.resolvido);
+      onGitChanged?.();
+      setReload((n) => n + 1);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chosen = blocks ? blocks.filter((b) => choices[b.indice]).length : 0;
+  return (
+    <>
+      <div className="doc-head">
+        <Icon d={ICON.file} size={14} />
+        <span className="doc-path mono">{doc.path}</span>
+        <span className="small">{blocks ? `${blocks.length} conflito${blocks.length === 1 ? "" : "s"}` : ""}</span>
+        <span className="grow" />
+        {onAgent && blocks && blocks.length > 0 && (
+          <button
+            type="button"
+            className="pill ghost"
+            onClick={() =>
+              onAgent(
+                `Resolva os conflitos de ${doc.path} nesta worktree mantendo a intenção dos dois lados, rode os testes que houver e marque o arquivo (git add). Se a escolha não for óbvia, me pergunte.`,
+              )
+            }
+          >
+            ✻ Resolver com o agente
+          </button>
+        )}
+        <button type="button" className="pill" onClick={() => onOpenFile(doc.path)}>
+          Abrir arquivo
+        </button>
+      </div>
+      <div className="conflict-body">
+        {blocks == null && <p className="small doc-empty">carregando…</p>}
+        {blocks?.length === 0 && (
+          <p className="small doc-empty">{done ? "Resolvido e marcado para o commit." : "Nenhum marcador de conflito neste arquivo."}</p>
+        )}
+        {blocks?.map((block) => {
+          const choice = choices[block.indice];
+          const options: ConflictChoice[] = block.base != null ? ["nosso", "deles", "ambos", "base"] : ["nosso", "deles", "ambos"];
+          return (
+            <section key={block.indice} className="conflict-block" data-choice={choice}>
+              <header className="conflict-head small">
+                <span>Conflito {block.indice + 1}</span>
+                <span className="grow" />
+                {options.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className="pill ghost tiny"
+                    aria-pressed={choice === option}
+                    onClick={() => setChoices((all) => ({ ...all, [block.indice]: option }))}
+                  >
+                    {CHOICE_LABEL[option]}
+                  </button>
+                ))}
+              </header>
+              <div className="conflict-sides">
+                <div className="conflict-side" data-side="nosso" data-on={choice === "nosso" || choice === "ambos" ? "true" : undefined}>
+                  <div className="conflict-label small mono">nosso · {block.rotulo_nosso || "este branch"}</div>
+                  <pre className="mono">{block.nosso || " "}</pre>
+                </div>
+                <div className="conflict-side" data-side="deles" data-on={choice === "deles" || choice === "ambos" ? "true" : undefined}>
+                  <div className="conflict-label small mono">deles · {block.rotulo_deles || "o que entra"}</div>
+                  <pre className="mono">{block.deles || " "}</pre>
+                </div>
+              </div>
+              {block.base != null && choice === "base" && (
+                <div className="conflict-side" data-on="true">
+                  <div className="conflict-label small mono">base (antes dos dois)</div>
+                  <pre className="mono">{block.base || " "}</pre>
                 </div>
               )}
-            </div>
+            </section>
           );
         })}
       </div>
+      {blocks && blocks.length > 0 && (
+        <div className="conflict-foot">
+          <span className="small">
+            {chosen} de {blocks.length} escolhido{blocks.length === 1 ? "" : "s"}
+            {chosen < blocks.length ? " · os sem escolha ficam com o nosso" : ""}
+          </span>
+          <button type="button" className="btn primary" disabled={busy || chosen === 0} onClick={() => void apply()}>
+            {busy ? "Aplicando…" : "Aplicar e marcar"}
+          </button>
+        </div>
+      )}
     </>
   );
 }

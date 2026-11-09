@@ -2,6 +2,17 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v0.9.6 · Git e GitHub (paridade com o Orca, bloco C)
+
+- **Marcar por trecho e por linha.** No diff, em "Não marcado": marcar ou descartar um trecho, ou escolher linhas (clique no número; ⇧ + clique escolhe um intervalo). Em "Marcado": desmarcar trecho ou linhas. Descartar pede confirmação.
+- **Comparar com qualquer ref:** no diff (modo Comparar) e no painel ("Comparar com outro branch"), o que mudou desde que o branch saiu de um branch, tag ou commit, contando o que não foi commitado. Imagem mostra antes e agora lado a lado.
+- **Botão de subir que muda com o estado:** publicar branch, subir, puxar ou sincronizar (pull com rebase e push); buscar o remoto; forçar com `--force-with-lease` quando a subida é recusada.
+- **Commit:** corrigir o último commit (amend, com aviso se já subiu); a saída do pre-commit fica à vista, com "Consertar com o agente".
+- **Merge, rebase, cherry-pick e revert em andamento:** faixa com continuar, abortar e "Resolver com o agente"; conflito bloco a bloco (o nosso, o deles, os dois ou a base), ou o arquivo inteiro de um lado.
+- **GitHub pelo `gh`:** cartão do PR do branch (checks, revisão, conflito), abrir PR por formulário ou pelo agente, sair do rascunho e juntar (rebase, squash ou merge); issues e PRs abertos na coluna GitHub das tarefas do kanban, com "Executar com agente" numa worktree nova.
+- **Ajustes → Git:** receitas do commit e do PR, qual agente abre, assinar os commits e o editor externo ("Abrir no editor" no painel).
+- Descartar arquivo não rastreado manda para a Lixeira.
+
 ## v0.9.5 · correção
 
 - **A MÊTIS instalada abre pelo Finder, pelo Launchpad e pelo Dock.** Aberto fora de um terminal, o app recebia só o PATH mínimo do macOS (`/usr/bin:/bin:/usr/sbin:/sbin`) e não achava o `uv` para subir o núcleo, nem o núcleo achava o `claude` e o `codex`. Agora o app pergunta o PATH ao shell de login ao abrir sem terminal (até 5 s; se não responder, segue com o que veio).

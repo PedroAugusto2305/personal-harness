@@ -97,6 +97,9 @@ export interface GitStatus {
   ahead: number;
   behind: number;
   files: GitFile[];
+  /** v0.9.6: operação em andamento (merge, rebase…) e o último commit (subiu = já está no upstream). */
+  operacao?: "merge" | "rebase" | "cherry-pick" | "revert" | null;
+  ultimo_commit?: { sha: string; assunto: string; subiu: boolean } | null;
 }
 
 export interface Agent {
@@ -680,6 +683,12 @@ export interface Prefs {
   confiar_pastas: boolean;
   manter_acordado: "nunca" | "agente" | "sempre";
   avisos: { terminou: boolean; espera: boolean; aprovacao: boolean; erro: boolean; som: boolean; volume: number; silencio: boolean };
+  /** v0.9.6: receitas do que o agente da worktree faz no git, e o editor externo. */
+  receita_commit?: string;
+  receita_commit_marcado?: string;
+  receita_pr?: string;
+  agente_git?: "claude" | "codex";
+  editor_externo?: string;
 }
 
 export interface HistoryItem {
@@ -783,4 +792,85 @@ export interface VersionInfo {
   ultima: string | null;
   /** Versão mais nova que a instalada, se houver. */
   nova: string | null;
+}
+
+// --- Git e GitHub (v0.9.6) --------------------------------------------------------------
+
+export type DiffMode = "head" | "staged" | "worktree" | "ref";
+
+export interface GitRefs {
+  branches: string[];
+  remotos: string[];
+  tags: string[];
+  padrao: string;
+  atual: string | null;
+}
+
+export interface ChangedFile {
+  path: string;
+  status: string;
+  orig: string | null;
+}
+
+export interface ConflictBlock {
+  indice: number;
+  nosso: string;
+  deles: string;
+  base: string | null;
+  rotulo_nosso: string;
+  rotulo_deles: string;
+}
+
+export type ConflictChoice = "nosso" | "deles" | "ambos" | "base";
+
+export interface ChecksSummary {
+  ok: number;
+  falhou: number;
+  pendente: number;
+}
+
+export interface PullRequest {
+  numero: number;
+  titulo: string;
+  url: string;
+  estado: "OPEN" | "MERGED" | "CLOSED";
+  rascunho: boolean;
+  base: string;
+  cabeca: string;
+  checks: ChecksSummary;
+  revisao: string | null;
+  mesclavel: "MERGEABLE" | "CONFLICTING" | "UNKNOWN" | string;
+}
+
+export interface GithubState {
+  gh: boolean;
+  repo: string | null;
+  pr: PullRequest | null;
+}
+
+export interface GithubIssue {
+  numero: number;
+  titulo: string;
+  url: string;
+  rotulos: string[];
+  autor: string;
+  atualizado: string;
+}
+
+export interface GithubPr {
+  numero: number;
+  titulo: string;
+  url: string;
+  rascunho: boolean;
+  cabeca: string;
+  autor: string;
+  checks: ChecksSummary;
+}
+
+export interface GitConfig {
+  assinar: boolean;
+  formato: string;
+  tem_chave: boolean;
+  nome: string;
+  email: string;
 }

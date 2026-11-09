@@ -11,7 +11,7 @@
   - **Fora** contraria um princípio do Harness.
 - A meta é uma **proposta**: mova o que quiser.
 
-## Situação da régua 1.0 (2026-11-08, `v0.9.5`)
+## Situação da régua 1.0 (2026-11-08, `v0.9.6`)
 
 | Bloco | Situação |
 |---|---|
@@ -23,7 +23,7 @@
 | **E. Avisos e sistema:** aviso do macOS e som, sino com não lidos e badge no Dock, ajustes de aviso, gerenciador de recursos, scripts de setup e arquivamento, CLI com `--json` e leitura e escrita em terminais | ✅ `v0.9.2` |
 | **B. Terminal e navegação:** busca no terminal, comandos salvos, divisão aninhada salva por worktree (com arrastar a aba para a borda), ⌘J, atalhos remapeáveis, busca nas configurações, importar tema do Ghostty | ✅ `v0.9.3` |
 | **Uso diário:** app instalado de uma versão marcada, atualização pelo app e pelo `metis`, MÊTIS de desenvolvimento separada | ✅ `v0.9.4` |
-| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ `v0.9.6` |
+| **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ✅ `v0.9.6` (merge em 3 vias com edição livre vem com os editores) |
 | **D. Editores:** editar arquivos da worktree, editar notas do Brain com `[[links]]` e callouts | ⏳ `v0.9.7` (falta escolher o editor) |
 | Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ⏳ `v0.9.8` |
 | Fora da `v0.9.3` no bloco B: temas do Warp e do Kitty, copiar o contexto e o ID da sessão, teclado kitty e OSC 52 no terminal | ⏳ `v0.9.8` |
