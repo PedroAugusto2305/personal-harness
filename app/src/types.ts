@@ -182,6 +182,11 @@ export type CoreEvent =
   | { type: "agents"; agents: Agent[] }
   | { type: "ports"; ports: Record<string, number[]> }
   | { type: "open-web"; url: string; cwd: string | null }
+  | ({ type: "browser.command" } & BrowserCommand)
+  | { type: "navegador.perfis" }
+  | { type: "barra"; barra: SidebarState }
+  | { type: "session.renamed"; id: string; title: string }
+  | { type: "temas-app" }
   | { type: "brain.changed"; project: string }
   | { type: "connectors"; accounts: ConnectorAccount[] }
   | { type: "approval"; approval: Approval }
@@ -201,7 +206,8 @@ export type CoreEvent =
 
 export type Connection = "connecting" | "online" | "offline";
 
-export type ThemeName = "dracula" | "grafite" | "claro";
+/** Os três da MÊTIS ou um tema do núcleo (v0.9.8): "tema:<id>". */
+export type ThemeName = "dracula" | "grafite" | "claro" | `tema:${string}`;
 
 export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "connectors" | "today" | "study" | "automations" | "boards";
 
@@ -925,4 +931,119 @@ export interface ThemeEntry {
   nome: string;
   origem: "metis" | "usuario" | "ghostty";
   formato: "ghostty" | "kitty" | "warp";
+}
+
+// --- Navegador e tela (v0.9.8, parte 2) --------------------------------------------------
+
+/** Pedido do agente ao navegador, vindo da central de MCP pelo núcleo. */
+export interface BrowserCommand {
+  id: string;
+  session: string;
+  who: string;
+  cwd: string | null;
+  action: string;
+  args: Record<string, unknown>;
+}
+
+export interface BrowserProfile {
+  id: string;
+  nome: string;
+  /** 32 hex do cofre do WebKit; null no Padrão. */
+  identificador: string | null;
+  criado?: string;
+}
+
+export interface HistoryEntry {
+  url: string;
+  titulo: string;
+  visitas: number;
+  ultima: number;
+}
+
+export interface CookieSource {
+  id: string;
+  navegador: string;
+  perfil: string;
+  caminho: string;
+}
+
+export interface ImportedCookie {
+  nome: string;
+  valor: string;
+  dominio: string;
+  caminho: string;
+  expira: number | null;
+  seguro: boolean;
+  http_only: boolean;
+  same_site: "lax" | "strict" | "none" | null;
+}
+
+export interface SidebarState {
+  fixados: string[];
+  nomes: Record<string, string>;
+  cores: Record<string, string>;
+}
+
+export interface RefBranch {
+  nome: string;
+  remoto: boolean;
+  atual: boolean;
+  em_uso: string | null;
+  quando: string;
+  titulo: string;
+}
+
+export interface RefCommit {
+  sha: string;
+  curto: string;
+  titulo: string;
+  autor: string;
+  quando: string;
+}
+
+export type WorktreeMode = "nova" | "branch" | "commit";
+
+export const APP_COLOR_KEYS = [
+  "bar",
+  "side",
+  "bg",
+  "elev",
+  "line",
+  "line2",
+  "term",
+  "tx",
+  "mut",
+  "fnt",
+  "acc",
+  "acct",
+  "onacc",
+  "run",
+  "wait",
+  "warn",
+  "err",
+  "sel",
+] as const;
+
+export type AppColorKey = (typeof APP_COLOR_KEYS)[number];
+
+/** Tema da tela feito por prompt ou importado do VS Code ou do Obsidian (~/.harness/temas). */
+export interface AppTheme {
+  id: string;
+  nome: string;
+  base: "escuro" | "claro";
+  cores: Record<AppColorKey, string>;
+  terminal: TerminalColors | null;
+  origem: "prompt" | "vscode" | "obsidian";
+  fonte: string;
+  criado: string;
+  ajustes: string[];
+}
+
+export interface AppThemeSource {
+  id: string;
+  origem: "vscode" | "obsidian";
+  nome: string;
+  base: "escuro" | "claro";
+  onde: string;
+  em_uso: boolean;
 }

@@ -1,5 +1,11 @@
 /* Tokens de tema (docs/DESIGN.md, seção 0). Toda a interface usa só estas variáveis,
    então trocar o tema troca o app inteiro. */
+/* Fontes (v0.9.8): Ajustes → Aparência troca as duas. */
+:root {
+  --ui-font: Inter, system-ui, sans-serif;
+  --mono: "Fira Code", ui-monospace, monospace;
+}
+
 :root,
 [data-theme="dracula"] {
   --bar: #191a21;
@@ -102,7 +108,7 @@ body,
 body {
   background: var(--bg);
   color: var(--tx);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--ui-font);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -124,7 +130,7 @@ button:disabled {
 }
 
 .mono {
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
 }
 
 .app {
@@ -201,7 +207,7 @@ button:disabled {
   border: 0;
   background: var(--elev);
   color: var(--mut);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -291,7 +297,7 @@ select {
 }
 
 .folder input {
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
 }
 
@@ -690,7 +696,7 @@ select:focus {
   align-items: center;
   gap: 6px;
   padding: 0 4px;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11px;
 }
 
@@ -705,7 +711,7 @@ select:focus {
   border-radius: 5px;
   background: var(--elev);
   color: var(--mut);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   line-height: 20px;
   white-space: nowrap;
@@ -1061,7 +1067,7 @@ select:focus {
 }
 
 .plan-account {
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   color: var(--tx);
 }
 
@@ -1408,7 +1414,7 @@ kbd {
   border-radius: 5px;
   border: 1px solid var(--line2);
   background: var(--elev);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
 }
 
@@ -1457,7 +1463,7 @@ kbd {
 .palette-group {
   padding: 10px 10px 4px;
   color: var(--fnt);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1546,7 +1552,7 @@ kbd {
   border-radius: 4px;
   background: var(--elev);
   color: var(--mut);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 10.5px;
   line-height: 16px;
 }
@@ -1756,7 +1762,7 @@ kbd {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
 }
 
@@ -2264,7 +2270,7 @@ kbd {
   border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--acc) 45%, var(--line2));
   background: var(--side);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--ui-font);
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--tx);
@@ -2382,7 +2388,7 @@ kbd {
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--elev);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12.5px;
 }
 
@@ -2834,7 +2840,7 @@ kbd {
   outline: none;
   background: none;
   color: var(--tx);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
   user-select: text;
 }
@@ -3219,7 +3225,7 @@ kbd {
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--elev);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
 }
 
@@ -3402,7 +3408,7 @@ kbd {
   padding: 0 4px;
   border-radius: 3px;
   background: var(--elev);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
 }
 
@@ -3884,7 +3890,7 @@ kbd {
   padding: 0 4px;
   border-radius: 3px;
   background: var(--elev);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
 }
 
@@ -3895,7 +3901,7 @@ kbd {
   overflow: auto;
   border-radius: 6px;
   background: var(--term);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   user-select: text;
 }
@@ -4186,7 +4192,7 @@ table.activity td {
   padding: 0 4px;
   border-radius: 3px;
   background: var(--elev);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
 }
 
@@ -4373,7 +4379,7 @@ table.activity td {
 .sprite-anim::after {
   position: absolute;
   pointer-events: none;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-weight: 700;
   line-height: 1;
 }
@@ -5774,7 +5780,7 @@ body.capture-body {
 
 .scripts-form textarea {
   resize: vertical;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -5909,7 +5915,7 @@ body.capture-body {
   background: transparent;
   color: var(--tx);
   outline: none;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
   user-select: text;
 }
@@ -6106,7 +6112,7 @@ body.capture-body {
 .command-form textarea,
 .term-theme-paste textarea {
   resize: vertical;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
 }
 
@@ -6234,7 +6240,7 @@ body.capture-body {
 .diff-hunk-actions {
   display: flex;
   gap: 10px;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--ui-font);
 }
 
 .diff-hunk-actions .link-btn {
@@ -6350,7 +6356,7 @@ body.capture-body {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11px;
   user-select: text;
 }
@@ -6826,13 +6832,13 @@ body.capture-body {
 
 .cm-codeblock {
   background: var(--term);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 0.88em;
 }
 
 .cm-frontmatter {
   color: var(--fnt);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 0.85em;
 }
 
@@ -6976,4 +6982,329 @@ body.capture-body {
   white-space: pre-wrap;
   font-size: 11.5px;
   user-select: text;
+}
+
+/* --- v0.9.8, parte 2: navegador e tela --------------------------------------------------- */
+
+/* Aba web: aparelho e perfil (selects nativos: o menu deles fica por cima da página). */
+.web-select {
+  height: 26px;
+  max-width: 150px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--elev);
+  color: var(--mut);
+  font-size: 11.5px;
+}
+.web-agent {
+  background: var(--acc);
+  color: var(--onacc);
+  animation: web-agent-pulse 1.4s ease-in-out infinite;
+}
+@keyframes web-agent-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+.web-area[data-device] {
+  background: repeating-linear-gradient(45deg, var(--side) 0 10px, var(--bg) 10px 20px);
+}
+.web-device {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--elev);
+  color: var(--fnt);
+  white-space: nowrap;
+}
+
+/* Densidade (Ajustes → Aparência). */
+html[data-density="compacta"] .session-row {
+  min-height: 34px;
+  padding: 3px 8px;
+}
+html[data-density="compacta"] .worktree-main {
+  height: 24px;
+}
+html[data-density="compacta"] .tabs {
+  height: 30px;
+}
+html[data-density="compacta"] .pane-head {
+  height: 28px;
+}
+html[data-density="compacta"] .setting-row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+html[data-density="confortavel"] .session-row {
+  min-height: 52px;
+  padding: 9px 10px;
+}
+html[data-density="confortavel"] .worktree-main {
+  height: 34px;
+}
+html[data-density="confortavel"] .tabs {
+  height: 40px;
+}
+html[data-density="confortavel"] .pane-head {
+  height: 40px;
+}
+html[data-density="confortavel"] body {
+  font-size: 13.5px;
+}
+
+/* Temas do núcleo: cartão com apagar, prompt e importar. */
+.theme-card.custom {
+  position: relative;
+  padding: 0;
+}
+.theme-card.custom .theme-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+.theme-card.custom .theme-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  background: var(--elev);
+}
+.theme-card.custom:hover .theme-remove,
+.theme-card.custom .theme-remove:focus-visible {
+  opacity: 1;
+}
+.theme-maker {
+  margin-top: 14px;
+}
+.theme-prompt,
+.theme-import,
+.cookie-import {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 0 14px 12px;
+}
+.theme-prompt input {
+  flex: 1;
+}
+.theme-import {
+  padding: 0;
+}
+.theme-import select {
+  max-width: 300px;
+}
+.theme-notes,
+.settings-done {
+  padding: 0 14px 12px;
+  color: var(--fnt);
+}
+.settings-done {
+  padding: 8px 0;
+  color: var(--run);
+}
+.cookie-import {
+  flex-wrap: wrap;
+}
+.cookie-import label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cookie-import label.grow {
+  flex: 1;
+  min-width: 200px;
+}
+.row-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.profile-rename {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+}
+.profile-rename input {
+  flex: 1;
+}
+
+/* Barra lateral: filtro, fixados, apelido, cor do projeto. */
+.tree-head .icon-btn[data-on="true"],
+.row-action[data-on="true"] {
+  color: var(--acc);
+  opacity: 1;
+}
+.tree-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
+.tree-filter input {
+  height: 28px;
+}
+.filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip-toggle {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--fnt);
+  font-size: 11px;
+}
+.chip-toggle[aria-pressed="true"] {
+  border-color: var(--acc);
+  background: var(--soft);
+  color: var(--acct);
+}
+.project-body.pinned {
+  margin-bottom: 6px;
+}
+.project-color {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin: 0 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.project-color[data-empty="true"] {
+  border: 1px dashed var(--fnt);
+  background: transparent;
+  opacity: 0;
+}
+.project-row:hover .project-color[data-empty="true"],
+.project-color[aria-expanded="true"] {
+  opacity: 1;
+}
+.color-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 12px 8px;
+}
+.color-pick button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+.color-pick button[aria-checked="true"] {
+  border-color: var(--tx);
+}
+.color-pick .color-none {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--fnt);
+  background: transparent;
+  color: var(--fnt);
+}
+.worktree[data-colored="true"] > .worktree-row {
+  box-shadow: inset 2px 0 0 var(--proj);
+}
+.rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12.5px;
+}
+
+/* Worktree nova a partir de branch ou commit. */
+.small-seg button {
+  padding: 0 8px;
+  font-size: 11px;
+}
+.ref-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ref-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.ref-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--tx);
+  text-align: left;
+}
+.ref-list button[aria-selected="true"] {
+  background: var(--sel);
+}
+.ref-list button:disabled {
+  opacity: 0.5;
+}
+.ref-list .small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fnt);
+}
+
+/* Campos novos da parte 2 com o mesmo estilo dos formulários. */
+.theme-prompt input,
+.cookie-import input,
+.tree-filter input,
+.ref-pick input,
+.rename-input {
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+  color: var(--tx);
+  outline: none;
+  font: inherit;
+  user-select: text;
+}
+.theme-prompt input:focus,
+.cookie-import input:focus,
+.tree-filter input:focus,
+.ref-pick input:focus,
+.rename-input:focus {
+  border-color: var(--acc);
+}
+.rename-input {
+  min-height: 22px;
+  padding: 0 6px;
+}
+.setting-row.inline-form {
+  flex-direction: row;
+  align-items: center;
+}
+.setting-row.inline-form input {
+  flex: 1;
 }

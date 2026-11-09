@@ -55,6 +55,16 @@ import type {
   SavedCommand,
   TerminalTheme,
   VersionInfo,
+  AppTheme,
+  AppThemeSource,
+  BrowserProfile,
+  CookieSource,
+  HistoryEntry,
+  ImportedCookie,
+  RefBranch,
+  RefCommit,
+  SidebarState,
+  WorktreeMode,
   ChangedFile,
   ConflictBlock,
   ConflictChoice,
@@ -257,8 +267,14 @@ export class CoreClient {
     name: string,
     copyEnv: boolean,
     base?: string,
+    modo: WorktreeMode = "nova",
   ): Promise<{ path: string; branch: string; copied: string[]; setup?: string; setup_erro?: string }> {
-    return this.request("POST", `/projects/${encodeURIComponent(projectId)}/worktrees`, { name, copy_env: copyEnv, base: base || null });
+    return this.request("POST", `/projects/${encodeURIComponent(projectId)}/worktrees`, { name, copy_env: copyEnv, base: base || null, modo });
+  }
+
+  /** Branches e commits para criar a worktree a partir deles (v0.9.8). */
+  refs(projectId: string, q = ""): Promise<{ branches: RefBranch[]; commits: RefCommit[] }> {
+    return this.request("GET", `/projects/${encodeURIComponent(projectId)}/refs?q=${encodeURIComponent(q)}`);
   }
 
   deleteWorktree(projectId: string, path: string, force = false): Promise<{ branch_deleted: boolean; branch_kept: string | null; branch: string | null }> {
@@ -875,6 +891,80 @@ export class CoreClient {
 
   installMetisSkill(destino: "claude" | "codex" | "ambos"): Promise<{ texto: string; instalada: { claude: boolean; codex: boolean } }> {
     return this.request("POST", "/skills/metis", { destino });
+  }
+
+  // --- navegador e tela (v0.9.8, parte 2) ---
+
+  browserAnswer(id: string, ok: boolean, resultado: unknown, erro: string | null = null): Promise<void> {
+    return this.request("POST", `/navegador/resposta/${encodeURIComponent(id)}`, { ok, resultado, erro });
+  }
+
+  webHistory(q = "", limite = 20): Promise<{ itens: HistoryEntry[] }> {
+    return this.request("GET", `/navegador/historico?q=${encodeURIComponent(q)}&limite=${limite}`);
+  }
+
+  addWebHistory(url: string, titulo: string | null): Promise<void> {
+    return this.request("POST", "/navegador/historico", { url, titulo: titulo ?? "" });
+  }
+
+  clearWebHistory(): Promise<void> {
+    return this.request("DELETE", "/navegador/historico");
+  }
+
+  browserProfiles(): Promise<{ perfis: BrowserProfile[] }> {
+    return this.request("GET", "/navegador/perfis");
+  }
+
+  createBrowserProfile(nome: string): Promise<BrowserProfile> {
+    return this.request("POST", "/navegador/perfis", { nome });
+  }
+
+  renameBrowserProfile(id: string, nome: string): Promise<BrowserProfile> {
+    return this.request("PATCH", `/navegador/perfis/${encodeURIComponent(id)}`, { nome });
+  }
+
+  deleteBrowserProfile(id: string): Promise<void> {
+    return this.request("DELETE", `/navegador/perfis/${encodeURIComponent(id)}`);
+  }
+
+  cookieSources(): Promise<{ fontes: CookieSource[] }> {
+    return this.request("GET", "/navegador/importar");
+  }
+
+  readCookies(fonte: string, dominios?: string[]): Promise<{ cookies: ImportedCookie[]; ignorados: number }> {
+    return this.request("POST", "/navegador/importar", { fonte, dominios: dominios?.length ? dominios : null });
+  }
+
+  sidebar(): Promise<SidebarState> {
+    return this.request("GET", "/barra");
+  }
+
+  patchSidebar(change: { fixar: { caminho: string; fixo: boolean } } | { nome: { caminho: string; nome: string } } | { cor: { projeto: string; cor: string } }): Promise<SidebarState> {
+    return this.request("PATCH", "/barra", change);
+  }
+
+  renameSession(id: string, titulo: string): Promise<Session> {
+    return this.request("PATCH", `/sessions/${encodeURIComponent(id)}`, { titulo });
+  }
+
+  appThemes(): Promise<{ temas: AppTheme[] }> {
+    return this.request("GET", "/temas-app");
+  }
+
+  deleteAppTheme(id: string): Promise<void> {
+    return this.request("DELETE", `/temas-app/${encodeURIComponent(id)}`);
+  }
+
+  promptAppTheme(descricao: string): Promise<AppTheme> {
+    return this.request("POST", "/temas-app/prompt", { descricao });
+  }
+
+  appThemeSources(): Promise<{ fontes: AppThemeSource[] }> {
+    return this.request("GET", "/temas-app/importar");
+  }
+
+  importAppTheme(id: string): Promise<AppTheme> {
+    return this.request("POST", "/temas-app/importar", { id });
   }
 
   async upload(file: Blob, name: string): Promise<string> {

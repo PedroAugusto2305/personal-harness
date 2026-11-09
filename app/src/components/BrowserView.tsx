@@ -1,19 +1,34 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ICON, Icon } from "../icons";
-import { browser, normalizeUrl, openExternal, type Rect } from "../lib/browser";
+import { appZoom, browser, DEVICES, normalizeUrl, openExternal, type Rect } from "../lib/browser";
+import type { BrowserProfile } from "../types";
 
 export interface WebInfo {
   url: string;
   title: string | null;
   loading: boolean;
   design: boolean;
+  /** v0.9.8: aparelho emulado ("" = tela inteira). */
+  device?: string;
+  /** Última ação do agente nesta aba (o chip "agente" fica aceso uns segundos). */
+  agentAt?: number;
 }
+
+/** Fechamentos em andamento: reabrir a mesma aba com outro perfil espera o fechamento terminar. */
+const closing = new Map<string, Promise<void>>();
 
 interface Props {
   label: string;
   initialUrl: string;
   incognito: boolean;
   info: WebInfo | undefined;
+  /** Perfil da aba (v0.9.8): o cofre de cookies dela. */
+  profileId: string;
+  profiles: BrowserProfile[];
+  /** O agente usou a aba: a página nativa existe mesmo escondida. */
+  keepAlive: boolean;
+  onProfile: (id: string) => void;
+  onDevice: (id: string) => void;
   /** Na tela e sem nada por cima (salto rápido, diálogo, terminal flutuante). */
   shown: boolean;
   slot: "tile" | "hidden";
@@ -52,6 +67,20 @@ export function BrowserView(props: Props) {
     return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) };
   };
 
+  /** Onde a página fica e com que zoom: a área inteira, ou o aparelho emulado no centro
+   *  (encolhido, com o zoom da página, quando não cabe no painel). */
+  const geometry = (): { rect: Rect; zoom: number } | null => {
+    const r = rect();
+    if (!r) return null;
+    const device = DEVICES.find((d) => d.id === (live.current.info?.device ?? ""));
+    if (!device || !device.w) return { rect: r, zoom: 1 };
+    const z = appZoom.get();
+    const scale = Math.min(1, (r.width * z) / device.w, (r.height * z) / device.h);
+    const width = Math.round((device.w * scale) / z);
+    const height = Math.round((device.h * scale) / z);
+    return { rect: { x: r.x + Math.round((r.width - width) / 2), y: r.y, width, height }, zoom: Math.round(scale * 1000) / 1000 };
+  };
+
   // A página nativa é desenhada por cima da interface e não sabe do layout do React. Um laço
   // por quadro cria a página quando a aba aparece, mostra ou esconde e a põe sobre .web-area.
   // Uma chamada nativa por vez: nada de reposicionar uma página que ainda está nascendo.
@@ -62,7 +91,8 @@ export function BrowserView(props: Props) {
     if (!native) return;
     let alive = true;
     let frame = 0;
-    const s = { created: false, opening: false, busy: false, visible: true, applied: "", stale: true, warned: "" };
+    const s = { created: false, opening: false, busy: false, visible: true, applied: "", stale: true, warned: "", zoom: 1, last: null as Rect | null };
+    const profile = live.current.profiles.find((p) => p.id === live.current.profileId)?.identificador ?? null;
     const fail = (cause: unknown) => {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message.includes("não existe")) {
@@ -94,12 +124,22 @@ export function BrowserView(props: Props) {
       if (s.opening || s.busy) return;
       const want = live.current.shown;
       if (!s.created) {
-        const r = want ? rect() : null;
-        if (!r) return;
+        // Escondida, a página só nasce se o agente precisa dela (no último lugar, ou num
+        // tamanho de tela comum, e logo some).
+        const g = want ? geometry() : live.current.keepAlive ? { rect: s.last ?? { x: 0, y: 0, width: 1200, height: 800 }, zoom: 1 } : null;
+        if (!g) return;
         s.opening = true;
-        browser
-          // Ao renascer, volta para a página em que estava, não para a inicial.
-          .open(label, normalizeUrl(live.current.info?.url || live.current.initialUrl), r, live.current.incognito)
+        const device = DEVICES.find((d) => d.id === (live.current.info?.device ?? ""));
+        (closing.get(label) ?? Promise.resolve())
+          .then(() =>
+            browser
+              // Ao renascer, volta para a página em que estava, não para a inicial.
+              .open(label, normalizeUrl(live.current.info?.url || live.current.initialUrl), g.rect, {
+                incognito: live.current.incognito,
+                profile,
+                userAgent: device?.ua ?? null,
+              }),
+          )
           .then(() => {
             if (!alive) {
               void browser.close(label).catch(() => undefined);
@@ -129,8 +169,19 @@ export function BrowserView(props: Props) {
         return;
       }
       if (!want) return;
-      const r = rect();
-      if (!r) return;
+      const g = geometry();
+      if (!g) return;
+      const r = g.rect;
+      s.last = r;
+      if (g.zoom !== s.zoom) {
+        call(
+          () => browser.pageZoom(label, g.zoom),
+          () => {
+            s.zoom = g.zoom;
+          },
+        );
+        return;
+      }
       const key = `${r.x},${r.y},${r.width},${r.height}`;
       if (key === s.applied && !s.stale) return;
       s.stale = false;
@@ -160,10 +211,31 @@ export function BrowserView(props: Props) {
       window.removeEventListener("focus", nudge);
       document.removeEventListener("visibilitychange", nudge);
       // Fechar a aba fecha a página nativa (se ainda estiver nascendo, o open fecha ao terminar).
-      if (s.created) void browser.close(label).catch(() => undefined);
+      if (s.created) {
+        const done = browser.close(label).catch(() => undefined);
+        closing.set(label, done);
+        void done.then(() => closing.get(label) === done && closing.delete(label));
+      }
     };
+    // Trocar de perfil fecha a página e abre outra, com o cofre do perfil novo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [label]);
+  }, [label, props.profileId]);
+
+  // Aparelho novo: o user agent dele e a página de novo (o tamanho o laço acima ajusta).
+  const device = info?.device ?? "";
+  const firstDevice = useRef(true);
+  useEffect(() => {
+    if (firstDevice.current) {
+      firstDevice.current = false;
+      return;
+    }
+    if (!native) return;
+    const ua = DEVICES.find((d) => d.id === device)?.ua ?? null;
+    void browser
+      .userAgent(label, ua)
+      .then(() => browser.go(label, "reload"))
+      .catch(() => undefined);
+  }, [device, label]);
 
   useEffect(() => {
     if (props.focusUrlSignal && props.focused) {
@@ -178,6 +250,17 @@ export function BrowserView(props: Props) {
     if (native) void browser.navigate(label, next).catch((cause) => props.onError(String(cause)));
     else if (area.current) area.current.querySelector("iframe")?.setAttribute("src", next);
   };
+
+  // O chip "agente" fica aceso 8 s depois da última ação dele.
+  const [now, setNow] = useState(() => Date.now());
+  const agentAt = info?.agentAt ?? 0;
+  useEffect(() => {
+    if (!agentAt) return;
+    setNow(Date.now());
+    const timer = window.setTimeout(() => setNow(Date.now()), 8100);
+    return () => window.clearTimeout(timer);
+  }, [agentAt]);
+  const agentNow = agentAt > 0 && now - agentAt < 8000;
 
   const action = (name: "back" | "forward" | "reload" | "devtools") => {
     if (native) void browser.go(label, name).catch((cause) => props.onError(String(cause)));
@@ -211,6 +294,11 @@ export function BrowserView(props: Props) {
           }}
         >
           {props.incognito && <span className="chip">anônima</span>}
+          {agentNow && (
+            <span className="chip web-agent" title="O agente está usando esta aba pelo MCP">
+              agente
+            </span>
+          )}
           {info?.loading && <span className="rec-dot web-loading" aria-label="carregando" />}
           <input
             ref={address}
@@ -223,6 +311,36 @@ export function BrowserView(props: Props) {
             onKeyDown={(event) => event.key === "Escape" && (event.target as HTMLInputElement).blur()}
           />
         </form>
+        {native && (
+          <select
+            className="web-select"
+            value={device}
+            title="Emular um aparelho (tamanho da tela e user agent)"
+            aria-label="Aparelho emulado"
+            onChange={(event) => props.onDevice(event.target.value)}
+          >
+            {DEVICES.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.id ? `${d.nome} · ${d.w}×${d.h}` : "Tela inteira"}
+              </option>
+            ))}
+          </select>
+        )}
+        {native && !props.incognito && props.profiles.length > 1 && (
+          <select
+            className="web-select"
+            value={props.profileId}
+            title="Perfil: cada um tem os próprios cookies e logins"
+            aria-label="Perfil do navegador"
+            onChange={(event) => props.onProfile(event.target.value)}
+          >
+            {props.profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           className="btn design-toggle"
@@ -247,7 +365,12 @@ export function BrowserView(props: Props) {
           Modo de design: passe o mouse e clique num elemento para mandar ao agente. <kbd>Esc</kbd> sai.
         </div>
       )}
-      <div className="web-area" ref={area}>
+      <div className="web-area" ref={area} data-device={device || undefined}>
+        {device && (
+          <span className="web-device small">
+            {DEVICES.find((d) => d.id === device)?.nome} · a página acha que a tela tem {DEVICES.find((d) => d.id === device)?.w} px
+          </span>
+        )}
         {!native && <iframe className="frame" src={normalizeUrl(props.initialUrl)} title={info?.title ?? url} />}
         {native && url === "about:blank" && (
           <div className="web-blank small">

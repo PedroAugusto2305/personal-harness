@@ -1208,7 +1208,12 @@ dependencies = [
 name = "harness"
 version = "0.9.7"
 dependencies = [
+ "block2",
  "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "serde",
  "serde_json",
  "tauri",

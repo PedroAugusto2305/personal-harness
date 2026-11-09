@@ -9,6 +9,7 @@ import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPa
 import { terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { Session, TerminalColors, ThemeName } from "../types";
+import { DEFAULT_APPEARANCE, monoFamily, themeIsLight, type Appearance } from "../lib/appearance";
 
 const ANSI_DARK = {
   black: "#21222c",
@@ -61,7 +62,7 @@ function terminalTheme(theme: ThemeName, colors?: TerminalColors | null): ITheme
     cursor: token("--acc"),
     cursorAccent: token("--term"),
     selectionBackground: token("--sel"),
-    ...(theme === "claro" ? ANSI_LIGHT : ANSI_DARK),
+    ...(themeIsLight(theme) ? ANSI_LIGHT : ANSI_DARK),
     ...(colors ?? {}),
   };
 }
@@ -132,6 +133,8 @@ interface Props {
   box?: CSSProperties;
   /** Cores do tema de terminal escolhido (null = as do tema da MÊTIS). */
   colors?: TerminalColors | null;
+  /** Fonte mono e tamanho da letra (Ajustes → Aparência, v0.9.8). */
+  font?: Appearance;
   /** Sobe para abrir a busca neste terminal (⌘F). */
   searchSignal?: number;
   accountName: string | null;
@@ -174,6 +177,7 @@ export function TerminalView({
   session,
   client,
   theme,
+  font = DEFAULT_APPEARANCE,
   slot,
   focused,
   tiled,
@@ -239,8 +243,8 @@ export function TerminalView({
   useEffect(() => {
     let disposed = false;
     const terminal = new Terminal({
-      fontFamily: '"Fira Code", ui-monospace, monospace',
-      fontSize: 13,
+      fontFamily: monoFamily(font),
+      fontSize: font.termSize,
       lineHeight: 1.15,
       cursorBlink: true,
       scrollback: 5000,
@@ -309,7 +313,7 @@ export function TerminalView({
     });
 
     (async () => {
-      await document.fonts.load('13px "Fira Code"');
+      await document.fonts.load(`${font.termSize}px ${monoFamily(font)}`).catch(() => undefined);
       if (disposed || !host.current) return;
       terminal.open(host.current);
       terminal.textarea?.addEventListener("focus", () => focusRef.current());
@@ -380,6 +384,22 @@ export function TerminalView({
   useEffect(() => {
     if (term.current) term.current.options.theme = terminalTheme(theme, colors);
   }, [theme, colors]);
+
+  // Fonte ou tamanho novos (Ajustes → Aparência): o xterm troca e o terminal recalcula as colunas.
+  const family = monoFamily(font);
+  useEffect(() => {
+    const terminal = term.current;
+    if (!terminal || (terminal.options.fontFamily === family && terminal.options.fontSize === font.termSize)) return;
+    void document.fonts
+      .load(`${font.termSize}px ${family}`)
+      .catch(() => undefined)
+      .then(() => {
+        terminal.options.fontFamily = family;
+        terminal.options.fontSize = font.termSize;
+        fit();
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [family, font.termSize]);
 
   // ⌘F no terminal em foco abre a busca (o sinal sobe a cada ⌘F; se já aberta, só foca o campo).
   const lastSignal = useRef(searchSignal);

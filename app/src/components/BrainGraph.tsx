@@ -462,7 +462,7 @@ export function BrainGraph({ client, tick, highlight, current, onOpen }: Props) 
       const sy = n.y * k + vy + n.r * k + 3;
       if (sx < -100 || sx > w + 100 || sy < -20 || sy > h + 20) return;
       ctx.globalAlpha = lit(i) ? 1 : 0.25;
-      ctx.font = project ? '600 11px "Fira Code", ui-monospace, monospace' : "11px Inter, system-ui, sans-serif";
+      ctx.font = project ? '600 11px "Fira Code", ui-monospace, monospace' : "11px Inter, system-ui, sans-serif"; // o canvas não lê variável CSS
       ctx.fillStyle = project ? strong : text;
       const label = n.title.length > 42 ? `${n.title.slice(0, 40)}…` : n.title;
       ctx.fillText(label, sx, sy);

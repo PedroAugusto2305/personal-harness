@@ -28,6 +28,7 @@ from . import __version__
 from .activity import ActivityLog
 from .brain_index import BrainIndex
 from .brain_tools import DESCRIPTIONS, BrainTools
+from .browser_bridge import BridgeError, BrowserBridge, normalize_url
 from .connectors import ConnectorError, ConnectorStore
 from .kanban import Kanban
 from .mcp_client import McpError
@@ -44,7 +45,9 @@ INSTRUCTIONS = (
     "Central da MÊTIS, o ambiente pessoal do Pedro. Use brain_precedentes e brain_buscar para ver o que "
     "outros projetos já decidiram, e brain_conflitos ANTES de registrar uma decisão (acha repetição e "
     "contradição no próprio projeto); tarefas e tarefa_mover para o kanban do "
-    "projeto desta pasta; lembrete para avisar o Pedro no celular numa hora marcada. Ferramentas "
+    "projeto desta pasta; lembrete para avisar o Pedro no celular numa hora marcada. As navegador_* agem "
+    "no navegador da MÊTIS, na aba da worktree desta pasta: rode navegador_ler antes de agir e use as refs "
+    "[eN] que ele mostra em clicar e digitar. Ferramentas "
     "com nome de conta na frente (slack-…, clickup-…) agem nessas contas; as que escrevem para "
     "outras pessoas esperam a aprovação do Pedro."
 )
@@ -122,6 +125,7 @@ class Hub:
         session_info: Callable[[str], dict | None],
         on_brain_change: Callable[[str], None] = lambda _project: None,
         brain_tools: BrainTools | None = None,
+        browser: BrowserBridge | None = None,
     ) -> None:
         self.connectors = connectors
         self.brain = brain
@@ -132,6 +136,7 @@ class Hub:
         self.session_info = session_info
         self.on_brain_change = on_brain_change
         self.brain_tools = brain_tools or BrainTools(brain)
+        self.browser = browser
         # Notas do Brain que cada sessão viu pelas ferramentas (mini-mapa): sessão → caminho → nota.
         self.session_notes: dict[str, dict[str, dict]] = {}
         # Passo de agente de uma automação (v0.9): só as ferramentas liberadas no passo, mais a
@@ -270,6 +275,195 @@ class Hub:
                  _schema({"texto": {"type": "string"}, "quando": {"type": "string", "description": "ISO 8601 com fuso, ou em português: 'sexta 9h', 'amanhã 14:30', 'em 20 min'"}, "conta": {"type": "string", "description": "id da conta do Slack; vazio = a conta de lembretes"}}, ["texto", "quando"]), lembrete),
         ]
 
+    def _browser_tools(self) -> list[Tool]:
+        """O navegador da MÊTIS (v0.9.8): o pedido vai à janela, que age no WebKit da aba."""
+        bridge = self.browser
+        if bridge is None:
+            return []
+
+        def ask(ctx: Context, action: str, args: dict, timeout: float = 30, keep: tuple[str, ...] = ()) -> Any:
+            clean = {k: v for k, v in args.items() if k in keep or (v is not None and v != "")}
+            return bridge.request(ctx.session, ctx.who, ctx.cwd, action, clean, timeout)
+
+        def page(result: Any) -> str:
+            data = result if isinstance(result, dict) else {}
+            return f"{data.get('titulo') or 'sem título'} ({data.get('url') or 'sem endereço'})"
+
+        def header(result: Any) -> str:
+            data = result if isinstance(result, dict) else {}
+            return f"Aba {data.get('aba') or '?'} · {data.get('titulo') or 'sem título'} · {data.get('url') or 'sem endereço'}"
+
+        def target(args: dict, *, text: bool = False) -> dict:
+            ref = str(args.get("ref") or "").strip().strip("[]").strip()
+            selector = str(args.get("seletor") or "").strip()
+            label = str(args.get("texto") or "").strip() if text else ""
+            if not (ref or selector or label):
+                need = "ref, seletor ou texto" if text else "ref ou seletor"
+                raise ToolError(f"diga em qual elemento: {need} (rode navegador_ler para ver as refs [eN])")
+            found = {"ref": ref, "seletor": selector}
+            if text:
+                found["texto"] = label
+            return found
+
+        def done(result: Any) -> str:
+            data = result if isinstance(result, dict) else {}
+            return f"feito: {data.get('feito') or 'ok'}; página: {page(data)}"
+
+        def pretty(value: Any) -> str:
+            return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+        def abrir(args: dict, ctx: Context) -> str:
+            try:
+                url = normalize_url(str(args.get("url") or ""))
+            except ValueError as exc:
+                raise ToolError(str(exc)) from exc
+            result = ask(ctx, "abrir", {"url": url, "nova_aba": bool(args.get("nova_aba")), "aba": args.get("aba")})
+            data = result if isinstance(result, dict) else {}
+            return f"Aberto na aba {data.get('aba') or '?'}: {page(data)}"
+
+        def abas(_args: dict, ctx: Context) -> str:
+            result = ask(ctx, "abas", {})
+            if not result:
+                return "Nenhuma aba de navegador nesta worktree. Use navegador_abrir."
+            lines = []
+            for tab in result if isinstance(result, list) else []:
+                mark = " (ativa)" if tab.get("ativa") else ""
+                profile = f" [{tab.get('perfil')}]" if tab.get("perfil") else ""
+                lines.append(f"- {tab.get('aba')}{mark}{profile}: {tab.get('titulo') or 'sem título'} — {tab.get('url') or ''}")
+            return "\n".join(lines) or pretty(result)
+
+        def ler(args: dict, ctx: Context) -> str:
+            result = ask(ctx, "ler", {"aba": args.get("aba")})
+            data = result if isinstance(result, dict) else {}
+            return f"{header(data)}\n\n{data.get('texto') or '(página sem texto)'}"
+
+        def clicar(args: dict, ctx: Context) -> str:
+            return done(ask(ctx, "clicar", {**target(args, text=True), "aba": args.get("aba")}))
+
+        def digitar(args: dict, ctx: Context) -> str:
+            if "texto" not in args or args.get("texto") is None:
+                raise ToolError("diga o texto")
+            body = {**target(args), "texto": str(args["texto"]), "enviar": bool(args.get("enviar", False)),
+                    "limpar": bool(args.get("limpar", True)), "aba": args.get("aba")}
+            return done(ask(ctx, "digitar", body, keep=("texto",)))
+
+        def tecla(args: dict, ctx: Context) -> str:
+            key = str(args.get("tecla") or "").strip()
+            if not key:
+                raise ToolError("diga a tecla (Enter, Escape, Tab, ArrowDown…)")
+            return done(ask(ctx, "tecla", {"tecla": key, "aba": args.get("aba")}))
+
+        def escolher(args: dict, ctx: Context) -> str:
+            if args.get("valor") is None:
+                raise ToolError("diga o valor a escolher")
+            return done(ask(ctx, "escolher", {**target(args), "valor": str(args["valor"]), "aba": args.get("aba")}))
+
+        def passar(args: dict, ctx: Context) -> str:
+            return done(ask(ctx, "passar", {**target(args), "aba": args.get("aba")}))
+
+        def rolar(args: dict, ctx: Context) -> str:
+            direction = str(args.get("direcao") or "baixo")
+            if direction not in ("baixo", "cima"):
+                raise ToolError("direcao é baixo ou cima")
+            body: dict = {"direcao": direction, "aba": args.get("aba")}
+            if args.get("pixels") is not None:
+                try:
+                    body["pixels"] = int(args["pixels"])
+                except (TypeError, ValueError) as exc:
+                    raise ToolError("pixels é um número inteiro") from exc
+            ref = str(args.get("ref") or "").strip().strip("[]").strip()
+            body.update({"ref": ref, "seletor": str(args.get("seletor") or "").strip()})
+            return done(ask(ctx, "rolar", body))
+
+        def ir(args: dict, ctx: Context) -> str:
+            action = str(args.get("acao") or "")
+            if action not in ("voltar", "avancar", "recarregar"):
+                raise ToolError("acao é voltar, avancar ou recarregar")
+            return done(ask(ctx, "ir", {"acao": action, "aba": args.get("aba")}))
+
+        def esperar(args: dict, ctx: Context) -> str:
+            try:
+                seconds = max(1, min(30, int(args.get("segundos") or 5)))
+            except (TypeError, ValueError) as exc:
+                raise ToolError("segundos é um número de 1 a 30") from exc
+            body = {"texto": str(args.get("texto") or "").strip(), "seletor": str(args.get("seletor") or "").strip(),
+                    "segundos": seconds, "aba": args.get("aba")}
+            result = ask(ctx, "esperar", body, timeout=seconds + 10)
+            data = result if isinstance(result, dict) else {}
+            if data.get("achou"):
+                return f"achou; página: {page(data)}"
+            return f"não apareceu em {seconds} s; página: {page(data)}"
+
+        def foto(args: dict, ctx: Context) -> dict:
+            result = ask(ctx, "foto", {"aba": args.get("aba")})
+            data = result if isinstance(result, dict) else {}
+            if not data.get("base64"):
+                raise ToolError("a janela não devolveu a imagem")
+            return {"content": [{"type": "text", "text": header(data)},
+                                {"type": "image", "data": data["base64"], "mimeType": data.get("mime") or "image/png"}]}
+
+        def console(args: dict, ctx: Context) -> str:
+            result = ask(ctx, "console", {"limpar": bool(args.get("limpar", False)), "aba": args.get("aba")})
+            data = result if isinstance(result, dict) else {}
+            entries = data.get("entradas") or []
+            return pretty(entries) if entries else f"Console vazio na aba {data.get('aba') or '?'}."
+
+        def rede(args: dict, ctx: Context) -> str:
+            result = ask(ctx, "rede", {"filtro": str(args.get("filtro") or "").strip(), "aba": args.get("aba")})
+            data = result if isinstance(result, dict) else {}
+            requests = data.get("pedidos") or []
+            return pretty(requests) if requests else f"Nenhum pedido registrado na aba {data.get('aba') or '?'}."
+
+        def js(args: dict, ctx: Context) -> str:
+            code = str(args.get("codigo") or "").strip()
+            if not code:
+                raise ToolError("diga o código (uma expressão JavaScript)")
+            result = ask(ctx, "js", {"codigo": code, "aba": args.get("aba")})
+            data = result if isinstance(result, dict) else {}
+            return pretty(data.get("valor"))
+
+        def fechar(args: dict, ctx: Context) -> str:
+            tab = str(args.get("aba") or "").strip()
+            if not tab:
+                raise ToolError("diga a aba (navegador_abas lista as abertas)")
+            result = ask(ctx, "fechar", {"aba": tab})
+            data = result if isinstance(result, dict) else {}
+            return f"Aba {data.get('aba') or tab} fechada."
+
+        aba = {"type": "string", "description": "Aba (de navegador_abas). Vazio: a aba de navegador mais recente desta worktree."}
+        ref = {"type": "string", "description": "Ref do elemento no navegador_ler, como e12."}
+        seletor = {"type": "string", "description": "Seletor CSS, se não houver ref."}
+        return [
+            Tool("navegador_abrir", "Abre um endereço no navegador da MÊTIS, na aba desta worktree (ou numa aba nova). Aceita localhost:3000, :3000 e exemplo.com.",
+                 _schema({"url": {"type": "string"}, "nova_aba": {"type": "boolean", "description": "abre numa aba nova em vez de usar a atual"}, "aba": aba}, ["url"]), abrir),
+            Tool("navegador_abas", "Lista as abas de navegador desta worktree, com a ativa e o perfil.", _schema({}, []), abas),
+            Tool("navegador_ler", "Lê a página: título, endereço e os elementos visíveis em texto, com refs como [e12] para usar em navegador_clicar e navegador_digitar. Rode antes de agir.",
+                 _schema({"aba": aba}, []), ler),
+            Tool("navegador_clicar", "Clica num elemento (ref do navegador_ler, seletor ou o texto visível). O Pedro vê o cursor do agente.",
+                 _schema({"ref": ref, "seletor": seletor, "texto": {"type": "string", "description": "Texto visível do elemento, se não houver ref."}, "aba": aba}, []), clicar),
+            Tool("navegador_digitar", "Digita num campo (ref ou seletor). limpar apaga o que havia; enviar aperta Enter no fim.",
+                 _schema({"texto": {"type": "string"}, "ref": ref, "seletor": seletor, "enviar": {"type": "boolean"}, "limpar": {"type": "boolean"}, "aba": aba}, ["texto"]), digitar),
+            Tool("navegador_tecla", "Aperta uma tecla na página: Enter, Escape, Tab, ArrowDown, ArrowUp, Backspace…",
+                 _schema({"tecla": {"type": "string"}, "aba": aba}, ["tecla"]), tecla),
+            Tool("navegador_escolher", "Escolhe uma opção numa lista (select), pelo valor ou pelo texto da opção.",
+                 _schema({"valor": {"type": "string"}, "ref": ref, "seletor": seletor, "aba": aba}, ["valor"]), escolher),
+            Tool("navegador_passar", "Passa o mouse sobre um elemento (abre menus de hover).", _schema({"ref": ref, "seletor": seletor, "aba": aba}, []), passar),
+            Tool("navegador_rolar", "Rola a página para baixo ou para cima, ou até um elemento (ref ou seletor).",
+                 _schema({"direcao": {"type": "string", "enum": ["baixo", "cima"]}, "pixels": {"type": "integer"}, "ref": ref, "seletor": seletor, "aba": aba}, []), rolar),
+            Tool("navegador_ir", "Volta, avança ou recarrega a página.",
+                 _schema({"acao": {"type": "string", "enum": ["voltar", "avancar", "recarregar"]}, "aba": aba}, ["acao"]), ir),
+            Tool("navegador_esperar", "Espera um texto ou um seletor aparecer na página (até 30 s).",
+                 _schema({"texto": {"type": "string"}, "seletor": seletor, "segundos": {"type": "integer", "minimum": 1, "maximum": 30}, "aba": aba}, []), esperar),
+            Tool("navegador_foto", "Tira uma foto da parte visível da página.", _schema({"aba": aba}, []), foto),
+            Tool("navegador_console", "Mensagens do console da página (erros, avisos, logs), as mais recentes.",
+                 _schema({"limpar": {"type": "boolean", "description": "apaga as mensagens depois de ler"}, "aba": aba}, []), console),
+            Tool("navegador_rede", "Pedidos de rede da página (fetch e XHR): método, endereço, status e tempo.",
+                 _schema({"filtro": {"type": "string", "description": "parte do endereço"}, "aba": aba}, []), rede),
+            Tool("navegador_js", "Roda uma expressão JavaScript na página e devolve o valor (em JSON).",
+                 _schema({"codigo": {"type": "string"}, "aba": aba}, ["codigo"]), js),
+            Tool("navegador_fechar", "Fecha uma aba de navegador.", _schema({"aba": {"type": "string"}}, ["aba"]), fechar),
+        ]
+
     def remind(self, account_id: str, text: str, when_text: str) -> str:
         try:
             when = parse_when(when_text)
@@ -344,7 +538,7 @@ class Hub:
         )
 
     def tools_for(self, ctx: Context) -> list[Tool]:
-        tools = self._builtin()
+        tools = self._builtin() + self._browser_tools()
         for account in self.connectors.list():
             if ctx.allowed is not None and account.id not in ctx.allowed:
                 continue
@@ -421,7 +615,7 @@ class Hub:
             payload = result if isinstance(result, dict) and "content" in result else _text(str(result))
             if payload.get("isError"):
                 status = "erro"
-        except (ToolError, VaultError, ConnectorError, SlackError, McpError, KeyError, ValueError) as exc:
+        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, KeyError, ValueError) as exc:
             status, detail = "erro", str(exc)
             payload = {**_text(f"Erro: {exc}"), "isError": True}
         texts = [c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict)]

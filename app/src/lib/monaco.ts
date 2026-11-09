@@ -3,6 +3,7 @@
 // de CDN: o app roda sem internet e o CSP só aceita o próprio app).
 import type * as Monaco from "monaco-editor";
 import type { ThemeName } from "../types";
+import { themeIsLight } from "./appearance";
 
 export type MonacoApi = typeof Monaco;
 
@@ -42,7 +43,7 @@ export function applyMonacoTheme(monaco: MonacoApi, theme: ThemeName): string {
   const css = getComputedStyle(document.documentElement);
   const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   const hex = (value: string) => value.replace("#", "");
-  const light = theme === "claro";
+  const light = themeIsLight(theme);
   const name = `metis-${theme}`;
   const bg = token("--term", light ? "#ffffff" : "#1e1f29");
   monaco.editor.defineTheme(name, {

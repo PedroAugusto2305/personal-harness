@@ -6,7 +6,14 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 
 ## O que já faz (v0.9.7)
 
-**Chegando na 0.9.8 (parte 1 de 5, agentes e terminal):**
+**Chegando na 0.9.8, parte 2 de 5 (navegador e tela):**
+
+- **O agente usa o navegador da MÊTIS** pelas ferramentas `navegador_*` da central de MCP: lê a página, clica, digita, tira foto e vê o console e a rede, com o cursor "agente" à vista.
+- **Perfis do navegador** com cookies separados, **cookies importados do Chrome**, **emulação de iPhone, Android e iPad**, e o ⌘K com endereços e histórico.
+- **Barra lateral** com filtro, fixados, apelidos, terminais renomeados e cor por projeto; **worktree a partir de um branch ou commit**.
+- **Temas por prompt ou importados do VS Code e do Obsidian**, fontes, densidade e zoom (⌘+ ⌘-).
+
+**Parte 1 de 5 (agentes e terminal):**
 
 - **Agentes com argumentos e variáveis de ambiente próprios**, e agentes de **outra CLI** (opencode, aider, um script): na tela de Agentes, escolha "Outra CLI" e escreva o comando.
 - **Hibernar agente parado** (Ajustes → Agentes e avisos): o agente que espera você há 15, 30 ou 60 min fica pausado e acorda quando você volta a ele.
@@ -53,7 +60,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 - **Pular para** (⌘J): as abas pelas mais recentes (Enter volta para a anterior), as worktrees e as telas.
 - **Atalhos remapeáveis** (Ajustes → Atalhos): Mudar grava a próxima tecla; um atalho de outra ação passa para esta e a outra fica sem (com aviso); os do macOS são recusados. O que você muda fica em `~/.harness/atalhos.json`, que também dá para editar à mão.
 - **Busca nos Ajustes:** ⌘, já abre com o foco na busca, que entende português, inglês e espanhol ("shortcuts", "tema", "awake"…), abre a seção e acende a linha.
-- **Tema do terminal** (Ajustes → Aparência): os temas do Ghostty (do Ghostty.app, da sua pasta de temas e do seu config), do Kitty (`~/.config/kitty`) e do Warp (`~/.warp/themes`), ou um tema colado em qualquer um dos três formatos. O **Ghostty Default Style Dark**, o tema do seu Orca, vem junto.
+- **Tema do terminal** (Ajustes → Aparência): os temas do Ghostty (do Ghostty.app, da sua pasta de temas e do seu config), do Kitty (`~/.config/kitty`) e do Warp (`~/.warp/themes`), ou um tema colado em qualquer um dos três formatos. Os temas da interface também podem ser feitos por prompt ou importados do VS Code e do Obsidian. O **Ghostty Default Style Dark**, o tema do seu Orca, vem junto.
 
 **Na 0.9.2, sessões, agentes e avisos (paridade com o Orca):**
 
@@ -184,6 +191,7 @@ metis rodar "Briefing da manhã"    # roda a versão publicada agora
 metis tarefas                      # Próximas ações do projeto desta pasta, com o id
 metis tarefa mover 4ea9e8ea em-teste
 metis worktree nova personal-harness corrige-login  # worktree nova (--base, --sem-env)
+metis worktree nova personal-harness --branch origin/ajuste  # a partir de um branch que já existe (ou --commit <sha>)
 metis agente codex "rode os testes" # abre outro agente num terminal (claude, codex ou um agente salvo)
 metis versao                       # a versão em uso e se há uma nova
 metis atualizar                    # instala a versão nova neste terminal (ou: metis atualizar v0.9.4)

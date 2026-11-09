@@ -41,6 +41,7 @@ from .history import list_sessions as history_sessions
 from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
 from .prefs import PrefsError
 from . import barra, ghostty, github, system, themes, updates
+from . import app_themes, barra_lateral
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
@@ -52,6 +53,8 @@ from .connectors import CATALOG, ConnectorError, ConnectorStore
 from .keychain import Keychain
 from .keychain import Vault as SecretVault
 from .mcp_hub import Context, Hub, ToolError
+from . import chrome_cookies
+from .browser_bridge import BrowserAnswer, BrowserBridge, BrowserHistory, BrowserProfiles, HistoryVisit, ImportBody, ProfileBody, ProfileError
 from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
 from .relay import install_cli_shim, install_relay
@@ -113,9 +116,11 @@ class NewProject(BaseModel):
 
 
 class NewWorktree(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
+    # v0.9.8: o nome pode ficar vazio no modo "branch" (a pasta vem do nome do branch).
+    name: str = Field(default="", max_length=80)
     base: str | None = None
     copy_env: bool = True
+    modo: str = "nova"
 
 
 class GitFiles(BaseModel):
@@ -473,7 +478,10 @@ def create_app(
         session_info=session_info,
         on_brain_change=lambda project: manager.events.publish({"type": "brain.changed", "project": project}),
         brain_tools=BrainTools(brain, pending=lambda project: suggestions.list(project)),
+        browser=BrowserBridge(manager.events),
     )
+    browser_history = BrowserHistory(settings.home / "navegador.db")
+    browser_profiles = BrowserProfiles(settings.home, publish=manager.events.publish)
     manager.mcp_token = hub.register
     manager.mcp_forget = hub.forget
     routines = RoutineStore(settings.home)
@@ -653,6 +661,8 @@ def create_app(
     app.state.embedder = embedder
     app.state.engine = engine
     app.state.cli_homes = None  # None = ~/.claude e ~/.codex; os testes apontam para pastas temporárias
+    app.state.chrome_support = None  # None = ~/Library/Application Support (cookies do Chrome); os testes trocam
+    app.state.chrome_password = None  # None = o Keychain pelo `security`; os testes trocam
     app.state.automations = automations
     app.state.voice = voice
     app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["*"], allow_headers=["*"])
@@ -1158,7 +1168,7 @@ def create_app(
     @app.post("/projects/{project_id}/worktrees", dependencies=[Depends(require_token)], status_code=201)
     async def new_worktree(project_id: str, body: NewWorktree) -> dict:
         try:
-            created = await gitops.create_worktree(project_path(project_id), settings.worktrees, body.name, body.base, body.copy_env)
+            created = await gitops.create_worktree(project_path(project_id), settings.worktrees, body.name, body.base, body.copy_env, body.modo)
         except gitops.GitError as exc:
             raise fail(exc) from exc
         manager.events.publish({"type": "worktrees", "project": project_id})
@@ -1429,6 +1439,69 @@ def create_app(
         if url and not url.startswith(("http://", "https://", "about:blank")):
             raise HTTPException(status_code=400, detail="só abro http, https ou about:blank")
         manager.events.publish({"type": "open-web", "url": url, "cwd": body.cwd})
+
+    # --- navegador da MÊTIS (v0.9.8): resposta da janela, histórico, perfis, cookies -------------
+
+    @app.post("/navegador/resposta/{request_id}", dependencies=[Depends(require_token)], status_code=204)
+    def browser_answer(request_id: str, body: BrowserAnswer) -> None:
+        """A janela devolve o que o agente pediu pelo MCP (navegador_ler, navegador_clicar…)."""
+        if hub.browser is None or not hub.browser.resolve(request_id, body.ok, body.resultado, body.erro):
+            raise HTTPException(status_code=404, detail="pedido do navegador não encontrado (expirou?)")
+
+    @app.post("/navegador/historico", dependencies=[Depends(require_token)], status_code=204)
+    def browser_visit(body: HistoryVisit) -> None:
+        browser_history.visit(body.url, body.titulo)
+
+    @app.get("/navegador/historico", dependencies=[Depends(require_token)])
+    def browser_history_list(q: str = "", limite: int = Query(20, ge=1, le=100)) -> dict:
+        return {"itens": browser_history.search(q, limite)}
+
+    @app.delete("/navegador/historico", dependencies=[Depends(require_token)], status_code=204)
+    def browser_history_clear() -> None:
+        browser_history.clear()
+
+    def profile_fail(exc: ProfileError) -> HTTPException:
+        return HTTPException(status_code=exc.status, detail=str(exc))
+
+    @app.get("/navegador/perfis", dependencies=[Depends(require_token)])
+    def browser_profiles_list() -> dict:
+        return {"perfis": browser_profiles.list()}
+
+    @app.post("/navegador/perfis", dependencies=[Depends(require_token)])
+    def browser_profile_new(body: ProfileBody) -> dict:
+        try:
+            return browser_profiles.create(body.nome)
+        except ProfileError as exc:
+            raise profile_fail(exc) from exc
+
+    @app.patch("/navegador/perfis/{profile_id}", dependencies=[Depends(require_token)])
+    def browser_profile_rename(profile_id: str, body: ProfileBody) -> dict:
+        try:
+            return browser_profiles.rename(profile_id, body.nome)
+        except ProfileError as exc:
+            raise profile_fail(exc) from exc
+
+    @app.delete("/navegador/perfis/{profile_id}", dependencies=[Depends(require_token)], status_code=204)
+    def browser_profile_delete(profile_id: str) -> None:
+        try:
+            browser_profiles.delete(profile_id)
+        except ProfileError as exc:
+            raise profile_fail(exc) from exc
+
+    @app.get("/navegador/importar", dependencies=[Depends(require_token)])
+    async def browser_import_sources() -> dict:
+        """Perfis do Chrome, Brave, Edge, Arc e Chromium com cookies para importar."""
+        return {"fontes": await asyncio.to_thread(chrome_cookies.list_sources, app.state.chrome_support)}
+
+    @app.post("/navegador/importar", dependencies=[Depends(require_token)])
+    async def browser_import(body: ImportBody) -> dict:
+        """Os cookies decifrados (a senha vem do Keychain, com licença do Pedro). Nunca vão para log."""
+        try:
+            return await asyncio.to_thread(
+                chrome_cookies.read_cookies, body.fonte, body.dominios, app.state.chrome_support, app.state.chrome_password
+            )
+        except chrome_cookies.ChromeCookieError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # --- Brain e kanban -------------------------------------------------------
 
@@ -2369,6 +2442,93 @@ def create_app(
         manager.record_hook(session, name, payload if isinstance(payload, dict) else None)
         if name == "Stop":
             engine.on_stop(session)  # passo de automação que terminou o turno sem devolver a saída
+
+    # --- v0.9.8 parte 2: barra lateral, renomear terminal, refs e temas da tela ------------
+
+    sidebar = barra_lateral.SidebarStore(settings.home)
+    app_theme_store = app_themes.ThemeStore(settings.home)
+
+    @app.get("/barra", dependencies=[Depends(require_token)])
+    def sidebar_state() -> dict:
+        return sidebar.state()
+
+    @app.patch("/barra", dependencies=[Depends(require_token)])
+    def sidebar_patch(body: dict) -> dict:
+        """Uma ação por vez: fixar, nome (apelido da worktree) ou cor (do projeto)."""
+        try:
+            state = sidebar.patch(body)
+        except barra_lateral.BarraError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        manager.events.publish({"type": "barra", "barra": state})
+        return state
+
+    @app.patch("/sessions/{session_id}", dependencies=[Depends(require_token)])
+    def rename_session(session_id: str, body: dict) -> dict:
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        title = body.get("titulo")
+        title = " ".join(title.split()) if isinstance(title, str) else ""
+        if not 1 <= len(title) <= 80:
+            raise HTTPException(status_code=400, detail="o título precisa ter de 1 a 80 caracteres")
+        session.title = title
+        manager.events.publish({"type": "session.renamed", "id": session_id, "title": title})
+        return session.to_dict()
+
+    @app.get("/projects/{project_id}/refs", dependencies=[Depends(require_token)])
+    async def project_refs(project_id: str, q: str = "") -> dict:
+        """Branches e commits para abrir uma worktree a partir deles."""
+        try:
+            return await gitops.list_refs(project_path(project_id), q)
+        except gitops.GitError as exc:
+            raise fail(exc) from exc
+
+    def app_themes_changed() -> None:
+        manager.events.publish({"type": "temas-app"})
+
+    @app.get("/temas-app", dependencies=[Depends(require_token)])
+    def list_app_themes() -> dict:
+        return {"temas": app_theme_store.list()}
+
+    @app.delete("/temas-app/{theme_id}", dependencies=[Depends(require_token)], status_code=204)
+    def delete_app_theme(theme_id: str) -> None:
+        if not app_theme_store.delete(theme_id):
+            raise HTTPException(status_code=404, detail="tema não encontrado")
+        app_themes_changed()
+
+    @app.post("/temas-app/prompt", dependencies=[Depends(require_token)], status_code=201)
+    async def app_theme_from_prompt(body: dict) -> dict:
+        """Tema a partir de uma frase: o Claude (pelo plano, sem ferramentas) escolhe as cores e a MÊTIS confere o contraste."""
+
+        def ask(prompt: str) -> dict:
+            return ask_json(prompt, claude_env(), settings.home / "temas-prompt", model="sonnet", bare=True)
+
+        try:
+            theme = await asyncio.to_thread(app_themes.from_prompt, body.get("descricao"), ask)
+        except app_themes.ThemeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (ClaudePrintError, app_themes.ThemeGenError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        saved = app_theme_store.save(theme)
+        app_themes_changed()
+        return saved
+
+    @app.get("/temas-app/importar", dependencies=[Depends(require_token)])
+    async def app_theme_sources() -> dict:
+        """Temas do VS Code (e do Cursor) e do Obsidian que dá para trazer."""
+        return {"fontes": await asyncio.to_thread(app_themes.list_sources)}
+
+    @app.post("/temas-app/importar", dependencies=[Depends(require_token)], status_code=201)
+    async def import_app_theme(body: dict) -> dict:
+        try:
+            theme = await asyncio.to_thread(app_themes.import_source, body.get("id"))
+        except app_themes.SourceNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (app_themes.ThemeError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        saved = app_theme_store.save(theme)
+        app_themes_changed()
+        return saved
 
     # --- WebSockets --------------------------------------------------------
 

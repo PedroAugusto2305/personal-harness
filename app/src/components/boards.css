@@ -10,7 +10,7 @@
 }
 
 .bd-caps {
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1193,7 +1193,7 @@ button.bd-note-title:hover {
   resize: none;
   background: var(--term);
   color: var(--tx);
-  font-family: "Fira Code", ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
   user-select: text;

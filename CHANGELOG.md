@@ -4,6 +4,16 @@ Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`R
 
 ## v0.9.8 · o que o MAPA prometeu (em andamento, em cinco partes)
 
+### Parte 2 · navegador e tela
+
+- **O agente usa o navegador da MÊTIS** pela central de MCP: abrir, ler a página (com refs para clicar), clicar, digitar, teclas, listas, rolar, esperar, foto da tela, console, rede e JavaScript. Cada ação mostra o cursor "agente" andando até o alvo, e a aba ganha o chip "agente". A aba que o agente abre entra na lista sem tirar você do que está vendo.
+- **Perfis do navegador** (Ajustes → Navegador): cada um com os próprios cookies e logins; o perfil das abas novas e o de cada aba (na barra de endereço). **Importar cookies do Chrome** (e do Brave, Edge e Arc) para um perfil, com o macOS pedindo licença para ler a chave.
+- **Emulação de aparelho** na barra da aba: iPhone, Android, iPad ou notebook, com o tamanho da tela e o user agent; encolhe com zoom quando não cabe no painel.
+- **⌘K com endereços e histórico:** digitar um endereço oferece abrir; as páginas visitadas aparecem ao digitar. Os links do terminal (⌘ + clique) abrem na MÊTIS ou no navegador do Mac, como preferir.
+- **Barra lateral:** filtro por nome e por estado (esperando você, trabalhando, com mudanças), worktrees fixadas no topo, apelido para a worktree e nome novo para o terminal (duplo clique), cor por projeto.
+- **Worktree a partir de um branch que já existe** (local ou do remoto) **ou de um commit**, no formulário e no `metis worktree nova --branch/--commit`.
+- **Temas por prompt e importados do VS Code e do Obsidian** (Ajustes → Aparência), com o contraste conferido e corrigido. **Fontes** da interface e do terminal, **tamanho da letra** do terminal, **densidade** e **zoom da janela** (⌘+, ⌘-, ⌘0).
+
 ### Parte 1 · agentes e terminal
 
 - **Agente com argumentos e variáveis próprios** (tela de Agentes): argumentos extras no fim da linha de comando e variáveis de ambiente só daquele agente, no Claude e no Codex.

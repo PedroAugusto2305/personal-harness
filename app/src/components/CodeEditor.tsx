@@ -99,7 +99,7 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
         model,
         theme: applyMonacoTheme(monaco, theme),
         automaticLayout: true,
-        fontFamily: '"Fira Code", ui-monospace, monospace',
+        fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || '"Fira Code", monospace',
         fontLigatures: true,
         fontSize: 13,
         lineHeight: 20,
@@ -175,7 +175,7 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
       automaticLayout: true,
       readOnly: true,
       renderSideBySide: true,
-      fontFamily: '"Fira Code", ui-monospace, monospace',
+      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || '"Fira Code", monospace',
       fontSize: 12.5,
     });
     diff.setModel({ original, modified });

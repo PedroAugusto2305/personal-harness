@@ -3,6 +3,8 @@ import { CoreClient, getCoreInfo, type NewSessionOptions } from "./lib/core";
 import { useInbox, type NoticeInput } from "./lib/inbox";
 import type {
   Accounts,
+  BrowserCommand,
+  SidebarState,
   ActivityItem,
   Agent,
   Approval,
@@ -74,6 +76,13 @@ export function useHarness() {
   const [automationEvent, setAutomationEvent] = useState<Extract<CoreEvent, { type: `automation.${string}` }> | null>(null);
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
   const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
+  /** v0.9.8 (parte 2): quem atende os pedidos do agente ao navegador (o App registra). */
+  const browserHandler = useRef<((command: BrowserCommand) => void) | null>(null);
+  /** Sobe quando os perfis do navegador ou os temas da tela mudam no núcleo. */
+  const [profilesTick, setProfilesTick] = useState(0);
+  const [appThemesTick, setAppThemesTick] = useState(0);
+  /** Fixados, apelidos e cores da barra lateral (~/.harness/barra.json). */
+  const [sidebar, setSidebar] = useState<SidebarState>({ fixados: [], nomes: {}, cores: {} });
   /** Versão do núcleo em execução (v0.9.2): a janela se liga a um núcleo que pode ser mais velho que ela. */
   const [coreVersion, setCoreVersion] = useState<string | null>(null);
   /** Ajustes de agentes e avisos (v0.9.2); null até o núcleo responder. */
@@ -243,6 +252,23 @@ export function useHarness() {
         case "open-web":
           setWebRequest((last) => ({ id: (last?.id ?? 0) + 1, url: event.url, cwd: event.cwd }));
           break;
+        case "browser.command":
+          if (browserHandler.current) browserHandler.current(event);
+          else if (coreRef) void coreRef.browserAnswer(event.id, false, null, "a janela da MÊTIS ainda está abrindo; tente de novo").catch(() => undefined);
+          break;
+        case "navegador.perfis":
+          setProfilesTick((n) => n + 1);
+          break;
+        case "temas-app":
+          setAppThemesTick((n) => n + 1);
+          break;
+        case "barra":
+          setSidebar(event.barra);
+          break;
+        case "session.renamed":
+          if (seen.current[event.id]) seen.current[event.id].title = event.title;
+          setSessions((all) => (all[event.id] ? { ...all, [event.id]: { ...all[event.id], title: event.title } } : all));
+          break;
         case "ports":
           setSessions((all) => {
             const next = { ...all };
@@ -301,6 +327,11 @@ export function useHarness() {
         void core
           .connectors()
           .then((c) => !cancelled && setConnectors(c.accounts))
+          .catch(() => undefined);
+        // Núcleo de antes da v0.9.8 não tem /barra: a barra lateral segue sem fixados.
+        void core
+          .sidebar()
+          .then((value) => !cancelled && setSidebar(value))
           .catch(() => undefined);
         void core
           .approvals()
@@ -445,6 +476,11 @@ export function useHarness() {
     automationTick,
     automationEvent,
     webRequest,
+    browserHandler,
+    profilesTick,
+    appThemesTick,
+    sidebar,
+    setSidebar,
     coreVersion,
     prefs,
     savePrefs,

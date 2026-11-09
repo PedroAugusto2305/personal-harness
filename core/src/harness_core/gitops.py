@@ -108,18 +108,83 @@ async def list_worktrees(repo: str | Path) -> list[dict]:
     return parse_worktrees(await git(repo, "worktree", "list", "--porcelain"))
 
 
-async def create_worktree(repo: str | Path, root: Path, name: str, base: str | None = None, copy_env: bool = True) -> dict:
+WORKTREE_MODES = ("nova", "branch", "commit")
+
+
+async def _ref_exists(repo: Path, ref: str) -> bool:
+    out = await git(repo, "rev-parse", "--verify", "--quiet", "--end-of-options", ref, check=False)
+    return bool(out.strip())
+
+
+async def _resolve_branch(repo: Path, base: str) -> tuple[str, str | None]:
+    """Branch existente → (branch local, ref remota a seguir ou None). origin/x sem x local segue a remota."""
+    if await _ref_exists(repo, f"refs/heads/{base}"):
+        return base, None
+    remotes = (await git(repo, "remote")).split()
+    for remote in remotes:
+        prefix = f"{remote}/"
+        if base.startswith(prefix) and len(base) > len(prefix):
+            local = base[len(prefix) :]
+            if await _ref_exists(repo, f"refs/heads/{local}"):
+                return local, None
+            if await _ref_exists(repo, f"refs/remotes/{base}"):
+                return local, base
+    if "origin" in remotes and await _ref_exists(repo, f"refs/remotes/origin/{base}"):
+        return base, f"origin/{base}"
+    raise GitError(f"o branch {base} não existe neste repositório")
+
+
+async def create_worktree(
+    repo: str | Path,
+    root: Path,
+    name: str,
+    base: str | None = None,
+    copy_env: bool = True,
+    mode: str = "nova",
+) -> dict:
+    """Worktree nova. modo "nova": branch novo com o nome, a partir de `base` (ou do HEAD);
+    "branch": abre um branch que já existe (local, ou remoto seguido por um local);
+    "commit": branch novo com o nome, a partir de um commit."""
+    if mode not in WORKTREE_MODES:
+        raise GitError(f"modo de worktree desconhecido: {mode}")
     repo_path = await toplevel(repo)
-    slug = slugify(name)
+    name = (name or "").strip()
+    base = (base or "").strip() or None
+    remote: str | None = None
+    if mode == "branch":
+        if not base:
+            raise GitError("diga qual branch abrir")
+        branch, remote = await _resolve_branch(repo_path, base)
+        busy = next((w for w in await list_worktrees(repo_path) if w["branch"] == branch), None)
+        if busy:
+            raise GitError(f"o branch {branch} já está aberto em {busy['path']}", 409)
+        slug = slugify(name or branch)
+    else:
+        if not name:
+            raise GitError("diga o nome da worktree")
+        slug = slugify(name)
+        branch = slug
+        if mode == "commit" and not base:
+            raise GitError("diga de qual commit partir")
+        if base and not await _ref_exists(repo_path, f"{base}^{{commit}}"):
+            raise GitError(f"{'o commit' if mode == 'commit' else 'a base'} {base} não existe neste repositório")
     target = root / repo_path.name / slug
     if target.exists():
         raise GitError(f"já existe uma pasta em {target}")
     target.parent.mkdir(parents=True, exist_ok=True)
-    branch_exists = (await git(repo_path, "branch", "--list", slug)).strip() != ""
-    if branch_exists:
-        await git(repo_path, "worktree", "add", str(target), slug)
+    if mode == "branch":
+        if remote:
+            await git(repo_path, "worktree", "add", "--track", "-b", branch, str(target), remote)
+        else:
+            await git(repo_path, "worktree", "add", str(target), branch)
     else:
-        await git(repo_path, "worktree", "add", "-b", slug, str(target), base or "HEAD")
+        branch_exists = await _ref_exists(repo_path, f"refs/heads/{slug}")
+        if branch_exists and mode == "commit":
+            raise GitError(f"já existe um branch {slug}: escolha outro nome", 409)
+        if branch_exists:
+            await git(repo_path, "worktree", "add", str(target), slug)
+        else:
+            await git(repo_path, "worktree", "add", "-b", slug, str(target), base or "HEAD")
     copied: list[str] = []
     if copy_env:
         # .env não vai para o git; sem ele o app da worktree nem sobe.
@@ -128,7 +193,60 @@ async def create_worktree(repo: str | Path, root: Path, name: str, base: str | N
             if source.is_file() and not (target / env_name).exists():
                 shutil.copy2(source, target / env_name)
                 copied.append(env_name)
-    return {"path": str(target), "branch": slug, "copied": copied}
+    return {"path": str(target), "branch": branch, "copied": copied}
+
+
+async def list_refs(repo: str | Path, query: str = "") -> dict:
+    """Branches (locais e remotas, mais recentes primeiro) e commits recentes, para abrir worktree."""
+    repo_path = await toplevel(repo)
+    needle = query.strip().casefold()
+    raw = await git(
+        repo_path,
+        "for-each-ref",
+        "--sort=-committerdate",
+        "--format=%(refname)%00%(refname:short)%00%(committerdate:iso-strict)%00%(subject)%00%(HEAD)",
+        "refs/heads",
+        "refs/remotes",
+        check=False,
+    )
+    in_use = {w["branch"]: w["path"] for w in await list_worktrees(repo_path) if w["branch"]}
+    rows = [line.split("\0") for line in raw.splitlines() if line.count("\0") == 4]
+    locals_ = {short for ref, short, *_ in rows if ref.startswith("refs/heads/")}
+    remotes = set((await git(repo_path, "remote", check=False)).split())
+    branches: list[dict] = []
+    for ref, short, when, subject, head in rows:
+        remote = ref.startswith("refs/remotes/")
+        if remote:
+            if ref.endswith("/HEAD"):
+                continue
+            owner, _, local = short.partition("/")
+            if owner in remotes and local in locals_:
+                continue
+        if needle and needle not in short.casefold() and needle not in subject.casefold():
+            continue
+        branches.append({
+            "nome": short,
+            "remoto": remote,
+            "atual": head.strip() == "*",
+            "em_uso": None if remote else in_use.get(short),
+            "quando": when,
+            "titulo": subject,
+        })  # fmt: skip
+        if len(branches) >= 50:
+            break
+    log = await git(repo_path, "log", f"-{300 if needle else 30}", "--format=%H%x00%h%x00%s%x00%an%x00%aI", "HEAD", check=False)
+    commits: list[dict] = []
+    for line in log.splitlines():
+        parts = line.split("\0")
+        if len(parts) != 5:
+            continue
+        sha, short, subject, author, when = parts
+        if needle and not sha.startswith(needle) and needle not in subject.casefold():
+            continue
+        commits.append({"sha": sha, "curto": short, "titulo": subject, "autor": author, "quando": when})
+        if len(commits) >= 30:
+            break
+    return {"branches": branches, "commits": commits}
 
 
 async def remove_worktree(repo: str | Path, path: str, force: bool = False) -> dict:
