@@ -277,6 +277,27 @@ class BrainIndex:
         meta, body = split_frontmatter(self.vault.resolve(row["path"]).read_text(encoding="utf-8"))
         return {**self._row(row), "meta": meta, "body": body, "backlinks": backlinks}
 
+    def titles(self, query: str = "", limit: int = 20) -> list[dict]:
+        """Títulos para o autocompletar de [[ (v0.9.7): os que contêm o texto, sem acento e sem
+        caixa, os que começam com ele primeiro e depois em ordem alfabética; sem texto, as notas
+        mexidas mais recentemente."""
+        self.refresh()
+        key = fold(query.strip())
+        con = self._connect()
+        try:
+            if not key:
+                rows = con.execute("select path, title, tipo, projeto from notes order by mtime desc limit ?", (limit,))
+            else:
+                like = key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                rows = con.execute(
+                    "select path, title, tipo, projeto from notes where folded like ? escape '\\' "
+                    "order by case when folded like ? escape '\\' then 0 else 1 end, folded, length(path) limit ?",
+                    (f"%{like}%", f"{like}%", limit),
+                )
+            return [{"titulo": r["title"], "tipo": r["tipo"] or "", "projeto": r["projeto"] or "", "path": r["path"]} for r in rows]
+        finally:
+            con.close()
+
     def graph(self) -> dict:
         """Notas e ligações do vault para o grafo: [[links]] resolvidos para notas que existem."""
         self.refresh()

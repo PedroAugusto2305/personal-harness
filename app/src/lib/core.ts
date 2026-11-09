@@ -65,6 +65,8 @@ import type {
   GithubPr,
   GithubState,
   PullRequest,
+  NoteText,
+  NoteTitle,
 } from "../types";
 
 export interface CoreInfo {
@@ -382,6 +384,24 @@ export class CoreClient {
 
   files(root: string): Promise<{ root: string; files: string[] }> {
     return this.request("GET", `/fs/files?${new URLSearchParams({ root })}`);
+  }
+
+  /** Grava o arquivo só se ele ainda tem o hash de quando foi aberto (409 se mudou no disco). */
+  writeText(root: string, path: string, text: string, hash: string): Promise<{ hash: string; mtime: number; size: number }> {
+    return this.request("PUT", "/fs/text", { root, path, text, hash });
+  }
+
+  brainNoteText(path: string): Promise<NoteText> {
+    return this.request("GET", `/brain/note/texto?${new URLSearchParams({ path })}`);
+  }
+
+  /** Grava a nota inteira (com o frontmatter) só se ninguém a mudou desde que abriu (409: o Obsidian salvou). */
+  saveBrainNote(path: string, texto: string, hash: string): Promise<{ hash: string; alterado: number }> {
+    return this.request("PUT", "/brain/note/texto", { path, texto, hash });
+  }
+
+  brainTitles(q: string, limite = 20): Promise<NoteTitle[]> {
+    return this.request("GET", `/brain/titulos?${new URLSearchParams({ q, limite: String(limite) })}`);
   }
 
   readText(root: string, path: string): Promise<TextFile> {

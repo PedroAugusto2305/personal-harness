@@ -2,6 +2,12 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v0.9.7 · editores dentro da MÊTIS (paridade com o Orca, bloco D)
+
+- **Editor de código (Monaco, o do VS Code)** nos arquivos da worktree: abrir um arquivo (⌘P, Arquivos, "Abrir arquivo") já é editar. ⌘S salva, ou "Salvar sozinho". Só grava se o arquivo não mudou no disco desde que abriu: sem edição pendente, a aba recarrega sozinha quando o agente mexe no arquivo; com edição pendente, aparece o aviso com as duas versões lado a lado (ficar com a do disco ou gravar a sua por cima). Markdown, CSV e HTML mantêm a prévia em "Visualizar".
+- **Editor de notas do Brain (CodeMirror, o motor do Obsidian)**: "Editar" no leitor de notas, ou "Abrir ao lado" numa aba junto dos terminais. Visualização ao vivo (a marcação some fora da linha do cursor), `[[links]]` clicáveis (os de nota que não existe ficam tracejados), callouts coloridos, frontmatter como caixa de propriedades, tarefas com caixinha clicável, `[[` sugere títulos do vault e `/` insere blocos. Salva sozinho e nunca grava por cima do que o Obsidian salvou depois.
+- Com o foco num editor, ⌘D, ⌘F, ⌘L e ⌘⌥ e as setas são do editor. Fechar uma aba com mudança não salva avisa antes.
+
 ## v0.9.6 · Git e GitHub (paridade com o Orca, bloco C)
 
 - **Marcar por trecho e por linha.** No diff, em "Não marcado": marcar ou descartar um trecho, ou escolher linhas (clique no número; ⇧ + clique escolhe um intervalo). Em "Marcado": desmarcar trecho ou linhas. Descartar pede confirmação.
