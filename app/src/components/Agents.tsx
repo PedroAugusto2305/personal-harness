@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { Confirm } from "./Confirm";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { shortPath } from "../lib/format";
-import type { Accounts, Agent, AgentDraft, ConnectorAccount } from "../types";
+import type { Accounts, Agent, AgentDraft, AgentEvent, ConnectorAccount, Session } from "../types";
 import { AgentSprite, GreekBust } from "./AgentSprite";
+import { AgentsRoom } from "./AgentsRoom";
 import { SpriteChat } from "./SpriteChat";
 
 const SWATCHES = ["#82a0ff", "#007AFF", "#5AC8FA", "#8be9fd", "#bd93f9", "#AF52DE", "#FF2D55", "#FF3B30", "#d97757", "#a9aec9"];
@@ -20,9 +22,135 @@ interface Props {
   /** Abre um terminal com o rascunho, sem salvar ("testar antes de salvar"). */
   onTest: (draft: AgentDraft) => void;
   connectors: ConnectorAccount[];
+  /** v0.9.9: a Sala dos agentes. */
+  sessions: Session[];
+  events: AgentEvent[];
+  tick: number;
+  onOpenSession: (id: string) => void;
 }
 
-const toDraft = (agent: Agent): AgentDraft => ({
+const SELECTED_KEY = "harness.agents.selected";
+
+function storedSelected(): string | null {
+  try {
+    return localStorage.getItem(SELECTED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tela de Agentes (v0.9.9): abre na Sala dos agentes, com o último agente aberto à direita;
+ * Editar e Novo agente trocam a sala pelo formulário, com o caminho de volta no topo.
+ */
+export function Agents(props: Props) {
+  const [mode, setMode] = useState<"sala" | "editar">("sala");
+  const [selected, setSelected] = useState<string | null>(storedSelected);
+  const [editing, setEditing] = useState<string | "novo">("novo");
+  const [notice, setNotice] = useState<string | null>(null);
+  /** v0.9.9: o agente esperando a confirmação para ir para a lixeira. */
+  const [deleting, setDeleting] = useState<Agent | null>(null);
+  const [busy, setBusy] = useState(false);
+  const openCount = (id: string) => props.sessions.filter((s) => s.agent === id && s.status !== "exited").length;
+
+  const select = (id: string | null) => {
+    setSelected(id);
+    try {
+      if (id) localStorage.setItem(SELECTED_KEY, id);
+      else localStorage.removeItem(SELECTED_KEY);
+    } catch {
+      // sem armazenamento: só não lembra
+    }
+  };
+
+  useEffect(() => {
+    if (selected && props.agents.length && !props.agents.some((a) => a.id === selected)) select(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.agents, selected]);
+
+  if (mode === "editar") {
+    return (
+      <AgentEditor
+        {...props}
+        selectedId={editing}
+        onBack={() => setMode("sala")}
+        onSaved={(id) => {
+          select(id);
+          setEditing(id);
+        }}
+        onDeleted={() => {
+          select(null);
+          setMode("sala");
+        }}
+      />
+    );
+  }
+  return (
+    <>
+    <AgentsRoom
+      client={props.client}
+      agents={props.agents}
+      accounts={props.accounts}
+      sessions={props.sessions}
+      events={props.events}
+      connectors={props.connectors}
+      tick={props.tick}
+      selected={selected}
+      onSelect={select}
+      onEdit={(id) => {
+        select(id);
+        setEditing(id);
+        setMode("editar");
+      }}
+      onNew={() => {
+        setEditing("novo");
+        setMode("editar");
+      }}
+      onImport={async () => {
+        const result = await props.run((c) => c.importMaestri());
+        if (result) setNotice(result.imported.length ? `Importados: ${result.imported.join(", ")}.` : "Nada novo para importar do Maestri.");
+      }}
+      onLaunch={props.onLaunch}
+      onOpenSession={props.onOpenSession}
+      onDelete={setDeleting}
+      notice={notice}
+    />
+    {deleting && (
+      <Confirm
+        title={`Apagar ${deleting.name}?`}
+        confirmLabel="Apagar"
+        danger
+        busy={busy}
+        onCancel={() => setDeleting(null)}
+        onConfirm={async () => {
+          setBusy(true);
+          const ok = await props.run((c) => c.deleteAgent(deleting.id));
+          setBusy(false);
+          if (ok === null) return;
+          if (selected === deleting.id) select(null);
+          setNotice(`${deleting.name} foi para a lixeira dos agentes.`);
+          setDeleting(null);
+        }}
+      >
+        <p>
+          O arquivo e a sprite vão para <span className="mono">~/.harness/agentes/.lixeira</span>: dá para recuperar de lá.
+          {openCount(deleting.id) > 0 &&
+            ` ${openCount(deleting.id) === 1 ? "A sessão aberta dele continua" : `As ${openCount(deleting.id)} sessões abertas dele continuam`} até você fechar.`}
+        </p>
+      </Confirm>
+    )}
+    </>
+  );
+}
+
+interface EditorProps extends Props {
+  selectedId: string | "novo";
+  onBack: () => void;
+  onSaved: (id: string) => void;
+  onDeleted: () => void;
+}
+
+export const toDraft = (agent: Agent): AgentDraft => ({
   name: agent.name,
   description: agent.description,
   pain: agent.pain ?? "",
@@ -52,11 +180,10 @@ async function toPng(file: File): Promise<Blob> {
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("não deu para converter"))), "image/png"));
 }
 
-export function Agents({ client, agents, accounts, run, onLaunch, onTest, connectors }: Props) {
+function AgentEditor({ client, agents, accounts, run, onLaunch, onTest, connectors, selectedId, onBack, onSaved, onDeleted }: EditorProps) {
   const [describe, setDescribe] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [spriteIdea, setSpriteIdea] = useState("");
-  const [selectedId, setSelectedId] = useState<string | "novo" | null>(agents[0]?.id ?? null);
   const [draft, setDraft] = useState<AgentDraft>(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -64,11 +191,6 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
   const [chosenSprite, setChosenSprite] = useState<string | null>(null);
   const spriteInput = useRef<HTMLInputElement>(null);
   const current = agents.find((a) => a.id === selectedId) ?? null;
-
-  useEffect(() => {
-    if (selectedId === "novo") return;
-    if (!current && agents.length) setSelectedId(agents[0].id);
-  }, [agents, current, selectedId]);
 
   useEffect(() => {
     setConfirmDelete(false);
@@ -86,7 +208,7 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
     const saved = creating ? await run((c) => c.createAgent(draft)) : await run((c) => c.updateAgent(current.id, draft));
     if (saved) {
       if (creating && chosenSprite) await run((c) => c.useSpriteJob(saved.id, chosenSprite));
-      setSelectedId(saved.id);
+      onSaved(saved.id);
       setNotice("Salvo.");
     }
   };
@@ -100,59 +222,18 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
     }
   };
 
-  const importMaestri = async () => {
-    const result = await run((c) => c.importMaestri());
-    if (result) setNotice(result.imported.length ? `Importados: ${result.imported.join(", ")}.` : "Nada novo para importar do Maestri.");
-  };
-
   const accountOptions = draft.cli === "outra" ? [] : accounts[draft.cli].accounts;
 
   return (
     <div className="agents-screen">
-      <div className="agents-list">
-        <div className="tree-head">
-          <span className="section-title">Agentes · {agents.length}</span>
-        </div>
-        <div className="agents-actions">
-          <button type="button" className="btn primary" onClick={() => setSelectedId("novo")}>
-            <Icon d={ICON.plus} size={13} strokeWidth={2.2} />
-            Novo agente
-          </button>
-          <button type="button" className="btn" onClick={importMaestri} title="Lê ~/Documents/Brain/.maestri/roles e os terminais do Maestri">
-            Importar do Maestri
-          </button>
-        </div>
-        {notice && <p className="small notice">{notice}</p>}
-        <div className="agent-cards">
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              type="button"
-              className="agent-card"
-              aria-current={agent.id === selectedId ? "true" : undefined}
-              onClick={() => setSelectedId(agent.id)}
-            >
-              <AgentSprite agent={agent} client={client} size={36} />
-              <span className="meta">
-                <span className="agent-card-name">{agent.name}</span>
-                <span className="small">{agent.description || CLI_LABEL[agent.cli]}</span>
-              </span>
-              <span className="chip">{agent.cli}</span>
-            </button>
-          ))}
-          {agents.length === 0 && (
-            <p className="small tree-hint">
-              Agente é um papel com prompt próprio que abre o Claude Code ou o Codex já sabendo o que fazer. Crie um ou importe os do
-              Maestri.
-            </p>
-          )}
-        </div>
-      </div>
-
       <div className="agent-editor">
-        {selectedId == null ? (
-          <p className="small inspector-empty">Escolha um agente à esquerda.</p>
-        ) : (
+        <div className="agent-editor-top">
+          <button type="button" className="room-link" onClick={onBack}>
+            ← Sala dos agentes
+          </button>
+          {notice && <span className="small notice">{notice}</span>}
+        </div>
+        {(
           <form
             className="settings-page"
             onSubmit={(event) => {
@@ -434,7 +515,7 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
                       className="btn danger"
                       onClick={async () => {
                         await run((c) => c.deleteAgent(current.id));
-                        setSelectedId(null);
+                        onDeleted();
                       }}
                     >
                       Apagar mesmo

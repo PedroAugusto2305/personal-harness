@@ -538,6 +538,28 @@ class StudyMap:
 
     # sessões com o Sócrates
 
+    def add_question(self, name: str, question: str, options: list[str], kind: str = "previsão") -> dict:
+        """v0.9.9: a pergunta do Sócrates vira um bloco na nota do conceito (cria o conceito se
+        faltar). A tela do Estudo mostra o bloco com as opções, a confiança e o raciocínio, e a
+        resposta do Pedro volta ao terminal do Sócrates."""
+        question = " ".join(str(question).split()).strip()
+        opts = [" ".join(str(o).split()).strip() for o in options if str(o).strip()][:6]
+        if not question:
+            raise StudyError("a pergunta está vazia")
+        if len(opts) < 2:
+            raise StudyError("dê ao menos duas opções (a última pode ser 'Não sei')")
+        concept = self.create(name, exist_ok=True)
+        with self._lock:
+            path = self.vault.root / concept.caminho
+            text = path.read_text(encoding="utf-8")
+            block = [f"> [!pergunta] Pergunta de {kind} · Sócrates", f"> {question}", *(f"> - [ ] {o}" for o in opts)]
+            heading = "## Perguntas"
+            if heading not in text:
+                text = text.rstrip("\n") + f"\n\n{heading}\n"
+            text = text.rstrip("\n") + "\n\n" + "\n".join(block) + "\n"
+            write_atomic(path, text)
+        return {"conceito": concept.titulo, "caminho": concept.caminho}
+
     def session_prompt(self, kind: str, concept: str | None = None) -> str:
         if kind not in SESSION_TYPES:
             raise StudyError(f"tipo de sessão é {', '.join(SESSION_TYPES)}")
@@ -546,6 +568,8 @@ class StudyMap:
         week_text = f"semana {week['numero']} do cronograma (foco: {week['foco']})" if week else "a semana atual do cronograma (veja com estudo_plano)"
         record = (
             "Antes de explicar qualquer coisa, peça a minha previsão (o que eu acho que acontece ou a resposta) e a minha confiança de 1 a 5. "
+            "Quando a pergunta tiver alternativas, escreva-a também na nota do conceito com a ferramenta estudo_pergunta (conceito, pergunta, opcoes; "
+            "a última opção pode ser 'Não sei'): eu respondo pela tela do Estudo, com a confiança e o meu raciocínio, e a resposta chega aqui. "
             "Depois de cada resposta, registre com a ferramenta estudo_registrar (conceito, acertou, confianca, nota curta)."
         )
         if kind == "medir":

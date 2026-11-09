@@ -161,7 +161,32 @@ const STATE_TITLE: Record<SpriteState, string> = {
   error: "erro",
 };
 
+/** Tira de quadros (movimento parado): um quadro de cada vez, em loop. */
+export function SpriteStrip({ url, frames, size, seconds = 1.6 }: { url: string; frames: number; size: number; seconds?: number }) {
+  return (
+    <span
+      className="pixel sprite-strip"
+      role="img"
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `url("${url}")`,
+        backgroundSize: `${size * frames}px ${size}px`,
+        animationDuration: `${seconds}s`,
+        animationTimingFunction: `steps(${frames})`,
+        ["--strip" as string]: `${-size * frames}px`,
+        // Reduzida, fica melhor suave do que com pixels pulados (as sprites têm ~80 px).
+        imageRendering: size < 80 ? "auto" : undefined,
+      }}
+    />
+  );
+}
+
 function AgentFigure({ agent, client, size }: { agent: Agent; client: CoreClient | null; size: number }) {
+  if (agent.sprite && client && (agent.sprite_frames ?? 0) > 1) {
+    return <SpriteStrip url={client.spriteUrl(agent.id, agent.updated_at, true)} frames={agent.sprite_frames!} size={size} />;
+  }
   if (agent.sprite && client) {
     return (
       <img
@@ -171,6 +196,11 @@ function AgentFigure({ agent, client, size }: { agent: Agent; client: CoreClient
         height={size}
         alt=""
         draggable={false}
+        onLoad={(event) => {
+          // v0.9.9: as sprites novas têm ~80 px; reduzidas, ficam melhor suaves do que com pixels pulados.
+          const img = event.currentTarget;
+          img.style.imageRendering = img.naturalWidth > size * (window.devicePixelRatio || 1) ? "auto" : "";
+        }}
       />
     );
   }

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { KindIcon } from "./KindIcon";
 import { Terminal, type IBufferLine, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CoreError, type CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
+import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
 import { terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { Session, TerminalColors, ThemeName } from "../types";
@@ -171,6 +172,8 @@ interface Props {
   onClose?: () => void;
   /** Abre "Retomar uma conversa" (quando a conversa desta não é achada). */
   onHistory?: () => void;
+  /** v0.9.9: a barra de entrada do painel (agentes). */
+  footer?: React.ReactNode;
 }
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -202,6 +205,7 @@ export function TerminalView({
   quotaHint,
   onClose,
   onHistory,
+  footer,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -427,7 +431,7 @@ export function TerminalView({
       onMouseDown={onFocus}
     >
       <div className="pane-head">
-        {badge ?? <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span>}
+        {badge ?? <KindIcon kind={session.kind} />}
         <span className="pane-title">{session.title}</span>
         {accountName && (
           <span className="path-chip" title="Conta usada nesta sessão">
@@ -496,7 +500,7 @@ export function TerminalView({
         {corner}
         {cover && (
           <div className="term-cover" style={{ top: `calc(10px + ${cover.top} * var(--cell-h, 17px))` }} aria-hidden="true">
-            <span>escreva na barra de baixo · ↑↓ ↵ esc vão para o agente</span>
+            <span>{footer ? "escreva na barra abaixo · ↑↓ ↵ esc vão para o agente" : "escreva na barra de baixo · ↑↓ ↵ esc vão para o agente"}</span>
           </div>
         )}
       </div>
@@ -511,9 +515,10 @@ export function TerminalView({
           onHistory={onHistory}
         />
       )}
+      {footer && status !== "exited" && <div className="pane-dock">{footer}</div>}
       {dropping && (
         <div className="drop-hint">
-          <span>Solte para colar o caminho neste terminal</span>
+          <span>{footer ? "Solte para anexar à mensagem" : "Solte para colar o caminho neste terminal"}</span>
         </div>
       )}
     </section>
@@ -637,7 +642,7 @@ function HandOffButton({ other, onHandOff, hint }: { other: "claude" | "codex"; 
         }}
       >
         <Icon d={ICON.handoff} size={12} strokeWidth={2} />
-        <span style={{ color: KIND_COLOR[other] }}>{KIND_GLYPH[other]}</span>
+        <KindIcon kind={other} />
         {hint && <span className="quota-hint">{hint} · passar para o {KIND_LABEL[other]}</span>}
       </button>
       {open && (

@@ -30,6 +30,11 @@ export const ICON = {
   branch: "M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9",
   trash: "M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3",
   folder: "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
+  // v0.9.9: adicionar projeto (pasta com +) e clonar (seta para baixo numa bandeja).
+  folderPlus: "M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM12 10v6M9 13h6",
+  download: "M12 4v11M7 10l5 5 5-5M5 19h14",
+  // Controles deslizantes (filtro do cabeçalho de Projetos, como no Orca).
+  sliders: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4",
   file: "M6 3h8l5 5v13H6zM14 3v5h5",
   panel: "M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM15 4v16",
   up: "M12 19V5M6 11l6-6 6 6",
@@ -50,6 +55,11 @@ export const ICON = {
   history: "M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.6L4 8.5M4 4v4.5h4.5",
   handoff: "M4 8h13l-3.5-3.5M20 16H7l3.5 3.5",
   code: "M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14",
+  // v0.9.9: kanban
+  bolt: "M13 3 4 14h7l-1 7 9-11h-7z",
+  inbox: "M3 13h5l1.5 3h5l1.5-3h5M5.5 5h13l2.5 8v6H3v-6z",
+  sort: "M7 4v16M4 7l3-3 3 3M17 20V4M14 17l3 3 3-3",
+  collapse: "M15 6l-6 6 6 6",
 } as const;
 
 export function Icon({ d, size = 18, strokeWidth = 1.7 }: { d: string; size?: number; strokeWidth?: number }) {

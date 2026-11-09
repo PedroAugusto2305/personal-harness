@@ -6,6 +6,7 @@ import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
 import "@fontsource/fira-code/400.css";
 import "@fontsource/fira-code/500.css";
+import "@fontsource/pixelify-sans/400.css";
 import "@xterm/xterm/css/xterm.css";
 import "./styles.css";
 import App from "./App";

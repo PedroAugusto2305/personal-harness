@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { KindIcon } from "./KindIcon";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, ago, shortPath } from "../lib/format";
+import { KIND_COLOR, ago, shortPath } from "../lib/format";
 import type { HistoryItem } from "../types";
 
 interface Props {
@@ -131,7 +132,7 @@ export function HistoryPanel({ client, here, hereLabel, onResume, onClose }: Pro
               onDoubleClick={() => void resume(item)}
             >
               <span className="history-glyph" style={{ color: KIND_COLOR[item.cli] }} aria-hidden="true">
-                {KIND_GLYPH[item.cli]}
+                <KindIcon kind={item.cli} size={15} />
               </span>
               <span className="history-main">
                 <span className="history-title">{item.titulo || "(sem título)"}</span>

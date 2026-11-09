@@ -19,6 +19,7 @@ export interface ActionDef {
 export const ACTIONS: ActionDef[] = [
   { id: "paleta", group: "Geral", label: "Salto rápido: abas e ações", combo: "Meta+KeyK" },
   { id: "pular", group: "Geral", label: "Pular para: recentes, worktrees e telas", combo: "Meta+KeyJ" },
+  { id: "workspace.novo", group: "Geral", label: "Novo workspace (worktree com o agente aberto)", combo: "Meta+KeyN" },
   { id: "comandos", group: "Geral", label: "Comandos salvos", combo: "Meta+Shift+KeyK" },
   { id: "arquivo", group: "Geral", label: "Abrir arquivo da worktree", combo: "Meta+KeyP" },
   { id: "ajustes", group: "Geral", label: "Ajustes", combo: "Meta+Comma" },

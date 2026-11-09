@@ -1,10 +1,10 @@
 // Pedaços de desenho das Automações: elementos de conector, ícone de cada passo, rosto do agente,
 // expressões como peças verdes e a tabela/JSON dos dados de uma execução.
 
+import { KindIcon } from "../KindIcon";
 import type { ReactNode } from "react";
 import { ICON, Icon, MetisMark } from "../../icons";
 import type { CoreClient } from "../../lib/core";
-import { KIND_COLOR } from "../../lib/format";
 import type { Agent, AutoStep } from "../../types";
 import { AgentSprite } from "../AgentSprite";
 import { type Elem, type Kind, KIND, isPlain, toolElem } from "./model";
@@ -24,8 +24,8 @@ export function AgentFace({ step, agents, client, size = 32 }: { step: AutoStep;
   if (agent) return <AgentSprite agent={agent} client={client} size={size} />;
   const cli = step.cli ?? "claude";
   return (
-    <span className="af-cli" style={{ color: KIND_COLOR[cli], fontSize: Math.round(size * 0.8) }}>
-      {cli === "codex" ? "◇" : "✻"}
+    <span className="af-cli">
+      <KindIcon kind={cli} size={Math.round(size * 0.75)} />
     </span>
   );
 }

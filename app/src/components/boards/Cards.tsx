@@ -1,6 +1,7 @@
 // Os cartões do quadro, um por tipo de nó do JSON Canvas: nota do Brain (file), sessão e tarefa
 // (text com %%metis), link, nota solta (text puro, em Markdown) e grupo (moldura atrás).
 
+import { KindIcon } from "../KindIcon";
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { ICON, Icon } from "../../icons";
 import {
@@ -15,7 +16,7 @@ import {
   TASK_STATE,
 } from "../../lib/canvas";
 import type { CoreClient } from "../../lib/core";
-import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, shortPath } from "../../lib/format";
+import { KIND_COLOR, STATUS_COLOR, STATUS_LABEL, shortPath } from "../../lib/format";
 import { renderInline, renderNote, TYPE_ICON } from "../../lib/obsidian";
 import type { Agent, BrainHit, CanvasNode, CanvasSide, KanbanTask, Session, SessionGlance } from "../../types";
 import { AgentSprite, spriteState } from "../AgentSprite";
@@ -278,7 +279,7 @@ function SessionBody({ node, session, agent, visible, ctx }: { node: CanvasNode;
             <AgentSprite agent={agent} client={client} size={28} state={session ? spriteState(session) : "sleeping"} />
           ) : (
             <span className="bd-glyph" style={{ color: KIND_COLOR[meta.kind] }}>
-              {KIND_GLYPH[meta.kind]}
+              <KindIcon kind={meta.kind} size={18} />
             </span>
           )}
         </span>
@@ -336,7 +337,7 @@ function SessionBody({ node, session, agent, visible, ctx }: { node: CanvasNode;
           </div>
         ) : (
           <button type="button" className="btn bd-reopen" onClick={() => ctx.reopen(node.id)}>
-            <span style={{ color: KIND_COLOR[meta.kind] }}>{KIND_GLYPH[meta.kind]}</span> Abrir de novo
+            <KindIcon kind={meta.kind} /> Abrir de novo
           </button>
         )}
       </footer>

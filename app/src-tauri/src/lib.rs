@@ -19,7 +19,42 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 
 mod browser;
 #[cfg(target_os = "macos")]
+mod notify;
+#[cfg(target_os = "macos")]
 mod webkit;
+
+/// Fora do Mac não há Central de Notificações: a janela cai no aviso pelo núcleo.
+#[cfg(not(target_os = "macos"))]
+mod notify {
+    #[derive(serde::Deserialize)]
+    pub struct Aviso {}
+    pub fn setup(_app: &tauri::AppHandle) {}
+    pub fn helper(_json: &str) -> i32 {
+        2
+    }
+    #[tauri::command]
+    pub async fn notify_native(_aviso: Aviso) -> Result<(), String> {
+        Err("fora do app".into())
+    }
+    #[tauri::command]
+    pub fn notify_status() -> String {
+        "fora do app".into()
+    }
+    #[tauri::command]
+    pub fn notify_pending() -> Option<String> {
+        None
+    }
+    #[tauri::command]
+    pub fn app_exe() -> String {
+        String::new()
+    }
+}
+
+/// `harness --aviso '<json>'` (v0.9.9): o núcleo avisa pelo app, com o ícone da MÊTIS, quando a
+/// janela está fechada. Não sobe janela nem núcleo.
+pub fn aviso_helper(json: &str) -> i32 {
+    notify::helper(json)
+}
 
 const DEFAULT_PORT: u16 = 47830;
 /// Janela da captura rápida (⌥Espaço), a mesma tela React com `?captura=1`.
@@ -421,6 +456,7 @@ fn adopt_login_path() {
 pub fn run() {
     adopt_login_path();
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -431,6 +467,7 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            notify::setup(app.handle());
             // A MÊTIS de desenvolvimento (scripts/dev.sh) deixa o ⌥Espaço para a de uso, a instalada.
             if std::env::var("METIS_DEV").is_ok() {
                 return Ok(());
@@ -461,7 +498,11 @@ pub fn run() {
             browser::browser_import_cookies,
             browser::browser_zoom,
             browser::app_zoom,
-            browser::open_external
+            browser::open_external,
+            notify::notify_native,
+            notify::notify_status,
+            notify::notify_pending,
+            notify::app_exe
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Harness");

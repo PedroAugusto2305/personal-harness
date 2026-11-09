@@ -1,7 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { KindIcon } from "./KindIcon";
 import { Recording, micError } from "../lib/audio";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH } from "../lib/format";
 import { quotePaths, submit, terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { BarCommand, Session } from "../types";
@@ -36,13 +36,41 @@ interface Props {
   language: string;
   dropping: boolean;
   ref?: Ref<DockHandle>;
+  /** v0.9.9: a barra mora dentro do painel do terminal (mockup), mais enxuta. */
+  compact?: boolean;
+}
+
+/** Modelos que a barra do painel oferece (vai como /model para a CLI). */
+const MODELS: Record<string, [string, string][]> = {
+  claude: [
+    ["opus", "Opus"],
+    ["sonnet", "Sonnet"],
+    ["haiku", "Haiku"],
+  ],
+  codex: [],
+};
+
+/** "claude-opus-5-5" vira "Opus 5.5"; "gpt-5.5" fica como está. */
+export function modelLabel(model: string | null | undefined): string {
+  if (!model) return "";
+  // Mesma regra do núcleo (model_label): versão de até 2 dígitos, para a data do fim não virar
+  // versão ("claude-sonnet-4-20250514" é Sonnet 4); o nome antigo leva a versão antes (3-5-sonnet).
+  const old = /claude-(\d)-(\d)-(opus|sonnet|haiku)/i.exec(model);
+  const m = /(opus|sonnet|haiku|fable|mythos)(?:[-_ ](\d{1,2})(?:[-_.](\d{1,2}))?(?=$|\D))?/i.exec(model);
+  if (m) {
+    const family = `${m[1][0].toUpperCase()}${m[1].slice(1).toLowerCase()}`;
+    if (m[2]) return `${family} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
+    if (old) return `${family} ${old[1]}.${old[2]}`;
+    return family;
+  }
+  return model.replace(/^claude-/, "");
 }
 
 /**
  * Barra de entrada: escreve ou dita, revisa e manda para o terminal em foco.
  * ⏎ cola e envia, ⌥⏎ só cola, ⇧⏎ quebra linha. O microfone vira onda enquanto grava.
  */
-export function Dock({ client, target, targetAccount, language, dropping, ref }: Props) {
+export function Dock({ client, target, targetAccount, language, dropping, ref, compact = false }: Props) {
   const [text, setText] = useState("");
   const [voice, setVoice] = useState<VoiceState>("idle");
   const [recording, setRecording] = useState<Recording | null>(null);
@@ -242,10 +270,14 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
     ? "Abra um terminal para escrever ou ditar para ele…"
     : voice === "transcribing"
       ? "Transcrevendo no seu Mac…"
-      : `Escreva ou dite para ${target.title}…`;
+      : compact
+        ? "Pergunte, use @ para notas, / para comandos"
+        : `Escreva ou dite para ${target.title}…`;
+  const models = target ? (MODELS[target.kind] ?? []) : [];
+  const current = modelLabel(target?.statusline?.model);
 
   return (
-    <div className="dock" data-drop="dock" data-dropping={dropping ? "true" : undefined}>
+    <div className="dock" data-compact={compact ? "true" : undefined} data-drop={compact && target ? `dock:${target.id}` : "dock"} data-dropping={dropping ? "true" : undefined}>
       {suggest && (
         <ul className="dock-suggest" role="listbox" aria-label={suggest.kind === "nota" ? "Notas do Brain" : "Comandos"}>
           {suggest.items.map((item, i) => (
@@ -325,59 +357,135 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
           />
         )}
         {voice === "transcribing" && <div className="shimmer" aria-hidden="true" />}
-        <div className="dock-row">
-          {recordingNow ? (
-            <>
-              <button type="button" className="pill stop" onClick={() => void stop()} title="Parar e transcrever (⌘⇧M)">
-                <span className="stop-square" aria-hidden="true" />
-                Parar
-              </button>
-              <button type="button" className="pill ghost" onClick={() => void cancel()} title="Descartar (Esc)">
-                Cancelar
-              </button>
-            </>
-          ) : (
+        {compact ? (
+          <div className="dock-row compact">
             <button
               type="button"
-              className="pill mic"
-              disabled={!client || voice !== "idle"}
-              onClick={toggleVoice}
-              title="Ditar (⌘⇧M): o áudio é transcrito no seu Mac"
-              aria-label="Ditar"
+              className="dock-icon"
+              disabled={!client || !!busy || voice === "recording"}
+              onClick={() => files.current?.click()}
+              title={busy ?? "Anexar arquivos: o caminho vai junto com o texto"}
+              aria-label="Anexar"
             >
-              <Icon d={ICON.mic} size={14} strokeWidth={1.9} />
-              {voice === "starting" ? "Abrindo o microfone…" : voice === "transcribing" ? "Transcrevendo…" : "Ditar"}
+              <Icon d={ICON.plus} size={15} strokeWidth={2} />
             </button>
-          )}
-          <button
-            type="button"
-            className="pill"
-            disabled={!client || !!busy || voice === "recording"}
-            onClick={() => files.current?.click()}
-            title="Anexar arquivos: o caminho vai junto com o texto"
-          >
-            <Icon d={ICON.clip} size={14} strokeWidth={1.9} />
-            {busy ?? "Anexar"}
-          </button>
-          <input ref={files} type="file" multiple hidden onChange={(event) => void attach(event.target.files)} />
-          {target && (
-            <span className="dock-target" title="O texto vai para o terminal em foco">
-              para <span style={{ color: KIND_COLOR[target.kind] }}>{KIND_GLYPH[target.kind]}</span> {target.title}
-              {targetAccount && <span className="small"> · {targetAccount}</span>}
-            </span>
-          )}
-          <span className="dock-hint mono">⏎ envia · ⌥⏎ só cola · ⇧⏎ linha · @ nota · / comando</span>
-          <button
-            type="button"
-            className="send"
-            disabled={!text.trim() || !target || voice !== "idle"}
-            onClick={() => deliver(true)}
-            title="Enviar para o terminal (⏎)"
-            aria-label="Enviar para o terminal"
-          >
-            <Icon d={ICON.send} size={15} strokeWidth={2.2} />
-          </button>
-        </div>
+            <input ref={files} type="file" multiple hidden onChange={(event) => void attach(event.target.files)} />
+            {targetAccount && (
+              <span className="dock-chip" title="Conta desta sessão">
+                <Icon d={ICON.user} size={12} /> {targetAccount}
+              </span>
+            )}
+            {busy && <span className="dock-chip">{busy}</span>}
+            <span className="grow" />
+            {target && target.kind !== "shell" && (models.length ? (
+              <label className="dock-model" title="Trocar o modelo desta conversa (manda /model para a CLI)">
+                <select
+                  value=""
+                  onChange={(event) => {
+                    if (event.target.value && target) submit(target.id, `/model ${event.target.value}`);
+                    event.target.value = "";
+                  }}
+                  aria-label="Modelo"
+                >
+                  <option value="">{current || "modelo"} ⌄</option>
+                  {models.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              current && <span className="dock-chip mono">{current}</span>
+            ))}
+            {recordingNow ? (
+              <>
+                <button type="button" className="dock-icon stop" onClick={() => void stop()} title="Parar e transcrever (⌘⇧M)" aria-label="Parar e transcrever">
+                  <span className="stop-square" aria-hidden="true" />
+                </button>
+                <button type="button" className="dock-icon" onClick={() => void cancel()} title="Descartar (Esc)" aria-label="Descartar">
+                  <Icon d={ICON.close} size={13} strokeWidth={2} />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="dock-icon"
+                disabled={!client || voice !== "idle"}
+                onClick={toggleVoice}
+                title="Ditar (⌘⇧M): o áudio é transcrito no seu Mac"
+                aria-label="Ditar"
+                data-busy={voice !== "idle" ? "true" : undefined}
+              >
+                <Icon d={ICON.mic} size={14} strokeWidth={1.9} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="dock-send"
+              disabled={!text.trim() || !target || voice !== "idle"}
+              onClick={() => deliver(true)}
+              title="Enviar (⏎) · ⌥⏎ só cola · ⇧⏎ quebra linha"
+              aria-label="Enviar para o terminal"
+            >
+              <Icon d={ICON.up} size={13} strokeWidth={2.4} />
+            </button>
+          </div>
+        ) : (
+        <div className="dock-row">
+            {recordingNow ? (
+              <>
+                <button type="button" className="pill stop" onClick={() => void stop()} title="Parar e transcrever (⌘⇧M)">
+                  <span className="stop-square" aria-hidden="true" />
+                  Parar
+                </button>
+                <button type="button" className="pill ghost" onClick={() => void cancel()} title="Descartar (Esc)">
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="pill mic"
+                disabled={!client || voice !== "idle"}
+                onClick={toggleVoice}
+                title="Ditar (⌘⇧M): o áudio é transcrito no seu Mac"
+                aria-label="Ditar"
+              >
+                <Icon d={ICON.mic} size={14} strokeWidth={1.9} />
+                {voice === "starting" ? "Abrindo o microfone…" : voice === "transcribing" ? "Transcrevendo…" : "Ditar"}
+              </button>
+            )}
+            <button
+              type="button"
+              className="pill"
+              disabled={!client || !!busy || voice === "recording"}
+              onClick={() => files.current?.click()}
+              title="Anexar arquivos: o caminho vai junto com o texto"
+            >
+              <Icon d={ICON.clip} size={14} strokeWidth={1.9} />
+              {busy ?? "Anexar"}
+            </button>
+            <input ref={files} type="file" multiple hidden onChange={(event) => void attach(event.target.files)} />
+            {target && (
+              <span className="dock-target" title="O texto vai para o terminal em foco">
+                para <KindIcon kind={target.kind} /> {target.title}
+                {targetAccount && <span className="small"> · {targetAccount}</span>}
+              </span>
+            )}
+            <span className="dock-hint mono">⏎ envia · ⌥⏎ só cola · ⇧⏎ linha · @ nota · / comando</span>
+            <button
+              type="button"
+              className="send"
+              disabled={!text.trim() || !target || voice !== "idle"}
+              onClick={() => deliver(true)}
+              title="Enviar para o terminal (⏎)"
+              aria-label="Enviar para o terminal"
+            >
+              <Icon d={ICON.send} size={15} strokeWidth={2.2} />
+            </button>
+          </div>
+        )}
       </div>
       {error && (
         <div className="dock-error" role="alert">

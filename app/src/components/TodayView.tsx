@@ -1,12 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { KindIcon } from "./KindIcon";
+import { ICON, Icon } from "../icons";
+import { useCardDrag } from "../lib/cardDrag";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, shortPath } from "../lib/format";
-import { renderInline } from "../lib/obsidian";
-import type { Accounts, Agent, Approval, Routine, RoutineDraft, RoutineRun, Session, Suggestion, TodayData, Usage } from "../types";
-import { UsageMeter } from "./StatusBar";
+import { money, pct, resetIn, shortPath, tokens } from "../lib/format";
+import type {
+  Accounts,
+  Agent,
+  AgentEvent,
+  Approval,
+  BoardProject,
+  BrainGraphData,
+  ConnectorAccount,
+  RateWindow,
+  Routine,
+  RoutineDraft,
+  Session,
+  Stage,
+  Suggestion,
+  TodayData,
+  Usage,
+} from "../types";
 import { AgentSprite } from "./AgentSprite";
-import { ApprovalCard, ReminderTry } from "./ConnectorsView";
+import { deskOf } from "./AgentsRoom";
+import { BrandIcon, brandFor } from "./BrandIcon";
+import { ApprovalCard } from "./ConnectorsView";
+import { ProjectGraph } from "./ProjectGraph";
+import { useTodaySpend } from "./StatusBar";
 import { SuggestionCard } from "./SuggestionCard";
+import "./today.css";
 
 interface Props {
   client: CoreClient | null;
@@ -26,6 +48,11 @@ interface Props {
   usage: Usage;
   accounts: Accounts;
   onOpenAccounts: () => void;
+  /** v0.9.9: o Hoje do mockup. */
+  events: AgentEvent[];
+  connectors: ConnectorAccount[];
+  onView: (view: "kanban" | "brain" | "agents" | "connectors") => void;
+  onOpenKanban: (project?: string) => void;
 }
 
 const DAY_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
@@ -82,7 +109,7 @@ function RoutineEditor(props: {
   };
 
   return (
-    <div className="routine-editor">
+    <div className="routine-editor td-modal" role="dialog" aria-label={routine ? routine.name : "Nova rotina"}>
       <div className="routine-editor-head">
         <strong>{routine ? routine.name : "Nova rotina"}</strong>
         <button type="button" className="link-btn" onClick={props.onClose}>
@@ -195,33 +222,88 @@ function RoutineEditor(props: {
 
 export function TodayView(props: Props) {
   const { client, tick } = props;
+  const spend = useTodaySpend(client);
   const [today, setToday] = useState<TodayData | null>(null);
   const [routines, setRoutines] = useState<Routine[]>([]);
-  const [runs, setRuns] = useState<RoutineRun[]>([]);
+  const [projects, setProjects] = useState<BoardProject[]>([]);
+  const [graph, setGraph] = useState<BrainGraphData | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [editing, setEditing] = useState<Routine | "nova" | null>(null);
+  const [capture, setCapture] = useState("");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (!client) return;
+    let alive = true;
     const load = () => {
-      void client.today().then(setToday).catch(() => undefined);
-      void client
-        .routines()
-        .then((r) => {
-          setRoutines(r.routines);
-          setRuns(r.runs);
-        })
-        .catch(() => undefined);
+      void client.today().then((t) => alive && setToday(t)).catch(() => undefined);
+      void client.routines().then((r) => alive && setRoutines(r.routines)).catch(() => undefined);
+      void client.boardProjects().then((p) => alive && setProjects(p)).catch(() => undefined);
     };
     load();
     const timer = window.setInterval(load, 60000);
-    return () => window.clearInterval(timer);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, [client, tick, editing]);
 
-  if (!client) return <div className="today-screen" />;
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    void client.brainGraph().then((g) => alive && setGraph(g)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [client, tick]);
+
+  useEffect(() => {
+    if (!client) return;
+    void client
+      .suggestions()
+      .then(setSuggestions)
+      .catch(() => setSuggestions([]));
+  }, [client, props.suggestionsTick]);
+
+  const drag = useCardDrag((col, name) => void moveProject(name, (col === "none" ? "" : col) as Stage));
+  const moveProject = async (name: string, stage: Stage) => {
+    if (!client) return;
+    const before = projects;
+    if (before.find((p) => p.name === name)?.stage === stage) return;
+    setProjects((all) => all.map((p) => (p.name === name ? { ...p, stage } : p)));
+    try {
+      const saved = await client.setStage(name, stage);
+      setProjects((all) => all.map((p) => (p.name === name ? saved : p)));
+    } catch (cause) {
+      setProjects(before);
+      props.onToast(message(cause));
+    }
+  };
+
+  const desks = useMemo(() => props.agents.map((a) => deskOf(a, props.sessions, props.events, routines)), [props.agents, props.sessions, props.events, routines]);
+
+  if (!client) return <div className="td" />;
   const agentOf = (id: string) => props.agents.find((a) => a.id === id);
-  const open = (sessionId: string) => props.sessions.some((s) => s.id === sessionId);
   const now = today ? new Date(today.now) : new Date();
-  const title = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+  const date = now.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" });
+  const live = props.sessions.filter((s) => (s.kind === "claude" || s.kind === "codex") && s.status !== "exited");
+  const waiting = props.approvals.length + live.filter((s) => s.status === "waiting").length;
+  const openActions = projects.reduce((n, p) => n + p.tasks.pendente + p.tasks["em-andamento"] + p.tasks["em-teste"], 0);
+
+  const send = async () => {
+    const text = capture.trim();
+    if (!text || sending) return;
+    setSending(true);
+    try {
+      const answer = await client.capture(text);
+      setCapture("");
+      props.onToast(answer.mensagem || "Mandado para o Hermes.");
+    } catch (cause) {
+      props.onToast(message(cause));
+    } finally {
+      setSending(false);
+    }
+  };
 
   const run = (routine: Routine) =>
     void client
@@ -229,98 +311,296 @@ export function TodayView(props: Props) {
       .then((r) => props.onToast(r.status === "erro" ? `Erro: ${r.detail}` : `${routine.name} abriu num terminal.`))
       .catch((cause) => props.onToast(message(cause)));
 
-  return (
-    <div className="today-screen">
-      <section className="today-main">
-        <h1 className="today-title">Hoje · {title}</h1>
-        {today?.study && !today.study.rest_day && (
-          <p className="today-study small" data-risk={today.study.risk ? "true" : undefined}>
-            📚 {Math.round(today.study.today)} min de estudo hoje (piso {today.study.floor})
-            {today.study.risk ? " · ontem ficou abaixo do piso: hoje não pode passar em branco" : ""}
-          </p>
-        )}
+  // Colunas do mini-kanban: os estágios de sempre, mais "Ideia" e "Sem estágio" quando têm projeto.
+  const stages: { key: Stage; label: string }[] = [
+    { key: "", label: "Sem estágio" },
+    { key: "ideia", label: "Ideia" },
+    { key: "planejando", label: "Planejando" },
+    { key: "construindo", label: "Construindo" },
+    { key: "em-producao", label: "Em produção" },
+    { key: "pausado", label: "Pausado" },
+  ].filter((s) => (s.key !== "" && s.key !== "ideia") || projects.some((p) => p.stage === s.key)) as { key: Stage; label: string }[];
+  const sessionsIn = (p: BoardProject) => {
+    const dir = p.directory?.replace(/^~/, "") ?? "";
+    return dir ? live.filter((s) => s.cwd.endsWith(dir) || s.cwd.includes(`${dir}/`) || (p.directory && s.cwd.startsWith(p.directory))) : [];
+  };
 
-        <div className="section-title">Rotinas de hoje</div>
-        {today?.slots.length ? (
-          <ul className="today-timeline">
-            {today.slots.map(({ routine, slot, run: done }) => {
-              const agent = agentOf(routine.agent);
-              const status = done ? STATUS[done.status] : null;
-              const due = new Date(slot) <= now;
-              return (
-                <li key={routine.id} className="today-slot" data-past={due ? "true" : undefined}>
-                  <span className="today-time mono">{clock(slot)}</span>
-                  {agent ? <AgentSprite agent={agent} client={client} size={24} /> : <span className="today-glyph">✻</span>}
-                  <span className="today-slot-name">
-                    {routine.name}
-                    {agent && <span className="small"> · {agent.name}</span>}
-                  </span>
-                  {status ? (
-                    <span className="activity-status" data-status={status.tone === "ok" ? "ok" : status.tone === "err" ? "erro" : "aguardando você"} title={done?.detail || undefined}>
-                      {status.label}
-                    </span>
-                  ) : (
-                    <span className="activity-status">{due ? "aguardando" : "agendada"}</span>
-                  )}
-                  {done?.session && open(done.session) ? (
-                    <button type="button" className="link-btn" onClick={() => props.onOpenSession(done.session)}>
-                      abrir ›
-                    </button>
-                  ) : (
-                    <button type="button" className="link-btn" onClick={() => run(routine)}>
-                      rodar agora
-                    </button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="small today-empty">Nenhuma rotina para hoje{today?.weekday === "dom" ? " (domingo é descanso)" : ""}.</p>
-        )}
+  const suggestion = suggestions[0] ?? null;
+
+  return (
+    <div className="td">
+      <div className="td-tabs" role="tablist" aria-label="Abas">
+        <div className="td-tab" role="tab" aria-selected="true">
+          Hoje
+        </div>
+        <button type="button" className="td-tab muted" role="tab" aria-selected="false" onClick={() => props.onOpenNote("HOME")}>
+          HOME
+        </button>
+      </div>
+
+      <div className="td-body">
+        <div className="td-top">
+          <div className="td-title">
+            <h1>Hoje</h1>
+            <span className="td-sub">
+              {date} · {live.length} {live.length === 1 ? "agente" : "agentes"} · {openActions} ações abertas
+              {waiting > 0 && <span className="td-waiting"> · {waiting} {waiting === 1 ? "coisa esperando" : "coisas esperando"} você</span>}
+            </span>
+            {today?.study && !today.study.rest_day && (
+              <span className="td-study" data-risk={today.study.risk ? "true" : undefined}>
+                {Math.round(today.study.today)} min de estudo hoje (piso {today.study.floor})
+                {today.study.risk ? " · ontem ficou abaixo do piso: hoje não pode passar em branco" : ""}
+              </span>
+            )}
+          </div>
+          <form
+            className="td-capture"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send();
+            }}
+          >
+            <label className="td-capture-input">
+              <span className="sr-only">Captura rápida para o Hermes</span>
+              <input value={capture} onChange={(e) => setCapture(e.target.value)} placeholder="Mande para o Hermes: “me lembra de pagar o IPVA sexta 9h”" />
+            </label>
+            <div className="td-capture-row">
+              <span className="td-capture-who">
+                <span className="td-dot" />
+                Hermes
+              </span>
+              <span>vira tarefa, lembrete ou nota</span>
+              <span className="td-kbd mono">⌥ espaço</span>
+              <button type="submit" className="td-send" aria-label="Enviar" disabled={!capture.trim() || sending}>
+                <Icon d={ICON.up} size={13} strokeWidth={2.4} />
+              </button>
+            </div>
+          </form>
+        </div>
 
         {props.approvals.length > 0 && (
-          <>
-            <div className="section-title">Aguardando você</div>
-            <div className="today-approvals">
-              {props.approvals.map((a) => (
-                <ApprovalCard key={a.id} approval={a} onDecide={props.onDecide} />
-              ))}
-            </div>
-          </>
-        )}
-
-        <TodaySuggestions client={client} tick={props.suggestionsTick} onOpenNote={props.onOpenNote} onToast={props.onToast} />
-
-        <div className="section-title">Em andamento</div>
-        {today?.doing.length ? (
-          <ul className="today-doing">
-            {today.doing.map((task) => (
-              <li key={`${task.project}-${task.id}`}>
-                <span className="kb-dot" style={{ background: task.state === "em-teste" ? "var(--wait)" : "var(--run)" }} />
-                <span className="today-task" dangerouslySetInnerHTML={{ __html: renderInline(task.text) }} />
-                <button type="button" className="link-btn" onClick={() => props.onOpenTasks(task.project)}>
-                  {task.project} ›
-                </button>
-              </li>
+          <div className="td-approvals">
+            {props.approvals.map((a) => (
+              <ApprovalCard key={a.id} approval={a} onDecide={props.onDecide} />
             ))}
-          </ul>
-        ) : (
-          <p className="small today-empty">Nenhuma tarefa em andamento ou em teste nos projetos do Brain.</p>
+          </div>
         )}
 
-        {props.hasSlack && <ReminderTry client={client} onToast={props.onToast} />}
-      </section>
+        <div className="td-middle">
+          <section className="td-projects" aria-label="Kanban de projetos">
+            <div className="td-section-head">
+              <button type="button" className="td-section-link" onClick={() => props.onOpenKanban()}>
+                Projetos ›
+              </button>
+              <span className="td-hint">arraste para mudar o estágio no Brain</span>
+            </div>
+            <div className="td-cols" style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(170px, 1fr))` }}>
+              {stages.map((stage) => {
+                const list = projects.filter((p) => p.stage === stage.key).sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+                const key = stage.key || "none";
+                return (
+                  <div key={key} className="td-col" data-col={key} data-over={drag.drag?.col === key ? "true" : undefined}>
+                    <div className="td-col-head">
+                      <span>{stage.label}</span>
+                      <span className="td-count">{list.length}</span>
+                    </div>
+                    {list.slice(0, 6).map((p) => {
+                      const here = sessionsIn(p);
+                      const withAgent = here.map((s) => agentOf(s.agent ?? "")).filter(Boolean) as Agent[];
+                      const open = p.tasks.pendente + p.tasks["em-andamento"] + p.tasks["em-teste"];
+                      return (
+                        <article
+                          key={p.name}
+                          className="td-card"
+                          data-dragging={drag.drag?.id === p.name ? "true" : undefined}
+                          data-live={here.length ? "true" : undefined}
+                          onPointerDown={(event) => drag.start(event, p.name, p.name)}
+                          onDragStart={(event) => event.preventDefault()}
+                          onClick={() => !drag.consumeClick() && props.onOpenKanban(p.name)}
+                        >
+                          <span className="td-card-name">{p.name}</span>
+                          <span className="td-card-meta">
+                            {open} {open === 1 ? "ação" : "ações"}
+                            {p.next[0] ? ` · ${p.next[0].replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_, a, b) => b || a).replace(/[*_`]/g, "").slice(0, 40)}` : ""}
+                          </span>
+                          <span className="td-card-row">
+                            {p.area && <span className="td-tag">#{p.area.toLowerCase().replace(/\s+/g, "-")}</span>}
+                            {withAgent.slice(0, 3).map((a) => (
+                              <AgentSprite key={a.id} agent={a} client={client} size={18} />
+                            ))}
+                            {here.length > 0 && (
+                              <span className="td-clis mono">
+                                {here[0].kind}
+                                {here.length > 1 ? ` +${here.length - 1}` : ""}
+                              </span>
+                            )}
+                          </span>
+                        </article>
+                      );
+                    })}
+                    {list.length > 6 && (
+                      <button type="button" className="td-more" onClick={() => props.onOpenKanban()}>
+                        +{list.length - 6} no kanban
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
-      <aside className="today-side">
-        <PlanQuota usage={props.usage} accounts={props.accounts} onOpen={props.onOpenAccounts} />
-        <div className="today-side-head">
-          <div className="section-title">Rotinas</div>
-          <button type="button" className="btn" onClick={() => setEditing("nova")}>
-            Nova rotina
-          </button>
+          <aside className="td-brain" aria-label="Brain">
+            <div className="td-graph">
+              <div className="td-graph-head">
+                <button type="button" className="td-section-link" onClick={() => props.onView("brain")}>
+                  Visualização de grafo ›
+                </button>
+                <span className="td-hint">
+                  {projects.length} projetos · {graph?.nodes.length ?? "…"} notas
+                </span>
+              </div>
+              <ProjectGraph data={graph} satellites={3} className="td-graph-svg" onProject={(name) => props.onOpenNote(name)} onNote={(path) => props.onOpenNote(path.split("/").pop()!.replace(/\.md$/, ""))} />
+            </div>
+            {suggestion ? (
+              <div className="td-suggestion">
+                <span className="td-suggestion-title">
+                  <Icon d={ICON.spark} size={14} /> Precedente sugerido
+                  {suggestions.length > 1 && <span className="td-hint"> · mais {suggestions.length - 1}</span>}
+                </span>
+                <SuggestionCard client={client} item={suggestion} showTarget compact onOpenNote={props.onOpenNote} onDone={props.onToast} onError={props.onToast} />
+              </div>
+            ) : (
+              <div className="td-suggestion quiet">
+                <span className="td-suggestion-title">
+                  <Icon d={ICON.spark} size={14} /> Precedentes
+                </span>
+                <span className="td-hint">Nenhuma sugestão esperando você. Quando uma decisão de um projeto servir em outro, ela aparece aqui.</span>
+              </div>
+            )}
+          </aside>
         </div>
-        {editing && (
+
+        <div className="td-bottom">
+          <section className="td-box" aria-label="Agentes">
+            <button type="button" className="td-section-link" onClick={() => props.onView("agents")}>
+              Agentes ›
+            </button>
+            <div className="td-agents">
+              {desks.slice(0, 10).map((d) => (
+                <button
+                  key={d.agent.id}
+                  type="button"
+                  className="td-agent"
+                  title={d.message}
+                  onClick={() => (d.session && d.session.status !== "exited" ? props.onOpenSession(d.session.id) : props.onView("agents"))}
+                >
+                  <AgentSprite agent={d.agent} client={client} size={32} state={d.state} />
+                  <span className="td-agent-name">{d.agent.name}</span>
+                  <span className="td-agent-status" data-state={d.state}>
+                    {d.status}
+                  </span>
+                </button>
+              ))}
+              {!desks.length && <span className="td-hint">Nenhum agente ainda.</span>}
+            </div>
+          </section>
+
+          <section className="td-box" aria-label="Rotinas">
+            <div className="td-box-head">
+              <span className="td-box-title">Rotinas</span>
+              <button type="button" className="td-link" onClick={() => setEditing("nova")}>
+                + nova
+              </button>
+            </div>
+            {(today?.slots ?? []).map(({ routine, slot, run: done }) => {
+              const due = new Date(slot) <= now;
+              const ok = !!done && ["rodou", "recuperada", "manual"].includes(done.status);
+              return (
+                <div key={routine.id} className="td-routine" data-done={ok ? "true" : undefined}>
+                  <input type="checkbox" checked={ok} readOnly aria-label={ok ? "rodou" : "ainda não rodou"} />
+                  <span className="mono td-routine-time">{clock(slot)}</span>
+                  <button type="button" className="td-routine-name" onClick={() => setEditing(routine)} title={done?.detail || undefined}>
+                    {routine.name}
+                    {agentOf(routine.agent) && <span className="td-hint"> · {agentOf(routine.agent)!.name}</span>}
+                    {done && !ok && <span className="td-routine-flag"> · {STATUS[done.status]?.label ?? done.status}</span>}
+                  </button>
+                  {done?.session && props.sessions.some((s) => s.id === done.session) ? (
+                    <button type="button" className="td-link" onClick={() => props.onOpenSession(done.session)}>
+                      abrir
+                    </button>
+                  ) : (
+                    !ok && (
+                      <button type="button" className="td-link" onClick={() => run(routine)}>
+                        {due ? "rodar" : "agora"}
+                      </button>
+                    )
+                  )}
+                </div>
+              );
+            })}
+            {routines
+              .filter((r) => !(today?.slots ?? []).some((s) => s.routine.id === r.id))
+              .slice(0, 4)
+              .map((routine) => (
+                <div key={routine.id} className="td-routine" data-later="true">
+                  <input type="checkbox" checked={false} readOnly disabled aria-label="não é hoje" />
+                  <span className="mono td-routine-time">{daysLabel(routine.days).slice(0, 3)}</span>
+                  <button type="button" className="td-routine-name" onClick={() => setEditing(routine)}>
+                    {routine.name}
+                    <span className="td-hint"> · {routine.active ? nextLabel(routine.next) : "pausada"}</span>
+                  </button>
+                </div>
+              ))}
+            {!routines.length && <span className="td-hint">Nenhuma rotina. "+ nova" agenda um agente.</span>}
+          </section>
+
+          <section className="td-box" aria-label="Uso dos planos">
+            <button type="button" className="td-section-link" onClick={props.onOpenAccounts}>
+              Uso dos planos ›
+            </button>
+            {(["claude", "codex"] as const).flatMap((provider) =>
+              props.accounts[provider].accounts.map((account) => {
+                const limits = props.usage[provider][account.id];
+                return (["five_hour", "seven_day"] as const).map((win) => (
+                  <QuotaRow key={`${provider}-${account.id}-${win}`} provider={provider} label={win === "five_hour" ? "5h" : "7d"} name={props.accounts[provider].accounts.length > 1 ? account.name : ""} window={limits?.[win]} />
+                ));
+              }),
+            )}
+            {(spend.claude || spend.codex) && (
+              <span className="td-hint td-spend">
+                Hoje: {spend.claude ? `${money(spend.claude.custo)} se fosse pela API · ${tokens(spend.claude.tokens)} tokens do Claude` : ""}
+                {spend.codex ? `${spend.claude ? " · " : ""}${tokens(spend.codex.tokens)} do Codex` : ""}
+              </span>
+            )}
+          </section>
+
+          <section className="td-box" aria-label="Conectores">
+            <button type="button" className="td-section-link" onClick={() => props.onView("connectors")}>
+              Conectores ›
+            </button>
+            {props.connectors.slice(0, 5).map((c) => (
+              <div key={c.id} className="td-conn">
+                <BrandIcon brand={brandFor(c.kind, [c.name, c.meta.servidor, c.meta.url, c.meta.comando])} size={22} />
+                <span className="td-conn-name">{c.name}</span>
+                <span className="td-conn-on">conectado</span>
+              </div>
+            ))}
+            {props.connectors.length === 0 &&
+              ["Slack", "ClickUp", "GitHub"].map((name) => (
+                <div key={name} className="td-conn">
+                  <BrandIcon brand={brandFor(name.toLowerCase())} size={22} />
+                  <span className="td-conn-name">{name}</span>
+                  <button type="button" className="td-link" onClick={() => props.onView("connectors")}>
+                    conectar
+                  </button>
+                </div>
+              ))}
+          </section>
+        </div>
+      </div>
+
+      {editing && (
+        <div className="td-modal-back" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setEditing(null)}>
           <RoutineEditor
             key={editing === "nova" ? "nova" : editing.id}
             client={client}
@@ -329,104 +609,26 @@ export function TodayView(props: Props) {
             onClose={() => setEditing(null)}
             onToast={props.onToast}
           />
-        )}
-        {routines.map((routine) => {
-          const agent = agentOf(routine.agent);
-          return (
-            <button key={routine.id} type="button" className="routine-card" data-off={routine.active ? undefined : "true"} onClick={() => setEditing(routine)}>
-              <span className="routine-card-head">
-                {agent ? <AgentSprite agent={agent} client={client} size={20} /> : <span className="today-glyph">✻</span>}
-                <strong>{routine.name}</strong>
-                {!routine.active && <span className="chip">pausada</span>}
-              </span>
-              <span className="small mono">
-                {daysLabel(routine.days)} · {routine.time} · {routine.active ? `próxima ${nextLabel(routine.next)}` : "não roda"}
-              </span>
-              <span className="small">
-                recupera até {routine.catchup} min{routine.notify ? " · avisa no Slack" : ""}
-              </span>
-            </button>
-          );
-        })}
-        {!routines.length && !editing && (
-          <p className="small today-empty">
-            Nenhuma rotina. Uma rotina abre um agente num terminal na hora marcada, com um pedido; com o Mac dormindo, recupera dentro da janela
-            ou pula.
-          </p>
-        )}
-        {runs.length > 0 && (
-          <>
-            <div className="section-title today-history">Últimas execuções</div>
-            {runs.slice(0, 8).map((r) => (
-              <div key={r.id} className="today-run small">
-                <span className="mono">{new Date(r.ts * 1000).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                <span>{routines.find((x) => x.id === r.routine)?.name ?? r.routine}</span>
-                <span className="activity-status">{STATUS[r.status]?.label ?? r.status}</span>
-                {r.detail && <span className="today-run-detail">{r.detail}</span>}
-              </div>
-            ))}
-          </>
-        )}
-      </aside>
+        </div>
+      )}
     </div>
   );
 }
 
-/** Sugestões de precedente pendentes (de todos os projetos): aceitar vira decisão no projeto alvo. */
-function TodaySuggestions(props: { client: CoreClient; tick: number; onOpenNote: (title: string) => void; onToast: (message: string) => void }) {
-  const { client, tick } = props;
-  const [items, setItems] = useState<Suggestion[]>([]);
-  useEffect(() => {
-    void client
-      .suggestions()
-      .then(setItems)
-      .catch(() => setItems([]));
-  }, [client, tick]);
-  if (!items.length) return null;
+function QuotaRow({ provider, label, name, window }: { provider: "claude" | "codex"; label: string; name: string; window?: RateWindow }) {
+  const used = window?.used_pct ?? null;
+  const hot = used != null && used >= 80;
+  const reset = window ? resetIn(window.resets_at) : "";
   return (
-    <>
-      <div className="section-title">Sugestões do Brain ({items.length})</div>
-      <div className="today-suggestions">
-        {items.slice(0, 6).map((item) => (
-          <SuggestionCard key={item.id} client={client} item={item} showTarget compact onOpenNote={props.onOpenNote} onDone={props.onToast} onError={props.onToast} />
-        ))}
-      </div>
-    </>
-  );
-}
-
-/**
- * Cota dos planos (v0.9.8): as janelas de 5 horas e de 7 dias de cada conta do Claude e do
- * Codex, para decidir onde mandar o próximo trabalho pesado.
- */
-function PlanQuota({ usage, accounts, onOpen }: { usage: Usage; accounts: Accounts; onOpen: () => void }) {
-  const rows = (["claude", "codex"] as const).flatMap((provider) =>
-    accounts[provider].accounts.map((account) => ({ provider, account, limits: usage[provider][account.id] })),
-  );
-  return (
-    <section className="today-quota">
-      <div className="today-side-head">
-        <div className="section-title">Cota dos planos</div>
-        <button type="button" className="link-btn" onClick={onOpen}>
-          contas ›
-        </button>
-      </div>
-      {rows.map(({ provider, account, limits }) => (
-        <div key={`${provider}-${account.id}`} className="quota-row" data-active={accounts[provider].active === account.id ? "true" : undefined}>
-          <span className="quota-name">
-            <span style={{ color: KIND_COLOR[provider] }}>{KIND_GLYPH[provider]}</span> {account.name}
-            {accounts[provider].active === account.id && <span className="small"> · em uso</span>}
-          </span>
-          {limits ? (
-            <span className="quota-meters">
-              <UsageMeter label="5h" window={limits.five_hour} />
-              <UsageMeter label="7d" window={limits.seven_day} />
-            </span>
-          ) : (
-            <span className="small quota-empty">{provider === "claude" ? "aparece depois da primeira resposta nesta conta" : "lido da CLI a cada 3 min"}</span>
-          )}
-        </div>
-      ))}
-    </section>
+    <div className="td-quota" title={name ? `${provider} · ${name}` : provider}>
+      <KindIcon kind={provider} />
+      <span>{label}</span>
+      <span className="td-bar">
+        <span style={{ width: `${Math.min(100, used ?? 0)}%`, background: hot ? "var(--warn)" : provider === "claude" ? "var(--acc)" : "var(--wait)" }} />
+      </span>
+      <span className="mono td-quota-text" style={hot ? { color: "var(--warn)" } : undefined}>
+        {used == null ? "—" : `${pct(used)}${reset ? ` · ${reset}` : ""}`}
+      </span>
+    </div>
   );
 }

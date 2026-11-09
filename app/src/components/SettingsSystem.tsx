@@ -1,8 +1,9 @@
 // Seções dos Ajustes da v0.9.2: agentes e avisos, skills e recursos. Ficam fora do
 // Settings.tsx para ele continuar curto; a navegação e o visual são os mesmos.
+import { KindIcon } from "./KindIcon";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { restartCore, type CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, fold, megabytes, shortPath } from "../lib/format";
+import { nativeNotify, nativeNotifyStatus, restartCore, type CoreClient } from "../lib/core";
+import { KIND_COLOR, STATUS_COLOR, STATUS_LABEL, fold, megabytes, shortPath } from "../lib/format";
 import { chime } from "../lib/pomodoro";
 import type { PermissionMode, Prefs, Provider, Resources, SemanticStatus, SkillInfo, SkillTarget } from "../types";
 
@@ -121,7 +122,7 @@ export function AgentsPrefsSection({
             <div className="card perm-card" key={cli} role="radiogroup" aria-label={`Modo de permissão do ${cli === "claude" ? "Claude Code" : "Codex"}`}>
               <header className="card-head">
                 <span className="card-glyph" style={{ color: KIND_COLOR[cli] }}>
-                  {KIND_GLYPH[cli]}
+                  <KindIcon kind={cli} size={18} />
                 </span>
                 <h2>{cli === "claude" ? "Claude Code" : "Codex"}</h2>
               </header>
@@ -236,6 +237,7 @@ export function AgentsPrefsSection({
             Testar
           </button>
         </div>
+        <NativeNoticeRow client={client} som={avisos.som} disabled={avisos.silencio} />
         <div className="setting-row">
           <span className="setting-label">
             Silenciar tudo
@@ -658,7 +660,7 @@ export function ResourcesSection({
               {sessions.map((s) => (
                 <div className="res-row" key={s.id}>
                   <button type="button" className="res-title" title={`Ir para ${s.title} · ${shortPath(s.cwd)}`} onClick={() => onOpen(s.id)}>
-                    <span style={{ color: KIND_COLOR[s.kind] }}>{KIND_GLYPH[s.kind]}</span>
+                    <KindIcon kind={s.kind} />
                     <span className="res-name">{s.title}</span>
                     <span className="small mono res-status">
                       <span className="dot" style={{ background: STATUS_COLOR[s.status] }} /> {STATUS_LABEL[s.status]}
@@ -755,6 +757,44 @@ function MetisSkillCard({ client }: { client: CoreClient | null }) {
       </div>
       {open && <pre className="metis-skill-text mono">{state.texto}</pre>}
       {error && <div className="error-box">{error}</div>}
+    </div>
+  );
+}
+
+const NATIVE_HINT: Record<string, string> = {
+  ativo: "Saem pela Central de Notificações com o ícone da MÊTIS; clicar abre a sessão. Com a janela fechada, o núcleo avisa pelo app.",
+  pendente: "O macOS ainda vai perguntar se a MÊTIS pode mandar avisos. Até lá, saem pelo Editor de Scripts.",
+  negado: "Desligados no macOS. Para ligar: Ajustes do Sistema → Notificações → MÊTIS. Até lá, saem pelo Editor de Scripts.",
+  "fora do app": "Esta MÊTIS não roda de um .app (desenvolvimento): os avisos saem pelo núcleo, com o ícone do Editor de Scripts.",
+};
+
+/** v0.9.9: os avisos nativos (ícone da MÊTIS) e um teste de verdade. */
+function NativeNoticeRow({ client, som, disabled }: { client: CoreClient | null; som: boolean; disabled: boolean }) {
+  const [status, setStatus] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  useEffect(() => {
+    void nativeNotifyStatus().then(setStatus);
+  }, []);
+  const key = status?.startsWith("negado") ? "negado" : (status ?? "");
+  const test = async () => {
+    setResult(null);
+    const failed = await nativeNotify({ titulo: "Aviso da MÊTIS", texto: "Assim chegam os avisos dos agentes: clique para voltar à MÊTIS.", som, alvo: "", grupo: "teste" });
+    if (!failed) return setResult("mandado: veja no canto da tela");
+    // Sem o aviso nativo, o de antes (pelo núcleo), para o teste ainda mostrar algo.
+    await client?.notifyMac("Aviso da MÊTIS", "Aviso pelo núcleo (Editor de Scripts).").catch(() => undefined);
+    setResult(`não saiu pelo app (${failed}); mandei pelo núcleo`);
+    void nativeNotifyStatus().then(setStatus);
+  };
+  return (
+    <div className="setting-row">
+      <span className="setting-label">
+        Avisos do macOS {status && <span className="mono small">· {key === "ativo" ? "com o ícone da MÊTIS" : key}</span>}
+        <span className="small">{NATIVE_HINT[key] ?? status ?? "conferindo…"}</span>
+        {result && <span className="small">{result}</span>}
+      </span>
+      <button type="button" className="pill" disabled={disabled} onClick={() => void test()}>
+        Testar aviso
+      </button>
     </div>
   );
 }

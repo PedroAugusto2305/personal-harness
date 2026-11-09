@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import { KindIcon } from "./KindIcon";
 import { openExternal } from "../lib/browser";
+import { BrandIcon, brandFor } from "./BrandIcon";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, money, shortPath } from "../lib/format";
+import { money, shortPath } from "../lib/format";
 import type { AgentEvent, AgentPanelItem, CliMcp, ConnectionTest, RegistryServer } from "../types";
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -253,6 +255,7 @@ export function McpSetup({ client, onDone, onToast }: { client: CoreClient; onDo
             <li key={`${server.nome}@${server.versao}`}>
               <button type="button" onClick={() => pick(server)}>
                 <span className="registry-name">
+                  <BrandIcon brand={brandFor("mcp", [server.titulo, server.nome, server.remotos[0]?.url])} size={20} />
                   {server.titulo || server.nome} <span className="small mono">{server.versao}</span>
                 </span>
                 <span className="small">{server.descricao}</span>
@@ -359,12 +362,13 @@ export function CliMcpCopy({ client, onToast }: { client: CoreClient; onToast: (
     return (
       <div className="cli-mcp-col">
         <div className="section-title">
-          <span style={{ color: KIND_COLOR[cli] }}>{KIND_GLYPH[cli]}</span> {cli === "claude" ? "Claude Code" : "Codex"}
+          <KindIcon kind={cli} /> {cli === "claude" ? "Claude Code" : "Codex"}
         </div>
         {mine.length === 0 && <p className="small conn-note">nenhum MCP próprio</p>}
         {mine.map((mcp) => (
           <div key={`${mcp.escopo}:${mcp.nome}`} className="cli-mcp">
             <span className="cli-mcp-name">
+              <BrandIcon brand={brandFor("mcp", [mcp.nome, mcp.url, mcp.comando, ...(mcp.args ?? [])])} size={20} />
               {mcp.nome}
               <span className="small mono">
                 {" "}
@@ -446,7 +450,7 @@ export function AgentFeed({ client, events, onEvents, onOpenSession }: { client:
           {agents.map((a) => (
             <tr key={a.id} className="clickable" onClick={() => onOpenSession(a.id)}>
               <td>
-                <span style={{ color: KIND_COLOR[a.cli as "claude" | "codex"] }}>{KIND_GLYPH[a.cli as "claude" | "codex"]}</span> {a.titulo}
+                <KindIcon kind={a.cli as "claude" | "codex"} /> {a.titulo}
               </td>
               <td className="small mono">{shortPath(a.cwd)}</td>
               <td className="small">{a.coluna === "precisa" ? "precisa de você" : a.coluna}</td>

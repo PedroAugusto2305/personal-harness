@@ -1,9 +1,10 @@
 // Avisos da MÊTIS (v0.9.2): o sino da barra de título guarda os últimos 50, o Dock mostra
 // quantos faltam ler, e cada aviso novo toca o sino (janela em foco) ou vira notificação do
-// macOS pela mão do núcleo (janela aberta, mas sem foco). Com a janela fechada, quem avisa é
-// o próprio núcleo; aqui só chega o que acontece com ela aberta.
+// macOS (janela aberta, mas sem foco): desde a v0.9.9 o aviso nativo, com o ícone da MÊTIS, e o
+// do núcleo só quando o nativo não dá. Com a janela fechada, quem avisa é o próprio núcleo (pelo
+// executável do app, `--aviso`); aqui só chega o que acontece com ela aberta.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { setDockBadge, type CoreClient } from "./core";
+import { nativeNotify, setDockBadge, type CoreClient } from "./core";
 import { chime } from "./pomodoro";
 import type { Prefs } from "../types";
 
@@ -80,8 +81,12 @@ export function useInbox(client: CoreClient | null, prefs: Prefs | null) {
     setItems((all) => [item, ...all].slice(0, MAX));
     if (avisos.silencio) return;
     if (!document.hasFocus()) {
-      // Janela sem foco: o núcleo mostra a notificação do macOS e toca o som (se ligado).
-      void core?.notifyMac(notice.titulo.slice(0, 120), notice.texto.slice(0, 240)).catch(() => undefined);
+      // Janela sem foco: aviso nativo do macOS, com o ícone da MÊTIS e o clique levando à sessão
+      // (v0.9.9). Fora do .app (desenvolvimento) ou sem permissão, o núcleo avisa pelo osascript.
+      const alvo = notice.sessao ? `sessao:${notice.sessao}` : notice.aprovacao ? `aprovacao:${notice.aprovacao}` : notice.automacao ? `automacao:${notice.automacao}` : "";
+      void nativeNotify({ titulo: notice.titulo, texto: notice.texto, som: avisos.som, alvo, grupo: notice.sessao ?? notice.kind }).then((failed) => {
+        if (failed) void core?.notifyMac(notice.titulo.slice(0, 120), notice.texto.slice(0, 240)).catch(() => undefined);
+      });
     } else if (avisos.som) {
       // Esperar você e aprovação pedem duas notas; terminou e erro, uma.
       chime(notice.kind === "espera" || notice.kind === "aprovacao" ? 2 : 1, avisos.volume);

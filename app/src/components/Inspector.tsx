@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KindIcon } from "./KindIcon";
 import { CodeGraphLine } from "./CodeGraph";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, fold } from "../lib/format";
+import { fold } from "../lib/format";
 import { openExternal } from "../lib/browser";
 import { buildTree, type TreeNode } from "../lib/tree";
 import { TYPE_ICON, renderInline } from "../lib/obsidian";
-import type { BrainPlace, ContextWindow, GitStatus, Prefs, ReviewNote, Session, Suggestion } from "../types";
+import type { Approval, BrainPlace, ContextWindow, GitStatus, Prefs, ReviewNote, Session, Suggestion } from "../types";
 import type { Place } from "../useWorktrees";
 import { SuggestionCard } from "./SuggestionCard";
 import { GitPanel, fileMark, type GitPanelProps } from "./GitPanel";
@@ -45,7 +46,19 @@ interface Props {
   onNotice: (message: string) => void;
   /** v0.9.8: terminal novo aberto por um botão do painel (revisão de PR por IA). */
   onSession?: (session: Session) => void;
+  /** v0.9.9: aprovações pedidas pelos agentes, na aba do Brain (mockup). */
+  approvals?: Approval[];
+  onDecide?: (id: string, approve: boolean) => void;
 }
+
+const TAB_ICON: Record<InspectorTab, [string, string]> = {
+  brain: ["M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", "Brain: precedentes, aprovações e tarefas"],
+  changes: [ICON.branch, "Mudanças (git)"],
+  files: [ICON.file, "Arquivos"],
+  ports: [ICON.port, "Portas"],
+  context: [ICON.cpu, "Contexto da sessão"],
+};
+const TAB_NAME: Record<InspectorTab, string> = { brain: "Brain", changes: "Mudanças", files: "Arquivos", ports: "Portas", context: "Contexto" };
 
 export function Inspector(props: Props) {
   const { client, place, tab } = props;
@@ -75,21 +88,22 @@ export function Inspector(props: Props) {
 
   return (
     <aside className="inspector" aria-label="Painel da worktree">
-      <div className="inspector-tabs" role="tablist" ref={tabs}>
+      <div className="inspector-tabs icons" role="tablist" ref={tabs}>
         {(
           [
-            ["changes", "Mudanças", status?.files.length],
-            ["files", "Arquivos", undefined],
-            ["ports", "Portas", props.sessions.reduce((n, s) => n + s.ports.length, 0) || undefined],
-            ["brain", "Brain", undefined],
-            ["context", "Contexto", undefined],
-          ] as [InspectorTab, string, number | undefined][]
-        ).map(([key, label, count]) => (
-          <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => props.onTab(key)}>
-            {label}
-            {count ? <span className="count">{count}</span> : null}
+            ["brain", undefined],
+            ["changes", status?.files.length],
+            ["files", undefined],
+            ["ports", props.sessions.reduce((n, s) => n + s.ports.length, 0) || undefined],
+            ["context", undefined],
+          ] as [InspectorTab, number | undefined][]
+        ).map(([key, count]) => (
+          <button key={key} type="button" role="tab" aria-selected={tab === key} aria-label={TAB_ICON[key][1]} title={TAB_ICON[key][1]} onClick={() => props.onTab(key)}>
+            <Icon d={TAB_ICON[key][0]} size={15} strokeWidth={1.8} />
+            {count ? <span className="count">{count > 99 ? "99+" : count}</span> : null}
           </button>
         ))}
+        <span className="inspector-tab-name">{TAB_NAME[tab]}</span>
         <button type="button" className="icon-btn" title="Fechar painel (⌘⇧B)" aria-label="Fechar painel" onClick={props.onClose}>
           <Icon d={ICON.close} size={12} strokeWidth={2} />
         </button>
@@ -130,6 +144,8 @@ export function Inspector(props: Props) {
         <BrainPanel
           client={client}
           cwd={place.worktree.path}
+          approvals={props.approvals ?? []}
+          onDecide={props.onDecide}
           tick={props.brainTick + props.suggestionsTick}
           onOpenNote={props.onOpenNote}
           onOpenTasks={props.onOpenTasks}
@@ -249,7 +265,7 @@ function Ports({ sessions, onOpenUrl }: { sessions: Session[]; onOpenUrl: (url: 
         <div key={session.id} className="port-group">
           <div className="group-head">
             <span>
-              <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span> {session.title}
+              <KindIcon kind={session.kind} /> {session.title}
             </span>
           </div>
           {session.ports.map((port) => (
@@ -284,6 +300,8 @@ const STATE_NAME: Record<string, string> = { pendente: "pendente", "em-andamento
 function BrainPanel(props: {
   client: CoreClient | null;
   cwd: string;
+  approvals: Approval[];
+  onDecide?: (id: string, approve: boolean) => void;
   tick: number;
   onOpenNote: (title: string) => void;
   onOpenTasks: (project: string) => void;
@@ -340,6 +358,49 @@ function BrainPanel(props: {
         </button>
         {project.stage && <span className="chip">{project.stage}</span>}
       </div>
+      <div className="ins-head">
+        <b>Precedentes</b>
+        <span className="small">de outros projetos</span>
+      </div>
+      {(place.precedents ?? []).slice(0, 6).map((hit) => (
+        <button key={hit.path} type="button" className="ins-prec" onClick={() => props.onOpenNote(hit.title)} title={hit.via?.length ? `achado por ${hit.via.join(" e ")}` : undefined}>
+          <span className="ins-prec-title">
+            {TYPE_ICON[hit.tipo] ?? "·"} {hit.title}
+          </span>
+          <span className="ins-prec-path">
+            {hit.projeto} / {hit.tipo === "decisao" ? "decisões" : hit.tipo === "aprendizado" ? "aprendizados" : hit.tipo === "incidente" ? "incidentes" : hit.tipo}
+            {hit.status ? ` · ${hit.status}` : ""}
+          </span>
+          {(hit.snippet || hit.resumo) && <span className="ins-prec-snippet">{(hit.resumo || hit.snippet || "").replace(/[\x02\x03]/g, "").slice(0, 200)}</span>}
+        </button>
+      ))}
+      {!place.precedents?.length && <p className="small brain-panel-none">Nada de outro projeto bateu com o momento do projeto.</p>}
+      {props.approvals.map((approval) => (
+        <div key={approval.id} className="ins-approval" role="alertdialog" aria-label="Aprovação pendente">
+          <span className="ins-approval-title">
+            <Icon d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z" size={14} strokeWidth={2} /> Aprovação
+          </span>
+          <span className="small">
+            <b>{approval.who}</b> quer usar <span className="mono">{approval.tool}</span> em {approval.account}: {approval.summary}
+          </span>
+          <div className="ins-approval-actions">
+            <button type="button" className="ok" onClick={() => props.onDecide?.(approval.id, true)}>
+              Aprovar
+            </button>
+            <button type="button" className="no" onClick={() => props.onDecide?.(approval.id, false)}>
+              Recusar
+            </button>
+          </div>
+        </div>
+      ))}
+      {(place.precedents ?? []).length > 0 && (
+        <>
+          <div className="ins-head">
+            <b>Grafo local</b>
+          </div>
+          <LocalGraph center={project.name} others={[...new Set((place.precedents ?? []).map((h) => h.projeto).filter((p) => p && p !== project.name))].slice(0, 6)} />
+        </>
+      )}
       {pending.length > 0 && (
         <>
           <div className="section-title brain-panel-section">Sugestões de outros projetos ({pending.length})</div>
@@ -361,25 +422,42 @@ function BrainPanel(props: {
         </div>
       ))}
       {!open.length && <p className="small brain-panel-none">Nenhuma tarefa aberta nas Próximas ações.</p>}
-      <div className="section-title brain-panel-section">Precedentes de outros projetos</div>
-      {(place.precedents ?? []).map((hit) => (
-        <button key={hit.path} type="button" className="brain-panel-prec" onClick={() => props.onOpenNote(hit.title)} title={hit.resumo}>
-          <span>
-            {TYPE_ICON[hit.tipo] ?? "·"} {hit.title}
-          </span>
-          <span className="small mono">
-            {hit.projeto}
-            {hit.status ? ` · ${hit.status}` : ""}
-            {hit.via?.length ? ` · por ${hit.via.join(" e ")}` : ""}
-          </span>
-        </button>
-      ))}
-      {!place.precedents?.length && <p className="small brain-panel-none">Nada de outro projeto bateu com o momento do projeto.</p>}
       <p className="small brain-panel-note">
         Por significado e por palavra: confira antes de seguir. Os agentes recebem esta lista ao abrir e consultam o resto pelo MCP
         (brain_conflitos antes de decidir).
       </p>
     </div>
+  );
+}
+
+/** Grafo local (mockup): o projeto no meio e os projetos de onde vêm os precedentes em volta. */
+function LocalGraph({ center, others }: { center: string; others: string[] }) {
+  const w = 280;
+  const h = 130;
+  const cx = w / 2;
+  const cy = h / 2;
+  const points = others.map((name, i) => {
+    const angle = (i / Math.max(1, others.length)) * Math.PI * 2 - Math.PI / 2;
+    return { name, x: cx + Math.cos(angle) * 100, y: cy + Math.sin(angle) * 44 };
+  });
+  return (
+    <svg className="ins-graph" viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Grafo local: ${center} ligado a ${others.join(", ") || "nenhum outro projeto"}`}>
+      {points.map((p) => (
+        <line key={`l-${p.name}`} x1={cx} y1={cy} x2={p.x} y2={p.y} style={{ stroke: "var(--line2)" }} strokeWidth={1} />
+      ))}
+      {points.map((p) => (
+        <g key={p.name}>
+          <circle cx={p.x} cy={p.y} r={4} style={{ fill: "var(--g-semarea)" }} />
+          <text x={p.x} y={p.y - 7} textAnchor="middle">
+            {p.name.length > 18 ? `${p.name.slice(0, 17)}…` : p.name}
+          </text>
+        </g>
+      ))}
+      <circle cx={cx} cy={cy} r={6} style={{ fill: "var(--acc)" }} />
+      <text x={cx} y={cy + 17} textAnchor="middle">
+        {center.length > 20 ? `${center.slice(0, 19)}…` : center}
+      </text>
+    </svg>
   );
 }
 

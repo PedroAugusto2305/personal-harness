@@ -82,6 +82,8 @@ class Agent:
     connectors: str = ""
     prompt: str = ""
     sprite: bool = False
+    #: v0.9.9: quadros do movimento parado (a tira `<id>-parado.png`); 0 = só a sprite parada.
+    sprite_frames: int = 0
     updated_at: float = 0.0
     #: v0.9.8: argumentos extras da CLI (sintaxe de shell), variáveis (uma por linha,
     #: CHAVE=valor) e, quando cli é "outra", a linha de comando da CLI.
@@ -91,6 +93,21 @@ class Agent:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def _strip_frames(path: Path) -> int:
+    """Quantos quadros a tira tem: largura ÷ altura (cada quadro é quadrado), lido do cabeçalho do PNG."""
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(24)
+    except OSError:
+        return 0
+    if len(head) < 24 or not head.startswith(PNG_MAGIC):
+        return 0
+    width = int.from_bytes(head[16:20], "big")
+    height = int.from_bytes(head[20:24], "big")
+    frames = width // height if height else 0
+    return frames if frames > 1 else 0
 
 
 def parse_agent(text: str) -> tuple[dict[str, str], str]:
@@ -140,6 +157,8 @@ class AgentStore:
         meta, body = parse_agent(path.read_text(encoding="utf-8"))
         agent_id = path.stem
         sprite = self.sprites / f"{agent_id}.png"
+        idle = self.sprites / f"{agent_id}-parado.png"
+        frames = _strip_frames(idle) if sprite.is_file() else 0
         cli = meta.get("cli", "claude")
         return Agent(
             id=agent_id,
@@ -158,8 +177,9 @@ class AgentStore:
             connectors=meta.get("conectores", ""),
             prompt=body.strip(),
             sprite=sprite.is_file(),
+            sprite_frames=frames,
             # A sprite conta: trocar só a imagem também muda a versão (a URL da imagem usa isso).
-            updated_at=max(path.stat().st_mtime, sprite.stat().st_mtime if sprite.is_file() else 0),
+            updated_at=max(path.stat().st_mtime, sprite.stat().st_mtime if sprite.is_file() else 0, idle.stat().st_mtime if frames else 0),
         )
 
     def list(self) -> list[dict]:
@@ -232,26 +252,39 @@ class AgentStore:
         trash.mkdir(parents=True, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
         shutil.move(str(path), trash / f"{agent_id}-{stamp}.md")
-        sprite = self.sprites / f"{agent_id}.png"
-        if sprite.exists():
-            shutil.move(str(sprite), trash / f"{agent_id}-{stamp}.png")
+        for suffix in ("", "-parado"):
+            sprite = self.sprites / f"{agent_id}{suffix}.png"
+            if sprite.exists():
+                shutil.move(str(sprite), trash / f"{agent_id}-{stamp}{suffix}.png")
 
     # --- sprite ------------------------------------------------------------
 
-    def set_sprite(self, agent_id: str, png: bytes) -> None:
+    def set_sprite(self, agent_id: str, png: bytes, idle: bytes | None = None) -> None:
+        """A sprite parada e, se vier, a tira do movimento parado (quadros quadrados lado a lado).
+        Sem tira (um PNG enviado à mão), a animação antiga sai: as duas sempre são do mesmo desenho."""
         self.get(agent_id)
-        if not png.startswith(PNG_MAGIC):
-            raise AgentError("a sprite precisa ser um PNG")
-        if len(png) > MAX_SPRITE_BYTES:
-            raise AgentError("sprite grande demais (máximo 2 MB)")
+        for data in (png, idle):
+            if data is None:
+                continue
+            if not data.startswith(PNG_MAGIC):
+                raise AgentError("a sprite precisa ser um PNG")
+            if len(data) > MAX_SPRITE_BYTES:
+                raise AgentError("sprite grande demais (máximo 2 MB)")
         self.sprites.mkdir(parents=True, exist_ok=True)
         (self.sprites / f"{agent_id}.png").write_bytes(png)
+        strip = self.sprites / f"{agent_id}-parado.png"
+        if idle is not None:
+            strip.write_bytes(idle)
+        else:
+            strip.unlink(missing_ok=True)
 
     def clear_sprite(self, agent_id: str) -> None:
-        (self.sprites / f"{self.get(agent_id).id}.png").unlink(missing_ok=True)
+        agent_id = self.get(agent_id).id
+        (self.sprites / f"{agent_id}.png").unlink(missing_ok=True)
+        (self.sprites / f"{agent_id}-parado.png").unlink(missing_ok=True)
 
-    def sprite_path(self, agent_id: str) -> Path | None:
-        path = self.sprites / f"{self.get(agent_id).id}.png"
+    def sprite_path(self, agent_id: str, anim: bool = False) -> Path | None:
+        path = self.sprites / f"{self.get(agent_id).id}{'-parado' if anim else ''}.png"
         return path if path.is_file() else None
 
     # --- importação do Maestri ---------------------------------------------

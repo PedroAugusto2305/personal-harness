@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { KindIcon } from "./KindIcon";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, money, shortPath } from "../lib/format";
+import { money, shortPath } from "../lib/format";
 import { renderInline } from "../lib/obsidian";
 import type { AgentPanelItem, PanelColumn, SessionKind } from "../types";
 
@@ -71,7 +72,7 @@ export function AgentsBoard({ client, onOpenSession, onError }: { client: CoreCl
               {list.map((item) => (
                 <button key={item.id} type="button" className="kb-card agent-card" onClick={() => onOpenSession(item.id)} title="Ir para o terminal">
                   <div className="kb-card-title">
-                    <span style={{ color: KIND_COLOR[item.cli as SessionKind] }}>{KIND_GLYPH[item.cli as SessionKind] ?? "›"}</span> {item.titulo}
+                    <KindIcon kind={item.cli as SessionKind} /> {item.titulo}
                   </div>
                   <div className="kb-meta small mono">
                     {shortPath(item.cwd)} · {since(item.desde)}

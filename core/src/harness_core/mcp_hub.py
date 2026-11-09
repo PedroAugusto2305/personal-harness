@@ -29,7 +29,7 @@ from .activity import ActivityLog
 from .brain_index import BrainIndex
 from .brain_tools import DESCRIPTIONS, BrainTools
 from .browser_bridge import BridgeError, BrowserBridge, normalize_url
-from .connectors import ConnectorError, ConnectorStore
+from .connectors import ConnectorError, ConnectorStore, tool_mode
 from .kanban import Kanban
 from .mcp_client import McpError
 from .google import GoogleError
@@ -387,7 +387,15 @@ class Hub:
             self.publish({"type": "estudo.mudou"})
             return ("Já existia: " if existed else "Conceito criado: ") + f"{concept.titulo} ({concept.caminho})"
 
+        def pergunta(args: dict, ctx: Context) -> str:
+            raw = args.get("opcoes") or []
+            answer = study.add_question(str(args.get("conceito") or ""), str(args.get("pergunta") or ""), [str(o) for o in raw] if isinstance(raw, list) else [])
+            self.publish({"type": "estudo.mudou"})
+            return f"Pergunta escrita na nota de {answer['conceito']} ({answer['caminho']}). Espere a resposta do Pedro, que chega aqui."
+
         return [
+            Tool("estudo_pergunta", "Escreve uma pergunta de previsão com alternativas na nota do conceito; o Pedro responde pela tela do Estudo (alternativa, confiança e raciocínio) e a resposta chega neste terminal.",
+                 _schema({"conceito": {"type": "string"}, "pergunta": {"type": "string"}, "opcoes": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 6}}, ["conceito", "pergunta", "opcoes"]), pergunta),
             Tool("estudo_plano", "O cronograma do estudo do Pedro (projeto de estudo no Brain): a semana de hoje com o foco e a entrega, e as outras semanas.",
                  _schema({}, []), plano),
             Tool("estudo_conceitos", "O mapa do que o Pedro sabe: cada conceito com o domínio (0 não vi … 4 consigo ensinar), a próxima revisão e os acertos. Filtre por semana ou só os vencidos hoje.",
@@ -762,16 +770,19 @@ class Hub:
         for account in self.connectors.list():
             if ctx.allowed is not None and account.id not in ctx.allowed:
                 continue
-            if account.kind == "slack":
-                tools += self._slack_tools(account)
-            elif account.kind == "google":
-                tools += self._google_tools(account)
-            else:
-                tools += self._upstream_tools(account)
+            tools += [t for t in self.account_tools(account) if tool_mode(account, t.name, t.write) != "desligada"]
         allowed = self.session_tools.get(ctx.session)
         if allowed is not None:
             tools = [t for t in tools if t.name in allowed] + [self._output_tool()]
         return tools
+
+    def account_tools(self, account) -> list[Tool]:
+        """As ferramentas que uma conta dá à central (todas, inclusive as desligadas)."""
+        if account.kind == "slack":
+            return self._slack_tools(account)
+        if account.kind == "google":
+            return self._google_tools(account)
+        return self._upstream_tools(account)
 
     def find_tool(self, ctx: Context, name: str) -> Tool | None:
         return next((t for t in self.tools_for(ctx) if t.name == name), None)
@@ -823,7 +834,7 @@ class Hub:
         if tool is None:
             return {**_text(f"ferramenta desconhecida ou não liberada para este agente: {name}"), "isError": True}
         account = next((a for a in self.connectors.list() if a.id == tool.account), None)
-        needs = tool.write and (account.approve_writes if account else True)
+        needs = tool_mode(account, tool.name, tool.write) == "aprovacao"
         started = time.time()
         call_id = self.activity.start(ctx.session, ctx.who, name, tool.account, args, "aguardando você" if needs else "rodando")
         self.publish({"type": "activity", "item": self.activity.get(call_id)})

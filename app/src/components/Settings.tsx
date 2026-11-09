@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { KindIcon } from "./KindIcon";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, PROVIDERS, fold, shortPath } from "../lib/format";
+import { KIND_COLOR, PROVIDERS, ago, fold, shortPath } from "../lib/format";
 import { ACTIONS, formatCombo, hintFor, type Overrides } from "../lib/keymap";
 import { ICON, Icon } from "../icons";
 import type { Accounts, AppTheme, BrowserProfile, Prefs, Project, Provider, SavedCommand, Session, TerminalTheme, ThemeName, Usage, VersionInfo, VoiceStatus } from "../types";
@@ -10,6 +11,7 @@ import { ProfilesSection } from "./SettingsProfiles";
 import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
 import { CommandsSection, KeymapSection, TerminalThemeCard, type FindEntry } from "./SettingsTerminal";
 import { GitSection } from "./SettingsGit";
+import { ModelUsagePanel } from "./ModelUsagePanel";
 import { Limits } from "./StatusBar";
 
 export type SettingsSection = "contas" | "agentes" | "git" | "skills" | "recursos" | "aparencia" | "navegador" | "atalhos" | "comandos" | "voz" | "perfis" | "sobre";
@@ -331,7 +333,7 @@ export function Settings(props: Props) {
   );
 }
 
-function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
+function AccountsSection({ client, accounts, usage, run, onOpenSession }: Props) {
   const [adding, setAdding] = useState<Provider | null>(null);
   const [name, setName] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -352,6 +354,7 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
         terminal. A MÊTIS não lê nem guarda token: o login acontece na própria CLI, na primeira vez que você abre uma
         sessão da conta.
       </p>
+      <ModelUsagePanel client={client} />
       {PROVIDERS.map((provider) => {
         const info = PROVIDER_INFO[provider];
         const entry = accounts[provider];
@@ -359,7 +362,7 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
           <div className="card" key={provider}>
             <header className="card-head">
               <span className="card-glyph" style={{ color: KIND_COLOR[provider] }}>
-                {KIND_GLYPH[provider]}
+                <KindIcon kind={provider} size={18} />
               </span>
               <h2>{info.title}</h2>
               <span className="path-chip">{info.env}</span>
@@ -430,6 +433,13 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
                     </span>
                     <span className="account-usage">
                       <Limits limits={limits} />
+                      {limits?.updated_at ? (
+                        <span className="small account-usage-age" title="O limite do Claude chega pela statusline das sessões abertas pela MÊTIS">
+                          visto {ago(limits.updated_at * 1000)}
+                        </span>
+                      ) : (
+                        provider === "claude" && <span className="small account-usage-age">aparece na primeira resposta de uma sessão da MÊTIS</span>
+                      )}
                     </span>
                     {account.active ? (
                       <span className="chip on">em uso</span>

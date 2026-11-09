@@ -1,0 +1,377 @@
+/* Uso dos modelos (v0.9.9). Cores por família (a mesma família, a mesma cor em toda tela),
+   da paleta de referência do dataviz: tons do escuro nos temas escuros e do claro no Claro,
+   conferidos com o validador (contraste, separação para daltonismo) nos três fundos. */
+
+.uso {
+  --uso-opus: #3987e5;
+  --uso-sonnet: #d95926;
+  --uso-haiku: #199e70;
+  --uso-fable: #c98500;
+  --uso-codex: #9085e9;
+  --uso-outros: #8b8b93;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+[data-theme="claro"] .uso {
+  --uso-opus: #2a78d6;
+  --uso-sonnet: #eb6834;
+  --uso-haiku: #1baf7a;
+  --uso-fable: #eda100;
+  --uso-codex: #6250d6;
+  --uso-outros: #8a8a8f;
+}
+
+.uso-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.uso-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.uso-title h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.uso-title .small {
+  color: var(--fnt);
+}
+
+.uso-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 7px;
+  border: 1px solid var(--line2);
+  background: var(--bg);
+}
+
+.uso-seg button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mut);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.uso-seg button[aria-pressed="true"] {
+  background: var(--soft);
+  color: var(--tx);
+}
+
+.uso-seg.small-seg button {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+
+.uso-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.uso-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.uso-kpi-label {
+  font-size: 11.5px;
+  color: var(--mut);
+}
+
+.uso-kpi-value {
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--tx);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.uso-kpi-sub {
+  color: var(--fnt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.uso-chart-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.uso-chart-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.uso-chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mut);
+}
+
+.uso-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.uso-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--mut);
+}
+
+.uso-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.uso-swatch {
+  flex: 0 0 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.uso-plot {
+  position: relative;
+}
+
+.uso-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.uso-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.uso-axis {
+  fill: var(--fnt);
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
+.uso-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  min-width: 150px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line2);
+  background: var(--side);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 2;
+  font-size: 12px;
+}
+
+.uso-tip-day {
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--tx);
+}
+
+.uso-tip-row {
+  display: grid;
+  grid-template-columns: 9px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--mut);
+}
+
+.uso-tip-row .mono {
+  color: var(--tx);
+}
+
+.uso-table-wrap {
+  overflow-x: auto;
+}
+
+.uso-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.uso-table th,
+.uso-table td {
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.uso-table thead th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--mut);
+}
+
+.uso-table tbody th {
+  font-weight: 500;
+  color: var(--tx);
+}
+
+.uso-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.uso-table td.mono {
+  color: var(--tx);
+}
+
+.uso-total-only {
+  text-align: center !important;
+  color: var(--fnt) !important;
+}
+
+.uso-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.uso-sessions {
+  color: var(--fnt);
+}
+
+.uso-share-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.uso-share-cell .small {
+  color: var(--mut);
+  min-width: 30px;
+}
+
+.uso-share {
+  display: inline-block;
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.uso-share > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+.uso-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.uso-proj {
+  display: grid;
+  grid-template-columns: 170px minmax(60px, 1fr) 84px 64px 150px;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  font-size: 12.5px;
+}
+
+.uso-proj-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tx);
+}
+
+.uso-proj-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.uso-proj-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--acc);
+}
+
+.uso-proj-num {
+  text-align: right;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+
+.uso-proj-models {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fnt);
+}
+
+.uso-note {
+  margin: 0;
+  color: var(--fnt);
+  line-height: 1.5;
+}
+
+.uso-error {
+  margin: 0;
+  color: var(--err);
+}
+
+.uso-wait {
+  margin: 0;
+  color: var(--fnt);
+}
+
+@media (max-width: 1100px) {
+  .uso-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .uso-proj {
+    grid-template-columns: 130px minmax(40px, 1fr) 76px 56px;
+  }
+  .uso-proj-models {
+    display: none;
+  }
+}
+
+.account-usage-age {
+  color: var(--fnt);
+}

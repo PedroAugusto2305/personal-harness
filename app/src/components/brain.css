@@ -1,0 +1,595 @@
+/* Brain (v0.9.9): o mockup "Brain · F": árvore do vault, abas com grafo e notas, a nota à
+   direita e a gaveta de conversas com os agentes embaixo. */
+
+.bv {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.bv-cols {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.bv-left {
+  flex: 0 0 250px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 6px 8px;
+  box-sizing: border-box;
+  background: var(--side);
+  border-right: 1px solid var(--line);
+}
+
+.bv-left .brain-search {
+  margin: 0 4px;
+}
+
+.bv-left .brain-hits {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.bv-left .brain-foot {
+  margin-top: auto;
+  padding: 8px 6px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Árvore do vault */
+
+.vt {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.vt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+  padding-right: 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mut);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vt-row:hover {
+  background: color-mix(in srgb, var(--sel) 55%, transparent);
+  color: var(--tx);
+}
+
+.vt-folder {
+  color: var(--tx);
+  font-weight: 500;
+}
+
+.vt-note[aria-current="true"] {
+  background: var(--sel);
+  color: var(--tx);
+}
+
+.vt-chev {
+  flex: 0 0 10px;
+  width: 10px;
+  color: var(--fnt);
+  font-size: 11px;
+  text-align: center;
+}
+
+.vt-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vt-empty {
+  padding: 8px;
+  color: var(--fnt);
+  font-size: 12px;
+}
+
+/* Centro: abas */
+
+.bv-center {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bv-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  flex: 0 0 38px;
+  overflow-x: auto;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+.bv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 0 6px 0 14px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--fnt);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.bv-tab {
+  padding-right: 14px;
+}
+
+.bv-tab[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--tx);
+  font-weight: 500;
+}
+
+.bv-tab-name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.bv-tab-close {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fnt);
+  cursor: pointer;
+}
+
+.bv-tab-close:hover {
+  background: var(--elev);
+  color: var(--tx);
+}
+
+.bv-tab-plus {
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fnt);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.bv-reader {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 34px 40px;
+}
+
+.bv-note-title {
+  margin: 0 0 14px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.bv-graph {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* O grafo de sempre (BrainGraph) ocupa a aba inteira. */
+.bv-graph > .graph {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Direita: a nota */
+
+.bv-aside {
+  flex: 0 0 320px;
+  min-width: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--side);
+  border-left: 1px solid var(--line);
+}
+
+.bv-crumbs {
+  font-size: 12px;
+  color: var(--fnt);
+}
+
+.bv-aside-title {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.bv-props {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bv-prop {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.bv-prop-key {
+  color: var(--fnt);
+}
+
+.bv-prop-value[data-status="aceita"] {
+  color: var(--run);
+}
+
+.bv-prop-value[data-status="proposta"] {
+  color: var(--wait);
+}
+
+.bv-prop-link {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--acct);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bv-actions .btn {
+  height: 28px;
+  font-size: 12px;
+}
+
+.bv-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bv-block-title {
+  font-weight: 600;
+}
+
+.bv-backlink {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--bg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.bv-backlink:hover {
+  background: var(--elev);
+}
+
+.bv-backlink-title {
+  color: var(--acct);
+}
+
+.bv-backlink-path {
+  font-size: 12px;
+  color: var(--fnt);
+}
+
+.bv-quiet {
+  color: var(--fnt);
+  line-height: 1.5;
+}
+
+.bv-serve {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--soft);
+}
+
+.bv-serve-title {
+  color: var(--acct);
+  font-weight: 600;
+}
+
+.bv-serve .suggestion-card {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+/* Gaveta de conversas */
+
+.bv-drawer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line2);
+  background: var(--term);
+}
+
+.bv-drawer-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  overflow-x: auto;
+  background: var(--bar);
+  border-bottom: 1px solid var(--line);
+}
+
+.bv-drawer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--fnt);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bv-drawer-tab[aria-selected="true"] {
+  background: var(--term);
+  color: var(--tx);
+}
+
+.bv-drawer-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bv-drawer-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fnt);
+}
+
+.bv-drawer-dot[data-status="working"] {
+  background: var(--run);
+}
+
+.bv-drawer-dot[data-status="waiting"] {
+  background: var(--wait);
+}
+
+.bv-drawer-plus {
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fnt);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.bv-drawer-toggle {
+  margin-left: auto;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fnt);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bv-drawer-body {
+  height: 220px;
+  display: flex;
+  min-height: 0;
+}
+
+/* Sem conversa aberta, a gaveta fica do tamanho da caixa de pergunta: o grafo ganha a altura. */
+.bv-drawer-body[data-ask="true"] {
+  height: auto;
+}
+
+.bv-ask {
+  flex: 1 1 auto;
+  margin: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line2);
+  background: var(--side);
+  align-self: flex-end;
+}
+
+.bv-ask textarea {
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--tx);
+  font: inherit;
+}
+
+.bv-ask-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--mut);
+}
+
+/* Espiada numa sessão (gaveta do Brain e Sócrates do Estudo) */
+
+.peek {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.peek-log {
+  flex: 1 1 420px;
+  min-width: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--tx);
+}
+
+.peek-empty {
+  color: var(--fnt);
+}
+
+.peek-msg {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.peek-msg[data-who="voce"] {
+  color: var(--mut);
+}
+
+.peek-mark {
+  display: inline-block;
+  width: 16px;
+  color: var(--fnt);
+}
+
+.peek-msg[data-who="agente"] .peek-mark {
+  color: var(--tx);
+}
+
+.peek-status {
+  margin: 0;
+  color: var(--fnt);
+}
+
+.peek-status[data-status="working"] .peek-mark {
+  color: #d97757;
+}
+
+.peek-status[data-status="waiting"] {
+  color: var(--wait);
+}
+
+.peek-open {
+  margin-left: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--acct);
+  font: inherit;
+  cursor: pointer;
+}
+
+.peek-input {
+  flex: 0 1 380px;
+  min-width: 220px;
+  align-self: flex-end;
+  margin: 0 12px 12px 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line2);
+  background: var(--side);
+}
+
+.peek-input:focus-within {
+  border-color: var(--acc);
+}
+
+.peek-input textarea {
+  flex: 1 1 auto;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--tx);
+  font: inherit;
+  font-size: 13px;
+}
+
+.peek-send {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--acc);
+  color: var(--onacc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.peek-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 1250px) {
+  .bv-aside {
+    flex-basis: 270px;
+  }
+  .bv-left {
+    flex-basis: 220px;
+  }
+}

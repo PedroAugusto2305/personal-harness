@@ -100,7 +100,7 @@ import type {
   BarCommand,
   SessionContext,
   ThemeEntry,
-} from "../types";
+ ConnectorTool, ToolMode, BoardTask, AutoQueueView, AutoItem, AutoSettings, VaultNode, ModelUsageReport } from "../types";
 
 export interface CoreInfo {
   url: string;
@@ -153,6 +153,70 @@ export async function setDockBadge(count: number): Promise<void> {
   }
 }
 
+/** v0.9.9: aviso nativo do macOS, com o ícone da MÊTIS. */
+export interface NativeNotice {
+  titulo: string;
+  texto: string;
+  subtitulo?: string;
+  som: boolean;
+  /** Para onde o clique leva: "sessao:<id>", "aprovacao:<id>", "automacao:<id>" ou "". */
+  alvo: string;
+  /** Avisos do mesmo grupo (a mesma sessão) ficam juntos na Central. */
+  grupo?: string;
+}
+
+/** Manda pela Central de Notificações. Devolve o motivo quando não deu (fora do app, sem permissão). */
+export async function nativeNotify(aviso: NativeNotice): Promise<string | null> {
+  if (!inTauri()) return "fora do app";
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("notify_native", { aviso });
+    return null;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+/** "ativo", "negado", "pendente" ou "fora do app". */
+export async function nativeNotifyStatus(): Promise<string> {
+  if (!inTauri()) return "fora do app";
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("notify_status");
+  } catch {
+    return "fora do app";
+  }
+}
+
+/** O executável do app num .app ("" no desenvolvimento): o núcleo avisa por ele com a janela fechada. */
+export async function appExecutable(): Promise<string> {
+  if (!inTauri()) return "";
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("app_exe");
+  } catch {
+    return "";
+  }
+}
+
+/** O alvo do clique que abriu o app (e esquece): a janela ainda não ouvia quando ele chegou. */
+export async function takePendingNotice(): Promise<string | null> {
+  if (!inTauri()) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return (await invoke<string | null>("notify_pending")) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Clique num aviso nativo: o alvo que ele levava. */
+export async function onNativeNoticeClick(handler: (target: string) => void): Promise<() => void> {
+  if (!inTauri()) return () => undefined;
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("metis-aviso", (event) => handler(event.payload));
+}
+
 export class CoreError extends Error {
   constructor(
     message: string,
@@ -175,6 +239,10 @@ export interface NewSessionOptions {
   resume?: string;
   /** Modo de permissão só desta sessão; sem ele vale o dos Ajustes. */
   permissao?: PermissionMode;
+  /** v0.9.9: o pedido que já entra no agente, e modelo e esforço só desta sessão. */
+  prompt?: string;
+  model?: string;
+  effort?: "low" | "medium" | "high" | "xhigh";
 }
 
 export class CoreClient {
@@ -279,6 +347,19 @@ export class CoreClient {
 
   addProject(path: string): Promise<Project> {
     return this.request("POST", "/projects", { path });
+  }
+
+  /** v0.9.9: repositórios no Mac que ainda não são projetos, e onde clonar ou criar. */
+  projectSuggestions(): Promise<{ repositorios: { path: string; name: string; atualizado: number }[]; pasta_padrao: string }> {
+    return this.request("GET", "/projects/sugestoes");
+  }
+
+  cloneProject(url: string, pasta = ""): Promise<Project> {
+    return this.request("POST", "/projects/clone", { url, pasta });
+  }
+
+  createProject(nome: string, pasta = ""): Promise<Project> {
+    return this.request("POST", "/projects/criar", { nome, pasta });
   }
 
   removeProject(id: string): Promise<void> {
@@ -490,8 +571,10 @@ export class CoreClient {
     return this.request("DELETE", `/agents/${encodeURIComponent(id)}/sprite`);
   }
 
-  spriteUrl(id: string, version: number): string {
-    return `${this.info.url}/agents/${encodeURIComponent(id)}/sprite?${new URLSearchParams({ token: this.info.token, v: String(version) })}`;
+  /** A sprite parada; com `anim`, a tira do movimento parado (quadros lado a lado). */
+  spriteUrl(id: string, version: number, anim = false): string {
+    const query = new URLSearchParams({ token: this.info.token, v: String(version), ...(anim ? { anim: "1" } : {}) });
+    return `${this.info.url}/agents/${encodeURIComponent(id)}/sprite?${query}`;
   }
 
   // --- sprites por prompt
@@ -504,8 +587,13 @@ export class CoreClient {
     return this.request("GET", `/sprites/jobs/${encodeURIComponent(id)}`);
   }
 
-  spriteJobUrl(id: string): string {
-    return `${this.info.url}/sprites/jobs/${encodeURIComponent(id)}/image?${new URLSearchParams({ token: this.info.token })}`;
+  /** v0.9.9: a imagem modelo que toda sprite segue. */
+  spriteModelUrl(): string {
+    return `${this.info.url}/sprites/modelo?${new URLSearchParams({ token: this.info.token })}`;
+  }
+
+  spriteJobUrl(id: string, anim = false): string {
+    return `${this.info.url}/sprites/jobs/${encodeURIComponent(id)}/image?${new URLSearchParams({ token: this.info.token, ...(anim ? { anim: "1" } : {}) })}`;
   }
 
   useSpriteJob(agentId: string, job: string): Promise<void> {
@@ -588,6 +676,16 @@ export class CoreClient {
   /** Aviso do macOS pela mão do núcleo (para quando a janela está aberta mas sem foco). */
   notifyMac(titulo: string, texto = ""): Promise<void> {
     return this.request("POST", "/avisos/mac", { titulo, texto });
+  }
+
+  /** v0.9.9: tokens e custo equivalente em API por modelo, dia e projeto (1 a 90 dias). */
+  modelUsage(dias: number): Promise<ModelUsageReport> {
+    return this.request("GET", `/uso/modelos?dias=${dias}`);
+  }
+
+  /** v0.9.9: o executável do app, para o núcleo avisar com o ícone da MÊTIS com a janela fechada. */
+  setNotifier(exe: string): Promise<void> {
+    return this.request("PUT", "/avisos/app", { exe });
   }
 
   /** Desliga o núcleo de vez (fecha os terminais). A janela não faz isso sozinha ao fechar. */
@@ -810,7 +908,46 @@ export class CoreClient {
     return this.request("POST", `/conectores/oauth/${encodeURIComponent(kind)}`, { name });
   }
 
-  patchConnector(id: string, changes: { name?: string; approve_writes?: boolean; reminders?: boolean }): Promise<ConnectorAccount> {
+  /** v0.9.9: as pastas e notas do vault. */
+  brainTree(): Promise<VaultNode[]> {
+    return this.request("GET", "/brain/arvore");
+  }
+
+  /** v0.9.9: as tarefas de todos os projetos do Brain. */
+  allTasks(): Promise<BoardTask[]> {
+    return this.request("GET", "/kanban/tarefas");
+  }
+
+  /** v0.9.9: a fila da coluna Auto. */
+  autoQueue(): Promise<AutoQueueView> {
+    return this.request("GET", "/kanban/auto");
+  }
+
+  autoEnqueue(projeto: string, tarefa: string, settings: AutoSettings): Promise<AutoItem> {
+    return this.request("POST", "/kanban/auto", { projeto, tarefa, ...settings });
+  }
+
+  autoCancel(id: string): Promise<AutoItem> {
+    return this.request("DELETE", `/kanban/auto/${encodeURIComponent(id)}`);
+  }
+
+  autoClear(): Promise<void> {
+    return this.request("DELETE", "/kanban/auto");
+  }
+
+  autoLimit(limite: number): Promise<AutoQueueView> {
+    return this.request("PUT", "/kanban/auto/limite", { limite });
+  }
+
+  /** v0.9.9: as ferramentas de uma conta, com o modo de cada uma. */
+  connectorTools(id: string): Promise<{ ferramentas: ConnectorTool[] }> {
+    return this.request("GET", `/conectores/${encodeURIComponent(id)}/ferramentas`);
+  }
+
+  patchConnector(
+    id: string,
+    changes: { name?: string; approve_writes?: boolean; reminders?: boolean; tool_modes?: Record<string, ToolMode | "padrao"> },
+  ): Promise<ConnectorAccount> {
     return this.request("PATCH", `/conectores/${encodeURIComponent(id)}`, changes);
   }
 
