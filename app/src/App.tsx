@@ -169,6 +169,8 @@ export default function App() {
   /** Perfis do navegador e o perfil das abas novas. */
   const [profiles, setProfiles] = useState<BrowserProfile[]>([{ id: "padrao", nome: "Padrão", identificador: null }]);
   const [defaultProfile, setDefaultProfile] = useState<string>(() => stored("harness.web.perfil", "padrao"));
+  /** v0.9.8: o perfil da MÊTIS em uso (só aparece na barra quando não é o principal). */
+  const [profileName, setProfileName] = useState<string | null>(null);
   /** ⌘ + clique num link do terminal: na MÊTIS ou no navegador do Mac (⇧ troca). */
   /** Nome da worktree na tela: o apelido da barra lateral (v0.9.8) ou o branch. */
   const wtName = (worktree: Parameters<typeof worktreeLabel>[0]) => harness.sidebar.nomes[worktree.path] || worktreeLabel(worktree);
@@ -1164,6 +1166,13 @@ export default function App() {
   useEffect(() => {
     if (!harness.client) return;
     void harness.client
+      .profiles()
+      .then((state) => setProfileName(state.atual !== "principal" ? (state.perfis.find((p) => p.id === state.atual)?.nome ?? state.atual) : null))
+      .catch(() => setProfileName(null));
+  }, [harness.client]);
+  useEffect(() => {
+    if (!harness.client) return;
+    void harness.client
       .browserProfiles()
       .then((answer) => setProfiles(answer.perfis))
       .catch(() => undefined);
@@ -1856,6 +1865,8 @@ export default function App() {
         onPalette={() => setPalette("all")}
         pomodoro={pomodoro.state.phase !== "idle" ? { label: pomodoro.label, phase: pomodoro.state.phase } : null}
         onPomodoro={() => setView("study")}
+        profile={profileName}
+        onProfile={() => (setSection("perfis"), setView("settings"))}
         bell={{
           items: harness.inbox.items,
           unread: harness.inbox.unread,
@@ -1943,7 +1954,19 @@ export default function App() {
           />
         )}
         {view === "study" && (
-          <StudyView client={harness.client} tick={harness.routinesTick} pomodoro={pomodoro} agents={harness.agents} onLaunch={launchAgent} />
+          <StudyView
+            client={harness.client}
+            tick={harness.routinesTick + harness.brainTick}
+            pomodoro={pomodoro}
+            agents={harness.agents}
+            onLaunch={launchAgent}
+            onSession={(session) => {
+              harness.adopt(session);
+              setView("term");
+              select(session.id, placeKeyOf(session.cwd));
+            }}
+            onOpenNote={(title) => openNote({ title })}
+          />
         )}
         {view === "today" && (
           <TodayView
@@ -2314,6 +2337,10 @@ export default function App() {
                 onOpenDiff={openDiff}
                 onOpenConflict={openConflict}
                 onAgent={(prompt) => void askAgent(prompt)}
+                onSession={(session) => {
+                  harness.adopt(session);
+                  select(session.id, placeKeyOf(session.cwd));
+                }}
                 prefs={harness.prefs}
                 onOpenUrl={(url) => openWeb(url, { root: contextPlace?.worktree.path })}
                 onOpenFile={(path) => openFile(path)}

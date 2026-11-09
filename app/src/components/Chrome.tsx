@@ -14,7 +14,12 @@ export function TitleBar({
   pomodoro,
   onPomodoro,
   bell,
+  profile,
+  onProfile,
 }: {
+  /** v0.9.8: o perfil em uso, quando não é o principal. */
+  profile?: string | null;
+  onProfile?: () => void;
   theme: ThemeName;
   onCycleTheme: () => void;
   onPalette: () => void;
@@ -53,6 +58,11 @@ export function TitleBar({
         </button>
       )}
       {bell && <Bell {...bell} />}
+      {profile && (
+        <button type="button" className="chip on" onClick={onProfile} title="Perfil em uso (Ajustes → Perfis e backup)">
+          perfil: {profile}
+        </button>
+      )}
       <button type="button" className="chip" onClick={onCycleTheme} title="Trocar tema (mais opções em Ajustes)">
         tema: {themeLabel(theme)}
       </button>

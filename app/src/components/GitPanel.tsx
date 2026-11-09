@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ICON, Icon } from "../icons";
 import { CoreError, type CoreClient } from "../lib/core";
-import type { ChangedFile, DiffMode, GitFile, GitStatus, GithubState, Prefs, PullRequest, ReviewNote } from "../types";
+import type { ChangedFile, DiffMode, GitFile, GitStatus, GithubState, Prefs, PullRequest, ReviewNote, Session } from "../types";
 import { worktreeLabel, type Place } from "../useWorktrees";
 
 /** Letra e cor do estado de um arquivo no git, no estilo do VS Code. */
@@ -64,6 +64,8 @@ export interface GitPanelProps {
   onChanged: () => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
+  /** v0.9.8: a revisão de PR por IA abre um terminal novo; a tela vai para ele. */
+  onSession?: (session: Session) => void;
 }
 
 /**
@@ -363,7 +365,7 @@ export function GitPanel(props: GitPanelProps) {
         </div>
       )}
 
-      <PrBox client={client} path={path} status={status} prefs={props.prefs} onAgent={props.onAgent} onOpenUrl={props.onOpenUrl} onNotice={props.onNotice} />
+      <PrBox client={client} path={path} status={status} prefs={props.prefs} onAgent={props.onAgent} onOpenUrl={props.onOpenUrl} onNotice={props.onNotice} onSession={props.onSession} />
 
       {notes.length > 0 && (
         <div className="notes-box">
@@ -535,6 +537,7 @@ function PrBox({
   onAgent,
   onOpenUrl,
   onNotice,
+  onSession,
 }: {
   client: CoreClient | null;
   path: string;
@@ -543,6 +546,7 @@ function PrBox({
   onAgent: (prompt: string) => void;
   onOpenUrl: (url: string) => void;
   onNotice: (message: string) => void;
+  onSession?: (session: Session) => void;
 }) {
   const [state, setState] = useState<GithubState | null>(null);
   const [base, setBase] = useState("");
@@ -551,6 +555,8 @@ function PrBox({
   const [method, setMethod] = useState<"rebase" | "squash" | "merge">("rebase");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** v0.9.8: quem revisa o PR (só de leitura). */
+  const [reviewer, setReviewer] = useState<"claude" | "codex">("claude");
   const { armed, arm } = useArmed();
 
   const load = useCallback(async () => {
@@ -624,6 +630,42 @@ function PrBox({
           {pr.revisao === "APPROVED" && <span style={{ color: "var(--run)" }}> · aprovado</span>}
           {pr.revisao === "CHANGES_REQUESTED" && <span style={{ color: "var(--err)" }}> · pediram mudanças</span>}
           {pr.mesclavel === "CONFLICTING" && <span style={{ color: "var(--err)" }}> · conflita com o {pr.base}</span>}
+        </div>
+        <div className="pr-ai">
+          {checks.falhou > 0 && (
+            <button
+              type="button"
+              className="pill"
+              disabled={!!busy}
+              title="Junta os logs dos checks que falharam e manda ao agente da worktree, para achar a causa e corrigir"
+              onClick={() =>
+                void run("checks", async () => {
+                  const { pedido } = await client!.failedChecksRequest(path);
+                  onAgent(pedido);
+                }, "Os logs dos checks foram para o agente.")
+              }
+            >
+              ✻ Checks falhos ao agente
+            </button>
+          )}
+          <button
+            type="button"
+            className="pill ghost"
+            disabled={!!busy}
+            title="Abre um agente que só lê: revisa o diff do PR e lista os problemas por gravidade, sem mexer em nada"
+            onClick={() =>
+              void run("revisao", async () => {
+                const session = await client!.reviewPr(path, reviewer);
+                onSession?.(session);
+              }, "A revisão abriu num terminal novo, só de leitura.")
+            }
+          >
+            Revisar com IA
+          </button>
+          <select className="pr-reviewer" value={reviewer} onChange={(event) => setReviewer(event.target.value as "claude" | "codex")} aria-label="Quem revisa">
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+          </select>
         </div>
         <div className="form-buttons">
           {pr.rascunho ? (

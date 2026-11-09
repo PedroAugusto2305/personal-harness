@@ -17,25 +17,34 @@ class Vault(Protocol):
     def delete(self, key: str) -> None: ...
 
 
+def service_for(profile: str) -> str:
+    """O perfil principal usa o serviço de sempre; os outros, `dev.pedroaquino.metis.<id>`,
+    para os segredos de um perfil nunca aparecerem no outro (v0.9.8)."""
+    return SERVICE if profile in ("", "principal") else f"{SERVICE}.{profile}"
+
+
 class Keychain:
-    """Keychain do macOS (serviço dev.pedroaquino.metis, uma entrada por conta de conector)."""
+    """Keychain do macOS (um serviço por perfil, uma entrada por conta de conector)."""
+
+    def __init__(self, service: str = SERVICE) -> None:
+        self.service = service
 
     def get(self, key: str) -> str | None:
         import keyring
 
-        return keyring.get_password(SERVICE, key)
+        return keyring.get_password(self.service, key)
 
     def set(self, key: str, value: str) -> None:
         import keyring
 
-        keyring.set_password(SERVICE, key, value)
+        keyring.set_password(self.service, key, value)
 
     def delete(self, key: str) -> None:
         import keyring
         from keyring.errors import PasswordDeleteError
 
         try:
-            keyring.delete_password(SERVICE, key)
+            keyring.delete_password(self.service, key)
         except PasswordDeleteError:
             pass
 

@@ -67,18 +67,22 @@ def install_relay(path: Path) -> Path:
     return path
 
 
-def install_cli_shim(bin_dir: Path, home: Path) -> Path:
+def install_cli_shim(bin_dir: Path, home: Path, profile: str = "principal") -> Path:
     """Põe o comando `metis` em ~/.harness/bin, que entra no PATH dos terminais do app.
 
     O nome antigo, `harness`, continua instalado como apelido enquanto a troca de nome assenta.
+    Num perfil que não é o principal (v0.9.8), o comando leva também HARNESS_PROFILE: o
+    `metis` daquele terminal fala com o núcleo e com o Brain do próprio perfil.
     Devolve o caminho do `metis`.
     """
     bin_dir.mkdir(parents=True, exist_ok=True)
+    extra = "" if profile in ("", "principal") else f"HARNESS_PROFILE={shlex.quote(profile)}\nexport HARNESS_PROFILE\n"
     body = (
         "#!/bin/sh\n"
         "# Gerado pela MÊTIS: o comando `metis` (e o antigo `harness`) dentro dos terminais do app.\n"
         f"HARNESS_HOME={shlex.quote(str(home))}\n"
         "export HARNESS_HOME\n"
+        f"{extra}"
         f'exec {shlex.quote(sys.executable)} -m harness_core.cli "$@"\n'
     )
     for name in ("metis", "harness"):

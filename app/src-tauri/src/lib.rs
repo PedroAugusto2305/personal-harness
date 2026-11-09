@@ -104,10 +104,58 @@ fn core_dir() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../core"))
 }
 
+/// Perfil da MÊTIS em uso (v0.9.8): cada um com a própria pasta de dados, porta e Brain.
+#[derive(Clone, Debug)]
+struct Profile {
+    id: String,
+    home: PathBuf,
+    port: u16,
+    vault: Option<String>,
+}
+
+static PROFILE: Mutex<Option<Profile>> = Mutex::new(None);
+
+fn user_home() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+}
+
+fn expand(path: &str) -> PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => user_home().join(rest),
+        None if path == "~" => user_home(),
+        None => PathBuf::from(path),
+    }
+}
+
+/// O perfil ativo no registro (~/.harness/perfis.json). Sem registro, ou com HARNESS_HOME
+/// imposto pelo ambiente (app de desenvolvimento, testes), é a pasta de sempre.
+fn read_profile() -> Profile {
+    if let Ok(home) = std::env::var("HARNESS_HOME") {
+        let port = std::env::var("HARNESS_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
+        return Profile { id: "principal".into(), home: PathBuf::from(home), port, vault: None };
+    }
+    let principal = Profile { id: "principal".into(), home: user_home().join(".harness"), port: DEFAULT_PORT, vault: None };
+    let Ok(text) = std::fs::read_to_string(user_home().join(".harness/perfis.json")) else { return principal };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { return principal };
+    let active = value["ativo"].as_str().unwrap_or("principal");
+    let Some(entry) = value["perfis"].as_array().and_then(|list| list.iter().find(|p| p["id"].as_str() == Some(active))) else {
+        return principal;
+    };
+    Profile {
+        id: active.to_string(),
+        home: entry["pasta"].as_str().map(expand).unwrap_or(principal.home),
+        port: entry["porta"].as_u64().and_then(|p| u16::try_from(p).ok()).unwrap_or(DEFAULT_PORT),
+        vault: entry["vault"].as_str().filter(|v| !v.is_empty()).map(str::to_string),
+    }
+}
+
+fn profile() -> Profile {
+    let mut slot = PROFILE.lock().unwrap_or_else(|e| e.into_inner());
+    slot.get_or_insert_with(read_profile).clone()
+}
+
 fn harness_home() -> PathBuf {
-    std::env::var("HARNESS_HOME").map(PathBuf::from).unwrap_or_else(|_| {
-        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())).join(".harness")
-    })
+    profile().home
 }
 
 fn runtime_file() -> PathBuf {
@@ -153,10 +201,10 @@ fn existing_core() -> Option<CoreInfo> {
 /// Sobe um núcleo independente: grupo de processos próprio (o ⌃C do `tauri dev` e o fim
 /// do app não chegam nele) e saída em ~/.harness/nucleo.log.
 fn spawn_core() -> (CoreInfo, Option<Child>) {
-    let preferred = std::env::var("HARNESS_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
-    let port = free_port(preferred);
+    let active = profile();
+    let port = free_port(active.port);
     let token = random_token();
-    let home = harness_home();
+    let home = active.home.clone();
     let _ = std::fs::create_dir_all(&home);
     let log = std::fs::OpenOptions::new().create(true).append(true).open(home.join("nucleo.log"));
     let mut command = Command::new("uv");
@@ -166,9 +214,14 @@ fn spawn_core() -> (CoreInfo, Option<Child>) {
         .arg("harness-core")
         .env("HARNESS_PORT", port.to_string())
         .env("HARNESS_TOKEN", &token)
+        .env("HARNESS_HOME", &home)
+        .env("HARNESS_PROFILE", &active.id)
         .env_remove("HARNESS_PARENT_PID")
         .stdin(Stdio::null())
         .process_group(0);
+    if let Some(vault) = &active.vault {
+        command.env("BRAIN_VAULT", expand(vault));
+    }
     if let Ok(file) = log {
         if let Ok(copy) = file.try_clone() {
             command.stdout(copy);
@@ -259,9 +312,8 @@ async fn core_info(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, Strin
     Ok(info)
 }
 
-/// Reinicia o núcleo (versão nova do código): encerra o atual, que fecha os terminais, e sobe outro.
-#[tauri::command]
-async fn core_restart(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, String> {
+/// Encerra o núcleo deste app (fecha os terminais dele) e espera ele sair.
+fn stop_core(state: &CoreState) -> Result<(), String> {
     let current = state.info.lock().map_err(|e| e.to_string())?.clone();
     let pid = std::fs::read_to_string(runtime_file())
         .ok()
@@ -282,7 +334,33 @@ async fn core_restart(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, St
     if let Some(mut old) = state.child.lock().map_err(|e| e.to_string())?.take() {
         let _ = old.try_wait();
     }
+    Ok(())
+}
+
+/// Reinicia o núcleo (versão nova do código): encerra o atual, que fecha os terminais, e sobe outro.
+#[tauri::command]
+async fn core_restart(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, String> {
+    stop_core(&state)?;
     let (info, child) = spawn_ready();
+    *state.child.lock().map_err(|e| e.to_string())? = child;
+    *state.info.lock().map_err(|e| e.to_string())? = info.clone();
+    Ok(info)
+}
+
+/// Troca de perfil (v0.9.8): o núcleo atual já gravou o perfil novo como ativo; aqui ele é
+/// desligado (os terminais dele fecham), o registro é relido e sobe o núcleo do outro perfil
+/// (ou o app se liga a ele, se já estiver no ar). A tela recarrega depois.
+#[tauri::command]
+async fn profile_switch(state: tauri::State<'_, CoreState>) -> Result<CoreInfo, String> {
+    if std::env::var("HARNESS_HOME").is_ok() || std::env::var("HARNESS_CORE_URL").is_ok() {
+        return Err("perfis só trocam na MÊTIS instalada (aqui a pasta veio do ambiente)".into());
+    }
+    stop_core(&state)?;
+    *PROFILE.lock().map_err(|e| e.to_string())? = Some(read_profile());
+    let (info, child) = match existing_core() {
+        Some(info) => (info, None),
+        None => spawn_ready(),
+    };
     *state.child.lock().map_err(|e| e.to_string())? = child;
     *state.info.lock().map_err(|e| e.to_string())? = info.clone();
     Ok(info)
@@ -367,6 +445,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core_info,
             core_restart,
+            profile_switch,
             capture_open,
             browser::browser_open,
             browser::browser_bounds,

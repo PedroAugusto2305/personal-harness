@@ -65,6 +65,16 @@ import type {
   RefCommit,
   SidebarState,
   WorktreeMode,
+  BackupCheck,
+  MetisProfile,
+  ProfilesState,
+  StudyConcept,
+  StudyMap,
+  StudyPlan,
+  StudySessionKind,
+  CodeGraph,
+  FailedCheck,
+  SkillTarget,
   AutoProposal,
   AutoStrategy,
   AgentEvent,
@@ -117,6 +127,14 @@ export async function getCoreInfo(): Promise<CoreInfo> {
 }
 
 /** Reinicia o núcleo (versão nova do código): fecha os terminais e sobe outro. Só na janela do app. */
+/** v0.9.8: troca de perfil. O núcleo já gravou o perfil novo; o app desliga este e sobe o outro. */
+export async function switchProfile(): Promise<boolean> {
+  if (!inTauri()) return false;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("profile_switch");
+  return true;
+}
+
 export async function restartCore(): Promise<boolean> {
   if (!inTauri()) return false;
   const { invoke } = await import("@tauri-apps/api/core");
@@ -830,6 +848,64 @@ export class CoreClient {
     return this.request("GET", "/estudo");
   }
 
+  // v0.9.8: Estudo completo
+  studyMap(): Promise<StudyMap> {
+    return this.request("GET", "/estudo/mapa");
+  }
+
+  studyPlan(): Promise<StudyPlan> {
+    return this.request("GET", "/estudo/plano");
+  }
+
+  addConcept(nome: string, relacionados: string[] = [], resumo = ""): Promise<StudyConcept> {
+    return this.request("POST", "/estudo/conceitos", { nome, relacionados, resumo: resumo || null });
+  }
+
+  patchConcept(titulo: string, changes: { dominio?: number; semana?: string | number | null }): Promise<StudyConcept> {
+    return this.request("PATCH", "/estudo/conceitos", { titulo, ...changes });
+  }
+
+  studySession(tipo: StudySessionKind, conceito?: string): Promise<Session> {
+    return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null });
+  }
+
+  // v0.9.8: perfis e backup
+  profiles(): Promise<ProfilesState> {
+    return this.request("GET", "/perfis");
+  }
+
+  createProfile(nome: string, copiar: boolean, vault?: string): Promise<MetisProfile> {
+    return this.request("POST", "/perfis", { nome, copiar, vault: vault || null });
+  }
+
+  patchProfile(id: string, changes: { nome?: string; vault?: string | null }): Promise<MetisProfile> {
+    return this.request("PATCH", `/perfis/${encodeURIComponent(id)}`, changes);
+  }
+
+  deleteProfile(id: string): Promise<void> {
+    return this.request("DELETE", `/perfis/${encodeURIComponent(id)}`);
+  }
+
+  activateProfile(id: string): Promise<{ id: string; pasta: string; porta: number; vault: string | null }> {
+    return this.request("POST", `/perfis/${encodeURIComponent(id)}/ativar`);
+  }
+
+  backupContents(): Promise<{ itens: { caminho: string; tamanho: number; tipo: string }[]; fora: string[] }> {
+    return this.request("GET", "/backup");
+  }
+
+  exportBackup(): Promise<{ arquivo: string; tamanho: number }> {
+    return this.request("POST", "/backup/exportar", {});
+  }
+
+  checkBackup(arquivo: string): Promise<BackupCheck> {
+    return this.request("POST", "/backup/conferir", { arquivo });
+  }
+
+  importBackup(arquivo: string): Promise<{ restaurados: string[]; backup_anterior: string; reiniciar: boolean }> {
+    return this.request("POST", "/backup/importar", { arquivo });
+  }
+
   studyBlock(minutos: number, assunto: string): Promise<{ line: string; note: string }> {
     return this.request("POST", "/estudo/blocos", { minutos, assunto });
   }
@@ -1097,6 +1173,49 @@ export class CoreClient {
 
   agentEvents(limite = 100, sessao = ""): Promise<{ eventos: AgentEvent[] }> {
     return this.request("GET", `/atividade/eventos?limite=${limite}&sessao=${encodeURIComponent(sessao)}`);
+  }
+
+  // --- código e Skills (v0.9.8, parte 5) ---
+
+  failedChecks(root: string): Promise<{ pr: number | null; checks: FailedCheck[] }> {
+    return this.request("GET", `/github/checks-falhos?root=${encodeURIComponent(root)}`);
+  }
+
+  failedChecksRequest(root: string): Promise<{ pedido: string }> {
+    return this.request("POST", "/github/checks-falhos/pedido", { root });
+  }
+
+  reviewPr(root: string, cli: "claude" | "codex"): Promise<Session> {
+    return this.request("POST", "/github/revisao", { root, cli });
+  }
+
+  codeGraph(root: string): Promise<CodeGraph> {
+    return this.request("GET", `/codigo/grafo?root=${encodeURIComponent(root)}`);
+  }
+
+  updateCodeGraph(root: string): Promise<void> {
+    return this.request("POST", "/codigo/grafo/atualizar", { root });
+  }
+
+  installSkill(origem: string, destino: SkillTarget, root?: string, substituir = false): Promise<{ instaladas: string[]; ignoradas: { nome: string; motivo: string }[] }> {
+    return this.request("POST", "/skills/instalar", { origem, destino, root: root || null, substituir });
+  }
+
+  updateSkill(nome: string, destino: SkillTarget, root?: string): Promise<{ nome: string; commit: string; antes: string | null }> {
+    return this.request("POST", `/skills/${encodeURIComponent(nome)}/atualizar`, { destino, root: root || null });
+  }
+
+  exportSkill(nome: string, destino: SkillTarget, root?: string): Promise<{ arquivo: string }> {
+    return this.request("POST", `/skills/${encodeURIComponent(nome)}/exportar`, { destino, root: root || null });
+  }
+
+  copySkill(nome: string, de: SkillTarget, para: SkillTarget, root?: string): Promise<{ pasta: string }> {
+    return this.request("POST", `/skills/${encodeURIComponent(nome)}/copiar`, { de, para, root: root || null });
+  }
+
+  deleteSkill(nome: string, destino: SkillTarget, root?: string): Promise<{ lixeira: string }> {
+    const query = new URLSearchParams({ destino, root: root || "" });
+    return this.request("DELETE", `/skills/${encodeURIComponent(nome)}?${query}`);
   }
 
   async upload(file: Blob, name: string): Promise<string> {

@@ -28,6 +28,7 @@ from .agent_draft import DraftError, draft_agent
 from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
+from .study_map import SESSION_TYPES, TUTOR, StudyError, StudyMap
 from .boards import BoardConflict, BoardError, BoardStore
 from .brain_index import BrainIndex
 from .automation_engine import Engine
@@ -49,7 +50,7 @@ from .clickup_rest import ClickupBoard, ClickupError
 from .vault import Vault, VaultError, link_target, split_frontmatter, write_atomic
 from .sprites import SpriteStudio
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
-from .config import Settings, load_settings
+from .config import DEFAULT_PORT as metis_profiles_port, Settings, load_settings
 from .connectors import CATALOG, ConnectorError, ConnectorStore
 from .keychain import Keychain
 from .keychain import Vault as SecretVault
@@ -57,6 +58,9 @@ from .mcp_hub import Context, Hub, ToolError
 from . import chrome_cookies
 from . import mcp_configs, mcp_registry  # v0.9.8 parte 3: conectores
 from . import automation_ai, automation_templates, n8n_import  # v0.9.8 parte 4: automação por frase, n8n e estratégias
+from . import graphify_tools, skills_manager  # v0.9.8 parte 5: grafo do código e Skills
+from . import backup as metis_backup, profiles as metis_profiles  # v0.9.8 parte 5: perfis e backup
+from .keychain import service_for as keychain_service
 from .browser_bridge import BrowserAnswer, BrowserBridge, BrowserHistory, BrowserProfiles, HistoryVisit, ImportBody, ProfileBody, ProfileError
 from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
@@ -347,6 +351,25 @@ class StudyBlock(BaseModel):
     assunto: str = Field(default="", max_length=200)
 
 
+# v0.9.8: Estudo completo (o mapa de conceitos, o plano e as sessões com o Sócrates).
+class NewConcept(BaseModel):
+    nome: str = Field(min_length=1, max_length=120)
+    resumo: str = Field(default="", max_length=4000)
+    relacionados: list[str] = Field(default_factory=list, max_length=40)
+    semana: int | None = Field(default=None, ge=0, le=200)
+
+
+class ConceptPatch(BaseModel):
+    titulo: str = Field(min_length=1, max_length=120)
+    dominio: int | None = Field(default=None, ge=0, le=4)
+    semana: int | None = Field(default=None, ge=0, le=200)
+
+
+class StudySessionBody(BaseModel):
+    tipo: str
+    conceito: str | None = Field(default=None, max_length=120)
+
+
 class DraftRequest(BaseModel):
     descricao: str = Field(min_length=1, max_length=2000)
 
@@ -474,6 +497,39 @@ class SkillInstall(BaseModel):
     destino: str = Field(pattern="^(claude|codex|ambos)$")
 
 
+# --- v0.9.8 parte 5: checks, revisão de PR, grafo do código e Skills ---------------------------
+
+SKILL_WHERE = "^(claude|codex|projeto)$"
+
+
+class RootBody(BaseModel):
+    root: str = Field(min_length=1)
+
+
+class ReviewBody(BaseModel):
+    root: str = Field(min_length=1)
+    cli: str = Field(default="claude", pattern="^(claude|codex)$")
+    numero: int | None = Field(default=None, ge=1)
+
+
+class SkillAdd(BaseModel):
+    origem: str = Field(min_length=1, max_length=2000)
+    destino: str = Field(pattern=SKILL_WHERE)
+    root: str | None = None
+    substituir: bool = False
+
+
+class SkillWhere(BaseModel):
+    destino: str = Field(pattern=SKILL_WHERE)
+    root: str | None = None
+
+
+class SkillCopy(BaseModel):
+    de: str = Field(pattern=SKILL_WHERE)
+    para: str = Field(pattern=SKILL_WHERE)
+    root: str | None = None
+
+
 class GhosttyText(BaseModel):
     texto: str = Field(max_length=ghostty.MAX_BYTES)
     nome: str | None = Field(default=None, max_length=120)
@@ -482,6 +538,28 @@ class GhosttyText(BaseModel):
 class AcceptBody(BaseModel):
     titulo: str = Field(default="", max_length=200)
     resumo: str = Field(default="", max_length=1200)
+
+
+class MetisProfileBody(BaseModel):
+    """Perfil novo da MÊTIS (v0.9.8): pasta de dados própria; `copiar` leva a configuração atual."""
+
+    nome: str = Field(min_length=1, max_length=40)
+    vault: str | None = Field(default=None, max_length=1000)
+    copiar: bool = False
+
+
+class MetisProfilePatch(BaseModel):
+    nome: str | None = Field(default=None, max_length=40)
+    #: Texto vazio tira o Brain próprio (volta ao padrão).
+    vault: str | None = Field(default=None, max_length=1000)
+
+
+class BackupExportBody(BaseModel):
+    destino: str | None = Field(default=None, max_length=1000)
+
+
+class BackupFileBody(BaseModel):
+    arquivo: str = Field(min_length=1, max_length=1000)
 
 
 def create_app(
@@ -536,7 +614,7 @@ def create_app(
 
     suggestions = Suggestions(settings.home, brain, vault, judge=judge, publish=lambda event: manager.events.publish(event))
     kanban = Kanban(vault)
-    connectors = ConnectorStore(settings.home, keychain or Keychain(), http)
+    connectors = ConnectorStore(settings.home, keychain or Keychain(keychain_service(settings.profile)), http)
     activity = ActivityLog(settings.home / "atividade.db")
 
     def session_info(session_id: str) -> dict | None:
@@ -569,6 +647,8 @@ def create_app(
     manager.mcp_forget = hub.forget
     routines = RoutineStore(settings.home)
     study = StudyLog(settings.home, vault)
+    study_map = StudyMap(vault, project=lambda: manager.prefs.get()["estudo_projeto"])
+    hub.study_map = study_map  # ferramentas estudo_* da central (v0.9.8)
 
     def dm_pedro(text: str) -> str:
         """Mensagem do bot na DM do Pedro (conta de lembretes). Devolve o que deu errado, se deu."""
@@ -725,7 +805,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         install_relay(settings.relay_path)
-        install_cli_shim(settings.relay_path.parent, settings.home)
+        install_cli_shim(settings.relay_path.parent, settings.home, settings.profile)
         engine.bind(asyncio.get_running_loop())  # eventos de outras threads disparam automações neste loop
         # Primeiro índice do Brain em segundo plano: a janela abre sem esperar por ele.
         asyncio.get_running_loop().run_in_executor(None, lambda: brain.refresh(max_age=0))
@@ -755,9 +835,12 @@ def create_app(
     app.state.brain = brain
     app.state.suggestions = suggestions
     app.state.hub = hub
+    app.state.study_map = study_map
     app.state.embedder = embedder
     app.state.engine = engine
     app.state.cli_homes = None  # None = ~/.claude e ~/.codex; os testes apontam para pastas temporárias
+    app.state.skills_downloads = None  # v0.9.8: None = ~/Downloads (exportar skill); os testes trocam
+    app.state.skills_trash = None  # None = ~/.Trash (tirar skill)
     app.state.chrome_support = None  # None = ~/Library/Application Support (cookies do Chrome); os testes trocam
     app.state.chrome_password = None  # None = o Keychain pelo `security`; os testes trocam
     app.state.automations = automations
@@ -811,6 +894,96 @@ def create_app(
         session = manager.create("shell", info["repositorio"], title=f"Atualizar a MÊTIS · {tag}")
         manager.send_text(session.id, updates.update_command(info["repositorio"], tag), paste=False)
         return session.to_dict()
+
+    # --- perfis e backup (v0.9.8, parte 5) -----------------------------------------------
+
+    profile_registry = metis_profiles.ProfileRegistry(metis_profiles_port)
+
+    def metis_profile_fail(exc: metis_profiles.ProfileError) -> HTTPException:
+        return HTTPException(status_code=exc.code, detail=str(exc))
+
+    @app.get("/perfis", dependencies=[Depends(require_token)])
+    def list_profiles() -> dict:
+        """Os perfis (pastas de dados com núcleo próprio), o ativo e o deste núcleo."""
+        state = profile_registry.state()
+        return {"ativo": state["ativo"], "atual": settings.profile, "perfis": state["perfis"], "travado": settings.locked}
+
+    @app.post("/perfis", dependencies=[Depends(require_token)], status_code=201)
+    def create_profile(body: MetisProfileBody) -> dict:
+        try:
+            profile = profile_registry.create(body.nome, body.vault)
+        except metis_profiles.ProfileError as exc:
+            raise metis_profile_fail(exc) from exc
+        if body.copiar:
+            # A configuração do perfil atual, sem segredo nenhum (o mesmo zip do backup).
+            metis_backup.copy_config(settings.home, profile.folder, settings.profile)
+        manager.events.publish({"type": "perfis"})
+        return profile.to_dict()
+
+    @app.patch("/perfis/{profile_id}", dependencies=[Depends(require_token)])
+    def patch_profile(profile_id: str, body: MetisProfilePatch) -> dict:
+        try:
+            profile = profile_registry.update(
+                profile_id,
+                nome=body.nome,
+                vault=body.vault if body.vault else None,
+                clear_vault=body.vault is not None and not body.vault.strip(),
+            )
+        except metis_profiles.ProfileError as exc:
+            raise metis_profile_fail(exc) from exc
+        manager.events.publish({"type": "perfis"})
+        return profile.to_dict()
+
+    @app.delete("/perfis/{profile_id}", dependencies=[Depends(require_token)], status_code=204)
+    def delete_profile(profile_id: str) -> None:
+        if profile_id == settings.profile:
+            raise HTTPException(status_code=400, detail="este é o perfil deste núcleo: troque para outro antes de apagar")
+        try:
+            profile_registry.delete(profile_id)
+        except metis_profiles.ProfileError as exc:
+            raise metis_profile_fail(exc) from exc
+        manager.events.publish({"type": "perfis"})
+
+    @app.post("/perfis/{profile_id}/ativar", dependencies=[Depends(require_token)])
+    def activate_profile(profile_id: str) -> dict:
+        """Grava o perfil ativo; o app desliga este núcleo e sobe o do outro perfil."""
+        if settings.locked:
+            raise HTTPException(status_code=409, detail="esta MÊTIS roda com a pasta imposta pelo ambiente (desenvolvimento): troque de perfil na MÊTIS instalada")
+        try:
+            profile = profile_registry.activate(profile_id)
+        except metis_profiles.ProfileError as exc:
+            raise metis_profile_fail(exc) from exc
+        manager.events.publish({"type": "perfis"})
+        return {"id": profile.id, "pasta": str(profile.folder), "porta": profile.porta, "vault": str(profile.brain) if profile.brain else None}
+
+    def backup_fail(exc: Exception) -> HTTPException:
+        return HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/backup", dependencies=[Depends(require_token)])
+    def backup_listing() -> dict:
+        """O que iria no zip agora, e o que fica fora (com o motivo)."""
+        return metis_backup.listing(settings.home)
+
+    @app.post("/backup/exportar", dependencies=[Depends(require_token)])
+    async def backup_export(body: BackupExportBody) -> dict:
+        folder = Path(body.destino).expanduser() if body.destino else None
+        return await asyncio.to_thread(metis_backup.export, settings.home, settings.profile, folder)
+
+    @app.post("/backup/conferir", dependencies=[Depends(require_token)])
+    async def backup_check(body: BackupFileBody) -> dict:
+        try:
+            return await asyncio.to_thread(metis_backup.check, settings.home, Path(body.arquivo).expanduser())
+        except metis_backup.BackupError as exc:
+            raise backup_fail(exc) from exc
+
+    @app.post("/backup/importar", dependencies=[Depends(require_token)])
+    async def backup_import(body: BackupFileBody) -> dict:
+        try:
+            result = await asyncio.to_thread(metis_backup.restore, settings.home, settings.profile, Path(body.arquivo).expanduser())
+        except metis_backup.BackupError as exc:
+            raise backup_fail(exc) from exc
+        manager.events.publish({"type": "backup.importado"})
+        return result
 
     @app.post("/desligar", dependencies=[Depends(require_token)], status_code=202)
     async def shutdown() -> dict:
@@ -958,13 +1131,17 @@ def create_app(
 
     @app.get("/skills", dependencies=[Depends(require_token)])
     def skills(cwd: str = "") -> list[dict]:
-        """Skills do usuário (Claude de cada conta e Codex) e do projeto da pasta."""
-        dirs = [Path.home() / ".claude" / "skills", Path.home() / ".codex" / "skills"]
+        """Skills do usuário (Claude de cada conta e Codex) e do projeto da pasta, com o destino
+        (claude, codex ou projeto) e de onde vieram, quando instaladas pela MÊTIS (v0.9.8)."""
+        dirs = [cli_home("claude") / "skills", cli_home("codex") / "skills"]
         for provider, entry in manager.accounts.list().items():
             for account in entry["accounts"]:
                 if account.get("dir"):
                     dirs.append(Path(account["dir"]).expanduser() / "skills")
-        return list_skills(dirs, cwd or None)
+        where = {"claude": dirs[0], "codex": dirs[1]}
+        if cwd:
+            where["projeto"] = Path(cwd).expanduser() / ".claude" / "skills"
+        return skills_manager.annotate(list_skills(dirs, cwd or None), where)
 
     def cli_home(provider: str, account_id: str | None = None) -> Path:
         """A pasta da CLI de uma conta (CLAUDE_CONFIG_DIR/CODEX_HOME dela) ou a padrão."""
@@ -1480,6 +1657,114 @@ def create_app(
     @app.post("/git/pull", dependencies=[Depends(require_token)])
     async def git_pull(body: GitPath) -> dict:
         return await git_action(gitops.pull, body.path)
+
+    # --- v0.9.8 parte 5: checks falhos, revisão de PR, grafo do código e Skills -------------
+
+    @app.get("/github/checks-falhos", dependencies=[Depends(require_token)])
+    async def github_failed_checks(root: str) -> dict:
+        return await asyncio.to_thread(github.failed_checks, root)
+
+    @app.post("/github/checks-falhos/pedido", dependencies=[Depends(require_token)])
+    async def github_checks_request(body: RootBody) -> dict:
+        try:
+            return {"pedido": await asyncio.to_thread(github.checks_request, body.root)}
+        except github.GithubError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/github/revisao", dependencies=[Depends(require_token)])
+    async def github_review(body: ReviewBody) -> dict:
+        """Revisão do PR por um agente que só lê: plano no Claude, sandbox só de leitura no Codex."""
+        try:
+            numero, prompt = await asyncio.to_thread(github.review_request, body.root, body.numero)
+        except github.GithubError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        readonly = ["--permission-mode", "plan"] if body.cli == "claude" else ["--sandbox", "read-only"]
+        try:
+            # permission="padrao": o modo dos ajustes (até yolo) não entra; vale só o de leitura.
+            session = manager.create(body.cli, body.root, title=f"Revisão do PR #{numero}", prompt=prompt, permission="padrao", extra_args=readonly)
+        except ExecutableNotFound as exc:
+            raise HTTPException(status_code=424, detail=str(exc)) from exc
+        except (LaunchError, UnknownKind) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            raise HTTPException(status_code=400, detail=f"pasta inválida: {body.root}") from exc
+        return session.to_dict()
+
+    @app.get("/codigo/grafo", dependencies=[Depends(require_token)])
+    def code_graph(root: str) -> dict:
+        return graphify_tools.state(root)
+
+    @app.post("/codigo/grafo/atualizar", dependencies=[Depends(require_token)], status_code=202)
+    def code_graph_update(body: RootBody) -> dict:
+        """`graphify update` em segundo plano (sem IA); avisa a tela pelo evento codigo.grafo."""
+        if not Path(body.root).expanduser().is_dir():
+            raise HTTPException(status_code=400, detail=f"pasta inválida: {body.root}")
+
+        def work() -> None:
+            try:
+                detail = graphify_tools.update(body.root)
+                event = {"type": "codigo.grafo", "root": body.root, "status": "ok", "detalhe": detail[-400:]}
+            except graphify_tools.GraphifyError as exc:
+                event = {"type": "codigo.grafo", "root": body.root, "status": "erro", "detalhe": str(exc)}
+            manager.events.publish(event)
+
+        threading.Thread(target=work, name="graphify-update", daemon=True).start()
+        return {"ok": True}
+
+    def skills_dir(destino: str, root: str | None) -> Path:
+        """A pasta skills do destino: a da conta ativa do Claude ou do Codex, ou a do projeto."""
+        if destino in ("claude", "codex"):
+            return cli_home(destino) / "skills"
+        if not root or not Path(root).expanduser().is_dir():
+            raise HTTPException(status_code=400, detail="diga a pasta do projeto (root) para o destino projeto")
+        return Path(root).expanduser() / ".claude" / "skills"
+
+    def skill_fail(exc: Exception) -> HTTPException:
+        status = 409 if isinstance(exc, skills_manager.SkillConflict) else 404 if isinstance(exc, skills_manager.SkillMissing) else 400
+        return HTTPException(status_code=status, detail=str(exc))
+
+    @app.post("/skills/instalar", dependencies=[Depends(require_token)])
+    async def skills_install(body: SkillAdd) -> dict:
+        target = skills_dir(body.destino, body.root)
+        try:
+            return await asyncio.to_thread(skills_manager.install, body.origem, target, body.substituir)
+        except skills_manager.SkillError as exc:
+            raise skill_fail(exc) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=504, detail="o git demorou demais para clonar") from exc
+
+    @app.post("/skills/{nome}/atualizar", dependencies=[Depends(require_token)])
+    async def skills_update(nome: str, body: SkillWhere) -> dict:
+        try:
+            return await asyncio.to_thread(skills_manager.update, nome, skills_dir(body.destino, body.root))
+        except skills_manager.SkillError as exc:
+            raise skill_fail(exc) from exc
+
+    @app.post("/skills/{nome}/exportar", dependencies=[Depends(require_token)])
+    def skills_export(nome: str, body: SkillWhere) -> dict:
+        try:
+            return {"arquivo": str(skills_manager.export(nome, skills_dir(body.destino, body.root), app.state.skills_downloads))}
+        except skills_manager.SkillError as exc:
+            raise skill_fail(exc) from exc
+
+    @app.post("/skills/{nome}/copiar", dependencies=[Depends(require_token)])
+    def skills_copy(nome: str, body: SkillCopy) -> dict:
+        if body.de == body.para:
+            raise HTTPException(status_code=400, detail="a origem e o destino são o mesmo")
+        try:
+            target = skills_manager.copy(nome, skills_dir(body.de, body.root), skills_dir(body.para, body.root))
+        except skills_manager.SkillError as exc:
+            raise skill_fail(exc) from exc
+        return {"pasta": str(target)}
+
+    @app.delete("/skills/{nome}", dependencies=[Depends(require_token)])
+    def skills_remove(nome: str, destino: str, root: str | None = None) -> dict:
+        if destino not in ("claude", "codex", "projeto"):
+            raise HTTPException(status_code=400, detail="destino é claude, codex ou projeto")
+        try:
+            return {"lixeira": str(skills_manager.trash(nome, skills_dir(destino, root), app.state.skills_trash))}
+        except skills_manager.SkillError as exc:
+            raise skill_fail(exc) from exc
 
     # --- arquivos ----------------------------------------------------------
 
@@ -2760,13 +3045,78 @@ def create_app(
 
     @app.get("/estudo", dependencies=[Depends(require_token)])
     def study_summary() -> dict:
-        return study.summary()
+        # v0.9.8: quantos conceitos vencem hoje e a semana do cronograma.
+        return {**study.summary(), "vencidos": study_map.due_count(), "semana_atual": study_map.current()}
 
     @app.post("/estudo/blocos", dependencies=[Depends(require_token)], status_code=201)
     def study_block(body: StudyBlock) -> dict:
         block = study.add(body.minutos, body.assunto)
         manager.events.publish({"type": "study", "summary": study.summary()})
         return block
+
+    # --- Estudo completo (v0.9.8): mapa, plano, conceitos e sessões com o Sócrates ---
+
+    def study_fail(exc: Exception) -> HTTPException:
+        text = str(exc)
+        status = 404 if "não encontrado" in text or "não está no Brain" in text else 409 if "já existe" in text else 400
+        return HTTPException(status_code=status, detail=text)
+
+    @app.get("/estudo/mapa", dependencies=[Depends(require_token)])
+    def study_map_route() -> dict:
+        try:
+            return study_map.map()
+        except (StudyError, OSError) as exc:
+            raise study_fail(exc) from exc
+
+    @app.get("/estudo/plano", dependencies=[Depends(require_token)])
+    def study_plan() -> dict:
+        try:
+            return study_map.plan()
+        except (StudyError, OSError) as exc:
+            raise study_fail(exc) from exc
+
+    @app.post("/estudo/conceitos", dependencies=[Depends(require_token)], status_code=201)
+    def study_new_concept(body: NewConcept) -> dict:
+        try:
+            concept = study_map.create(body.nome, body.resumo, body.relacionados, body.semana)
+        except (StudyError, OSError) as exc:
+            raise study_fail(exc) from exc
+        manager.events.publish({"type": "estudo.mudou"})
+        return concept.to_dict()
+
+    @app.patch("/estudo/conceitos", dependencies=[Depends(require_token)])
+    def study_patch_concept(body: ConceptPatch) -> dict:
+        week = body.semana if "semana" in body.model_fields_set else "keep"
+        try:
+            concept = study_map.update(body.titulo, body.dominio, week)
+        except (StudyError, OSError) as exc:
+            raise study_fail(exc) from exc
+        manager.events.publish({"type": "estudo.mudou"})
+        return concept.to_dict()
+
+    @app.post("/estudo/sessao", dependencies=[Depends(require_token)], status_code=201)
+    async def study_session(body: StudySessionBody) -> dict:
+        # async de propósito: o PTY nasce no loop do asyncio, como em POST /sessions.
+        if body.tipo not in SESSION_TYPES:
+            raise HTTPException(status_code=400, detail=f"tipo de sessão é {', '.join(SESSION_TYPES)}")
+        try:
+            agent = agents.get(TUTOR)
+        except AgentError as exc:
+            raise HTTPException(status_code=400, detail="o Sócrates (agente socrates) não está na galeria de agentes: crie ou importe ele primeiro") from exc
+        try:
+            prompt = study_map.session_prompt(body.tipo, (body.conceito or "").strip() or None)
+            cwd = study_map.session_cwd(body.tipo)
+        except (StudyError, OSError) as exc:
+            raise study_fail(exc) from exc
+        label = {"medir": "medir o que sei", "aprender": f"aprender {body.conceito}" if body.conceito else "aprender",
+                 "praticar": "praticar", "revisar": "revisar"}[body.tipo]  # fmt: skip
+        try:
+            session = manager.create(agent.cli, cwd, title=f"Estudo · {label}"[:60], tag="estudo", agent=agent, prompt=prompt)
+        except (LaunchError, UnknownKind, ExecutableNotFound) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            raise HTTPException(status_code=400, detail=f"pasta inválida para a sessão: {exc}") from exc
+        return session.to_dict()
 
     @app.post("/agents/rascunho", dependencies=[Depends(require_token)])
     def agent_draft(body: DraftRequest) -> dict:

@@ -33,6 +33,8 @@ from .connectors import ConnectorError, ConnectorStore
 from .kanban import Kanban
 from .mcp_client import McpError
 from .google import GoogleError
+from . import graphify_tools  # v0.9.8 parte 5: o grafo do código
+from .graphify_tools import GraphifyError
 from .slack import SlackError
 from .vault import Vault, VaultError
 from .when import WhenError, parse_when
@@ -333,6 +335,97 @@ class Hub:
             Tool("lembrete", "Agenda um lembrete para o Pedro: o bot da MÊTIS manda a mensagem na DM do Slack na hora marcada, e o iPhone toca mesmo com o Mac dormindo.",
                  _schema({"texto": {"type": "string"}, "quando": {"type": "string", "description": "ISO 8601 com fuso, ou em português: 'sexta 9h', 'amanhã 14:30', 'em 20 min'"}, "conta": {"type": "string", "description": "id da conta do Slack; vazio = a conta de lembretes"}}, ["texto", "quando"]), lembrete),
         ]
+
+    def _study_tools(self) -> list[Tool]:
+        """Estudo completo (v0.9.8): o plano e o mapa de conceitos do projeto de estudo no Brain.
+        Escrevem no vault sem pedir aprovação: é o Pedro estudando com o Sócrates ou a Aurora."""
+        study = getattr(self, "study_map", None)
+        if study is None:
+            return []
+        try:
+            study.project_note()
+        except VaultError:
+            return []
+        from .study_map import DOMAIN_LABEL
+        from .study_map import fold as fold_title
+
+        def line(c) -> str:
+            due = f" · revisar em {c.proxima_revisao}" + (" (vencido)" if c.vencido else "") if c.proxima_revisao else " · sem registro ainda"
+            week = f" · semana {c.semana}" if c.semana is not None else ""
+            return f"- {c.titulo} · domínio {c.dominio} ({DOMAIN_LABEL.get(c.dominio, '?')}){due}{week} · {c.acertos} acertos, {c.erros} erros"
+
+        def plano(_args: dict, _ctx: Context) -> str:
+            plan = study.plan()
+            weeks = plan["semanas"]
+            if not weeks:
+                return f"A nota do projeto {plan['projeto']} não tem a tabela do cronograma (colunas Sem., Datas, Foco, Entrega)."
+            current = next((w for w in weeks if w["atual"]), None)
+            head = (f"Hoje ({plan['hoje']}) é a semana {current['numero']} ({current['inicio']} a {current['fim']}): {current['foco']}. Entrega: {current['entrega']}."
+                    if current else f"Hoje ({plan['hoje']}) está fora das semanas do cronograma.")  # fmt: skip
+            rows = [f"- Semana {w['numero']} · {w['inicio']} a {w['fim']} · {w['foco']}" + (" ← agora" if w["atual"] else "") for w in weeks]
+            return head + "\n\nCronograma:\n" + "\n".join(rows)
+
+        def conceitos(args: dict, _ctx: Context) -> str:
+            items = study.concepts()
+            if args.get("semana") not in (None, ""):
+                items = [c for c in items if c.semana == int(args["semana"])]
+            if args.get("vencidos"):
+                items = [c for c in items if c.vencido]
+            if not items:
+                return "Nenhum conceito com esse filtro no mapa de estudo."
+            return f"{len(items)} conceito(s) em {study.project_name}:\n" + "\n".join(line(c) for c in items)
+
+        def registrar(args: dict, ctx: Context) -> str:
+            concept = study.record(str(args.get("conceito") or ""), bool(args.get("acertou")), int(args.get("confianca") or 0), str(args.get("nota") or ""))
+            self.publish({"type": "estudo.mudou"})
+            return f"Registrado. {line(concept)[2:]}"
+
+        def novo(args: dict, ctx: Context) -> str:
+            name = str(args.get("nome") or "")
+            existed = any(fold_title(c.titulo) == fold_title(name) for c in study.concepts())
+            concept = study.create(name, str(args.get("resumo") or ""), [str(r) for r in args.get("relacionados") or []], exist_ok=True)
+            self.publish({"type": "estudo.mudou"})
+            return ("Já existia: " if existed else "Conceito criado: ") + f"{concept.titulo} ({concept.caminho})"
+
+        return [
+            Tool("estudo_plano", "O cronograma do estudo do Pedro (projeto de estudo no Brain): a semana de hoje com o foco e a entrega, e as outras semanas.",
+                 _schema({}, []), plano),
+            Tool("estudo_conceitos", "O mapa do que o Pedro sabe: cada conceito com o domínio (0 não vi … 4 consigo ensinar), a próxima revisão e os acertos. Filtre por semana ou só os vencidos hoje.",
+                 _schema({"semana": {"type": "integer"}, "vencidos": {"type": "boolean"}}, []), conceitos),
+            Tool("estudo_registrar", "Registra uma resposta do Pedro num conceito: se acertou e a confiança que ele disse ANTES de saber (1 a 5). Atualiza o domínio, a calibração e a próxima revisão; cria o conceito se não existir.",
+                 _schema({"conceito": {"type": "string"}, "acertou": {"type": "boolean"}, "confianca": {"type": "integer", "minimum": 1, "maximum": 5}, "nota": {"type": "string"}}, ["conceito", "acertou", "confianca"]), registrar),
+            Tool("estudo_conceito_novo", "Cria um conceito no mapa de estudo (nota em conceitos/ do projeto), com um resumo curto e os conceitos relacionados (a ligação vale dos dois lados).",
+                 _schema({"nome": {"type": "string"}, "resumo": {"type": "string"}, "relacionados": {"type": "array", "items": {"type": "string"}}}, ["nome"]), novo),
+        ]  # fmt: skip
+
+    def _code_tools(self, ctx: Context) -> list[Tool]:
+        """O grafo do código pelo graphify (v0.9.8): só quando a pasta da sessão está num
+        repositório com graphify-out/graph.json. Consultar não usa IA nem cota."""
+        root = graphify_tools.find_root(ctx.cwd)
+        if root is None:
+            return []
+        where = f"o grafo do código de {root.name} (graphify-out/graph.json)"
+
+        def consultar(args: dict, _ctx: Context) -> str:
+            return graphify_tools.query(root, str(args.get("pergunta") or ""), int(args.get("orcamento") or 1500))
+
+        def caminho(args: dict, _ctx: Context) -> str:
+            return graphify_tools.path(root, str(args.get("de") or ""), str(args.get("para") or ""))
+
+        def explicar(args: dict, _ctx: Context) -> str:
+            return graphify_tools.explain(root, str(args.get("conceito") or ""))
+
+        return [
+            Tool("codigo_grafo_consultar",
+                 f"Pergunta sobre a arquitetura e as relações do código desta pasta, respondida pelo {where}: módulos, quem usa o quê, onde algo é feito. Mais rápido e barato do que ler arquivo por arquivo.",
+                 _schema({"pergunta": {"type": "string"}, "orcamento": {"type": "integer", "description": "tamanho máximo da resposta em tokens (padrão 1500)"}}, ["pergunta"]), consultar),
+            Tool("codigo_grafo_caminho",
+                 f"O caminho mais curto entre dois conceitos do código desta pasta (ex.: AuthModule e Database), pelo {where}.",
+                 _schema({"de": {"type": "string"}, "para": {"type": "string"}}, ["de", "para"]), caminho),
+            Tool("codigo_grafo_explicar",
+                 f"Explica um conceito do código desta pasta e os vizinhos dele no grafo, pelo {where}.",
+                 _schema({"conceito": {"type": "string"}}, ["conceito"]), explicar),
+        ]  # fmt: skip
 
     def _browser_tools(self) -> list[Tool]:
         """O navegador da MÊTIS (v0.9.8): o pedido vai à janela, que age no WebKit da aba."""
@@ -664,6 +757,8 @@ class Hub:
 
     def tools_for(self, ctx: Context) -> list[Tool]:
         tools = self._builtin() + self._browser_tools()
+        tools += self._code_tools(ctx)  # v0.9.8 parte 5: grafo do código (graphify)
+        tools += self._study_tools()  # v0.9.8 parte 5: Estudo completo (mapa e plano)
         for account in self.connectors.list():
             if ctx.allowed is not None and account.id not in ctx.allowed:
                 continue
@@ -745,7 +840,7 @@ class Hub:
             payload = result if isinstance(result, dict) and "content" in result else _text(str(result))
             if payload.get("isError"):
                 status = "erro"
-        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, GoogleError, KeyError, ValueError) as exc:
+        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, GoogleError, GraphifyError, KeyError, ValueError) as exc:
             status, detail = "erro", str(exc)
             payload = {**_text(f"Erro: {exc}"), "isError": True}
         texts = [c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict)]

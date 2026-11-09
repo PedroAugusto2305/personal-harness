@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CodeGraphLine } from "./CodeGraph";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, fold } from "../lib/format";
@@ -42,6 +43,8 @@ interface Props {
   suggestionsTick: number;
   contextSession: Session | null;
   onNotice: (message: string) => void;
+  /** v0.9.8: terminal novo aberto por um botão do painel (revisão de PR por IA). */
+  onSession?: (session: Session) => void;
 }
 
 export function Inspector(props: Props) {
@@ -116,9 +119,13 @@ export function Inspector(props: Props) {
           onChanged={props.onChanged}
           onError={props.onError}
           onNotice={props.onNotice}
+          onSession={props.onSession}
         />
       ) : tab === "files" ? (
-        <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
+        <>
+          {client && <CodeGraphLine client={client} root={place.worktree.path} onAgent={props.onAgent} />}
+          <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
+        </>
       ) : tab === "brain" ? (
         <BrainPanel
           client={client}

@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 TIMEOUT = 30
@@ -204,3 +207,144 @@ def items(cwd: str) -> dict:
         }
 
     return _cached(cwd, "itens", compute)
+
+
+# --- checks falhos e revisão de PR (v0.9.8, parte 5) -------------------------------------
+
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?")
+LOG_LINES = 150
+LOG_BUDGET = 12000
+FAILED = {"FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTION_REQUIRED", "ERROR"}
+JOB_LINK = re.compile(r"/actions/runs/(\d+)(?:/job/(\d+))?")
+
+
+def _clean_log(raw: str) -> list[str]:
+    """`gh run view --log-failed` traz "job<TAB>passo<TAB>hora texto": fica só o texto, sem
+    cores, sem as linhas vazias e sem as marcas de grupo do Actions."""
+    lines = []
+    for line in ANSI.sub("", raw or "").splitlines():
+        text = line.split("\t")[-1] if "\t" in line else line
+        text = STAMP.sub("", text).rstrip()
+        if not text.strip() or text.startswith(("##[group]", "##[endgroup]")):
+            continue
+        lines.append(text)
+    return lines
+
+
+def _job_log(cwd: str, link: str = "", run_id: str = "") -> str:
+    match = JOB_LINK.search(link or "")
+    run = (match.group(1) if match else "") or run_id
+    job = match.group(2) if match else ""
+    if not run and not job:
+        return ""
+    args = ["run", "view", "--job", job, "--log-failed"] if job else ["run", "view", run, "--log-failed"]
+    code, out, _ = gh(cwd, *args, timeout=60)
+    if code != 0:
+        return ""
+    return "\n".join(_clean_log(out)[-LOG_LINES:])
+
+
+def _head_sha(cwd: str) -> str:
+    try:
+        done = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def failed_checks(cwd: str) -> dict:
+    """Os checks que falharam no PR do branch (ou no último commit, sem PR), com o fim do
+    log de cada job do Actions. Os logs somam no máximo LOG_BUDGET caracteres."""
+    pr = current_pr(cwd)
+    found: list[dict] = []
+    if pr:
+        code, out, _ = gh(cwd, "pr", "checks", str(pr["numero"]), "--json", "name,state,bucket,link,description,workflow")
+        try:
+            items = json.loads(out or "[]")  # sai com código ≠ 0 quando algum falhou, mas o JSON vem
+        except ValueError:
+            items = []
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("bucket") != "fail" and str(item.get("state") or "").upper() not in FAILED:
+                continue
+            name = item.get("name") or item.get("workflow") or "check"
+            found.append({"nome": name, "url": item.get("link") or "", "resumo": item.get("description") or "", "_run": ""})
+    else:
+        sha = _head_sha(cwd)
+        runs = _json(cwd, "run", "list", "--commit", sha, "--json", "databaseId,conclusion,workflowName,displayTitle,url", "--limit", "20") if sha else None
+        for run in runs if isinstance(runs, list) else []:
+            if str(run.get("conclusion") or "").upper() not in FAILED:
+                continue
+            name = run.get("workflowName") or run.get("displayTitle") or "workflow"
+            found.append({"nome": name, "url": run.get("url") or "", "resumo": run.get("displayTitle") or "", "_run": str(run.get("databaseId") or "")})
+    budget = LOG_BUDGET
+    checks = []
+    for item in found:
+        log = _job_log(cwd, item["url"], item["_run"]) if budget > 0 else ""
+        if len(log) > budget:
+            log = log[-budget:]
+        budget -= len(log)
+        checks.append({"nome": item["nome"], "url": item["url"], "resumo": item["resumo"], "log": log})
+    return {"pr": pr["numero"] if pr else None, "checks": checks}
+
+
+def _names(items: list[str]) -> str:
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " e " + items[-1]
+
+
+def checks_request(cwd: str) -> str:
+    """O pedido pronto para o agente da worktree consertar os checks que falharam."""
+    data = failed_checks(cwd)
+    if not data["checks"]:
+        raise GithubError("nenhum check falhou" + (f" no PR #{data['pr']}" if data["pr"] else " no último commit"))
+    names = [c["nome"] for c in data["checks"]]
+    plural = len(names) > 1
+    where = f"do PR #{data['pr']}" if data["pr"] else f"do último commit ({_head_sha(cwd)[:7]})"
+    lines = [f"O{'s' if plural else ''} check{'s' if plural else ''} {_names(names)} {where} falh{'aram' if plural else 'ou'}."]
+    for check in data["checks"]:
+        lines += ["", f"### {check['nome']}"]
+        if check["url"]:
+            lines.append(check["url"])
+        if check["resumo"]:
+            lines.append(check["resumo"])
+        lines += ["```", check["log"], "```"] if check["log"] else ["(sem log: abra o link para ver o que falhou)"]
+    lines += ["", "Ache a causa, corrija nesta worktree e rode o que der localmente antes de subir."]
+    return "\n".join(lines)
+
+
+def review_request(cwd: str, numero: int | None = None) -> tuple[int, str]:
+    """O pedido de revisão só de leitura: o diff do PR fica num arquivo que o agente lê."""
+    if numero is None:
+        pr = current_pr(cwd)
+        if not pr:
+            raise GithubError("este branch não tem PR aberto: diga o número do PR para revisar")
+        numero = int(pr["numero"])
+    code, diff, err = gh(cwd, "pr", "diff", str(numero), timeout=60)
+    if code != 0:
+        raise GithubError(f"não consegui o diff do PR #{numero}: {(err or diff).strip()[:200]}")
+    info = _json(cwd, "pr", "view", str(numero), "--json", "title,body,baseRefName,headRefName") or {}
+    folder = Path(tempfile.gettempdir()) / "metis-revisoes"
+    folder.mkdir(parents=True, exist_ok=True)
+    repo = (repo_name(cwd) or Path(cwd).name).replace("/", "-")
+    diff_file = folder / f"{repo}-pr-{numero}.diff"
+    diff_file.write_text(diff, encoding="utf-8")
+    title = info.get("title") if isinstance(info, dict) else ""
+    body = (info.get("body") or "").strip() if isinstance(info, dict) else ""
+    lines = [
+        f"Revise o PR #{numero}{f' ({title})' if title else ''} deste repositório, só lendo.",
+        f"O diff completo está em {diff_file} (leia com a ferramenta de leitura de arquivos); leia também os arquivos do repositório que precisar para entender o contexto.",
+    ]
+    if isinstance(info, dict) and info.get("baseRefName"):
+        lines.append(f"Branch {info.get('headRefName')} → {info.get('baseRefName')}.")
+    if body:
+        lines += ["", "Descrição do PR:", body[:3000]]
+    lines += [
+        "",
+        "Liste os problemas por gravidade (crítico, importante, menor), cada um com arquivo:linha, o porquê e a correção sugerida. "
+        "Diga também o que está bom. Não edite arquivo, não faça commit e não comente no GitHub: a revisão fica só aqui no terminal.",
+    ]
+    return numero, "\n".join(lines)

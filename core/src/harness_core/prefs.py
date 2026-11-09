@@ -52,6 +52,8 @@ DEFAULTS: dict[str, Any] = {
     "agente_git": "claude",
     "editor_externo": "",
     "hibernar_min": 0,
+    # v0.9.8: o projeto do Brain onde mora o mapa do estudo (conceitos/) e o cronograma.
+    "estudo_projeto": "AI Engineer 2027",
 }
 
 
@@ -103,6 +105,10 @@ class Prefs:
                 if key == "editor_externo":
                     if not isinstance(value, str) or len(value) > 40:
                         raise PrefsError("editor externo inválido")
+                    value = value.strip()
+                if key == "estudo_projeto":
+                    if not isinstance(value, str) or not value.strip() or len(value) > 120:
+                        raise PrefsError("o projeto de estudo é o nome de um projeto do Brain")
                     value = value.strip()
                 data[key] = value
             tmp = self.path.with_suffix(".tmp")

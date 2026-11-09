@@ -1,6 +1,6 @@
 # Paridade com o Orca
 
-> **Estado:** em execução, um bloco por versão desde a `v0.9.2`. **Levantamento:** 2026-11-07, sobre o Orca 1.4.248 a 1.4.253. **Situação:** 2026-11-08.
+> **Estado:** em execução, um bloco por versão desde a `v0.9.2`. **Levantamento:** 2026-11-07, sobre o Orca 1.4.248 a 1.4.253. **Situação:** 2026-11-09.
 > **Fontes:** as 58 páginas de `onorca.dev/docs`, o changelog, as releases de 1.4.247 a 1.4.253 e as referências de plugin em `github.com/stablyai/orca/docs/reference`. Em [`MAPA.md`](MAPA.md#6-seu-uso-real-do-orca), o seu uso real, lido de `~/Library/Application Support/Orca`.
 
 **Como ler a tabela:**
@@ -11,7 +11,7 @@
   - **Fora** contraria um princípio do Harness.
 - A meta é uma **proposta**: mova o que quiser.
 
-## Situação da régua 1.0 (2026-11-08, `v0.9.7`)
+## Situação da régua 1.0 (2026-11-09, `v0.9.8`)
 
 | Bloco | Situação |
 |---|---|
@@ -28,6 +28,7 @@
 | Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ✅ `v0.9.8` parte 1 (argumentos, variáveis, outra CLI, hibernação) e parte 3 (MCP próprio pela central) |
 | Fora da `v0.9.3` no bloco B: temas do Warp e do Kitty, copiar o contexto e o ID da sessão, teclado kitty e OSC 52 no terminal | ✅ `v0.9.8` parte 1 (temas, copiar, OSC 52); ⏳ teclado kitty espera o xterm 6.1 estável (só existe na beta) |
 | Itens 1.0 fora dos blocos: navegador pelo MCP, perfis e emulação, barra lateral (filtros, fixar, renomear, cores), worktree a partir de branch ou SHA, painel de agentes, tarefas unificadas, abrir em VS Code, fontes e zoom, Skills da MÊTIS | ✅ `v0.9.8` partes 1 a 3 (navegador pelo MCP, perfis, emulação, barra lateral, worktree de branch ou commit, fontes e zoom, Skills, painel de agentes, tarefas do Brain, do GitHub e do ClickUp no kanban); abrir em VS Code na `v0.9.6` |
+| Fora da `v0.9.6` no bloco C e diferenciais da MÊTIS: checks falhos de volta ao agente, revisão de PR por IA, grafo do código pela central, Estudo completo, perfis da MÊTIS e backup, instalar e compartilhar Skills | ✅ `v0.9.8` parte 5 (PRs empilhados ficam para depois da 1.0) |
 | Correções e detalhes do Pedro, revisão das telas | ⏳ `v0.9.9` |
 
 ## Agentes e contas

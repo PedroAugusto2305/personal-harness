@@ -191,6 +191,8 @@ export type CoreEvent =
   | { type: "session.renamed"; id: string; title: string }
   | { type: "temas-app" }
   | { type: "activity.event"; item: AgentEvent }
+  | { type: "estudo.mudou" }
+  | { type: "codigo.grafo"; root: string; status: string; detalhe?: string }
   | { type: "brain.changed"; project: string }
   | { type: "connectors"; accounts: ConnectorAccount[] }
   | { type: "approval"; approval: Approval }
@@ -257,6 +259,63 @@ export interface StudySummary {
   rest_day: boolean;
   risk: boolean;
   recent: { id: number; started: number; ended: number; minutes: number; subject: string; day: string }[];
+  /** v0.9.8: conceitos para revisar hoje e a semana do cronograma. */
+  vencidos?: number;
+  semana_atual?: { numero: number; foco: string } | null;
+}
+
+export interface StudyConcept {
+  titulo: string;
+  caminho: string;
+  dominio: number;
+  confianca_media: number | null;
+  calibracao: number | null;
+  proxima_revisao: string | null;
+  vencido: boolean;
+  acertos: number;
+  erros: number;
+  semana: string | number | null;
+  relacionados: string[];
+}
+
+export interface StudyMap {
+  projeto: string;
+  conceitos: StudyConcept[];
+  resumo: { total: number; por_dominio: Record<string, number>; vencidos: number; calibracao_media: number | null };
+}
+
+export interface StudyPlan {
+  projeto: string;
+  semanas: { numero: number; inicio: string; fim: string; foco: string; entrega: string; atual: boolean }[];
+  hoje: string;
+  semana_atual: number | null;
+}
+
+export type StudySessionKind = "medir" | "aprender" | "praticar" | "revisar";
+
+export interface MetisProfile {
+  id: string;
+  nome: string;
+  pasta: string;
+  porta: number;
+  vault: string | null;
+  criado?: string;
+}
+
+export interface ProfilesState {
+  ativo: string;
+  atual: string;
+  perfis: MetisProfile[];
+  travado: boolean;
+}
+
+export interface BackupCheck {
+  versao: string;
+  data: string;
+  perfil: string;
+  novos: string[];
+  substituidos: string[];
+  contas_para_reconectar: string[];
 }
 
 export interface AgentDraftSuggestion {
@@ -776,6 +835,26 @@ export interface SkillInfo {
   origem: "usuário" | "projeto";
   pasta: string;
   arquivo: string;
+  /** v0.9.8: onde está (claude, codex ou projeto) e de onde veio, quando a MÊTIS instalou. */
+  destino?: SkillTarget | null;
+  fonte?: { tipo: string; origem: string; commit?: string | null; instalada?: string } | null;
+}
+
+export type SkillTarget = "claude" | "codex" | "projeto";
+
+export interface FailedCheck {
+  nome: string;
+  url: string;
+  resumo: string;
+  log: string;
+}
+
+export interface CodeGraph {
+  existe: boolean;
+  atualizado: number | null;
+  nos: number | null;
+  relatorio: string | null;
+  graphify: boolean;
 }
 
 export interface ProjectScripts {
