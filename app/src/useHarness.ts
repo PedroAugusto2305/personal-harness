@@ -274,6 +274,9 @@ export function useHarness() {
         case "temas-app":
           setAppThemesTick((n) => n + 1);
           break;
+        case "estudo.mudou":
+          setBrainTick((n) => n + 1);
+          break;
         case "activity.event":
           setAgentEvents((list) => [event.item, ...list.filter((e) => e.id !== event.item.id)].slice(0, 300));
           break;

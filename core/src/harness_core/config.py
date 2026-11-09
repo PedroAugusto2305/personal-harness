@@ -26,6 +26,11 @@ class Settings:
     worktrees: Path = DEFAULT_WORKTREES
     brain: Path = DEFAULT_BRAIN
     claude_json: Path = DEFAULT_CLAUDE_JSON
+    #: v0.9.8: o perfil deste núcleo (HARNESS_PROFILE); "principal" é a ~/.harness de sempre.
+    profile: str = "principal"
+    #: A pasta foi imposta pelo ambiente (HARNESS_HOME, como no app de desenvolvimento e nos
+    #: testes): dá para ver os perfis, não dá para trocar daqui.
+    locked: bool = False
 
     @property
     def url(self) -> str:
@@ -37,10 +42,34 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    home = Path(os.environ.get("HARNESS_HOME") or Path.home() / ".harness").expanduser()
-    port = int(os.environ.get("HARNESS_PORT") or DEFAULT_PORT)
+    """Pasta, porta e Brain vêm do perfil (HARNESS_PROFILE, lido do registro de perfis);
+    HARNESS_HOME, HARNESS_PORT e BRAIN_VAULT, quando vêm no ambiente, valem por cima."""
+    from . import profiles
+
+    profile_id, profile = profiles.resolve(os.environ.get("HARNESS_PROFILE"), DEFAULT_PORT)
+    env_home = os.environ.get("HARNESS_HOME")
+    if env_home:
+        home = Path(env_home).expanduser()
+    elif profile is not None and profile_id != profiles.MAIN_ID:
+        home = profile.folder
+    else:
+        home = profiles.main_home()
+    expected = profile.folder if profile is not None and profile_id != profiles.MAIN_ID else profiles.main_home()
+    locked = bool(env_home) and home.resolve() != expected.resolve()
+    port = int(os.environ.get("HARNESS_PORT") or (profile.porta if profile is not None and profile_id != profiles.MAIN_ID else DEFAULT_PORT))
     token = os.environ.get("HARNESS_TOKEN") or secrets.token_urlsafe(32)
     worktrees = Path(os.environ.get("HARNESS_WORKTREES_DIR") or DEFAULT_WORKTREES).expanduser()
-    brain = Path(os.environ.get("BRAIN_VAULT") or DEFAULT_BRAIN).expanduser()
+    # O Brain do perfil (quando ele tem um) vale mais que o padrão do ambiente.
+    brain = (profile.brain if profile is not None and profile.brain else None) or Path(os.environ.get("BRAIN_VAULT") or DEFAULT_BRAIN).expanduser()
     claude_json = Path(os.environ.get("HARNESS_CLAUDE_JSON") or DEFAULT_CLAUDE_JSON).expanduser()
-    return Settings(home=home, host="127.0.0.1", port=port, token=token, worktrees=worktrees, brain=brain, claude_json=claude_json)
+    return Settings(
+        home=home,
+        host="127.0.0.1",
+        port=port,
+        token=token,
+        worktrees=worktrees,
+        brain=brain,
+        claude_json=claude_json,
+        profile=profile_id,
+        locked=locked,
+    )

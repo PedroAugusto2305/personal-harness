@@ -2,7 +2,17 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
-## v0.9.8 · o que o MAPA prometeu (em andamento, em cinco partes)
+## v0.9.8 · o que o MAPA prometeu (em cinco partes)
+
+### Parte 5 · código e estudo
+
+- **Checks falhos ao agente:** no cartão do PR, o botão leva ao agente da worktree os checks que falharam (do PR, ou do último commit sem PR) com o fim do log de cada um, para consertar.
+- **Revisão de PR por IA, só leitura:** "Revisar com IA" abre um Claude (em modo plano) ou um Codex (sandbox só leitura) que lê o diff e o repositório e lista os problemas por gravidade, com arquivo e linha. Não edita, não faz commit e não comenta no GitHub: a revisão fica no terminal.
+- **Grafo do código pelo MCP:** numa worktree com o grafo do graphify, os agentes ganham na central as ferramentas de consultar o grafo (buscar, caminho entre dois pontos, explicar um nó). Na aba Arquivos, o tamanho e a idade do grafo, "atualizar" (reextrai o código mudado, sem IA) e "gerar com o agente" (o `/graphify` pelo seu plano).
+- **Estudo completo,** em três abas. **Foco:** a semana do cronograma, com revisar os conceitos vencidos, medir o que você sabe e praticar, cada um abrindo uma sessão com o Sócrates. **O que eu sei:** cada conceito é uma nota em `01-PROJETOS/<projeto>/conceitos`, com domínio (de "não vi" a "consigo ensinar"), acertos e erros, próxima revisão (revisão espaçada) e se a sua confiança bate com o acerto; abrir a nota, aprender um conceito ou criar outro. **Plano:** a tabela do cronograma da nota do projeto, com a semana de agora em destaque. O Sócrates registra cada resposta pela central; nota permanente continua só com a sua destilação.
+- **Perfis** (Ajustes → Perfis e backup): cada perfil é uma MÊTIS separada (ex.: Pessoal e Seller Pro), com pasta, núcleo, senhas no Keychain e, se quiser, Brain próprios. Trocar fecha os terminais do perfil atual e reabre a MÊTIS no outro; o perfil em uso aparece na barra de título.
+- **Backup:** exportar a configuração (ajustes, atalhos, comandos, projetos, agentes com as sprites, automações, rotinas, temas e o registro do estudo) num .zip em Downloads, sem senha nem token; conferir o que um backup traz antes de importar, e importar guardando antes um backup automático de agora.
+- **Skills:** instalar de um repositório git, de uma pasta ou de um .zip no Claude, no Codex ou no projeto; atualizar pela origem, exportar em .zip para compartilhar, copiar para a outra CLI, mostrar no Finder e mandar para a Lixeira.
 
 ### Parte 4 · automações
 

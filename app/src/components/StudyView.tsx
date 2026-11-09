@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { CoreClient } from "../lib/core";
 import type { Pomodoro } from "../lib/pomodoro";
-import type { Agent, StudySummary } from "../types";
+import type { Agent, Session, StudySummary } from "../types";
 import { AgentSprite } from "./AgentSprite";
+import { StudyActions, StudyMapView, StudyPlanView } from "./StudyParts";
 
 interface Props {
   client: CoreClient | null;
@@ -10,6 +11,9 @@ interface Props {
   pomodoro: Pomodoro;
   agents: Agent[];
   onLaunch: (agent: Agent) => void;
+  /** v0.9.8: sessões com o Sócrates e abrir a nota de um conceito. */
+  onSession: (session: Session) => void;
+  onOpenNote: (title: string) => void;
 }
 
 const DAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
@@ -19,8 +23,9 @@ const PRESETS: [number, number][] = [
   [15, 3],
 ];
 
-export function StudyView({ client, tick, pomodoro, agents, onLaunch }: Props) {
+export function StudyView({ client, tick, pomodoro, agents, onLaunch, onSession, onOpenNote }: Props) {
   const [summary, setSummary] = useState<StudySummary | null>(null);
+  const [tab, setTab] = useState<"foco" | "mapa" | "plano">("foco");
   const [subject, setSubject] = useState(pomodoro.state.subject);
   const { state } = pomodoro;
 
@@ -34,8 +39,47 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch }: Props) {
   const tutor = agents.find((a) => a.id === "socrates");
   const running = state.phase !== "idle";
 
+  const tabs = (
+    <header className="kb-bar study-tabs">
+      <div className="segmented" role="tablist" aria-label="Estudo">
+        {(
+          [
+            ["foco", "Foco"],
+            ["mapa", "O que eu sei"],
+            ["plano", "Plano"],
+          ] as const
+        ).map(([value, label]) => (
+          <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>
+            {label}
+            {value === "mapa" && summary?.vencidos ? ` · ${summary.vencidos} para revisar` : ""}
+          </button>
+        ))}
+      </div>
+      {summary?.semana_atual && (
+        <span className="kb-summary small mono">
+          semana {summary.semana_atual.numero} · {summary.semana_atual.foco}
+        </span>
+      )}
+    </header>
+  );
+
+  if (tab !== "foco" && client) {
+    return (
+      <div className="study-screen study-wide">
+        {tabs}
+        <StudyActions client={client} dueCount={summary?.vencidos ?? 0} onSession={onSession} />
+        {tab === "mapa" ? (
+          <StudyMapView client={client} tick={tick} onSession={onSession} onOpenNote={onOpenNote} />
+        ) : (
+          <StudyPlanView client={client} tick={tick} onOpenNote={onOpenNote} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="study-screen">
+      {tabs}
       <section className="study-timer" data-phase={state.phase}>
         <div className="study-phase small">{state.phase === "focus" ? "Foco" : state.phase === "break" ? "Pausa" : "Pronto para estudar"}</div>
         <div className="study-clock mono">{pomodoro.label}</div>
@@ -107,6 +151,12 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch }: Props) {
                 ))}
               </>
             )}
+          </>
+        )}
+        {client && (
+          <>
+            <div className="section-title">Sessões com o Sócrates</div>
+            <StudyActions client={client} dueCount={summary?.vencidos ?? 0} onSession={onSession} />
           </>
         )}
         <div className="section-title">Agentes do estudo</div>

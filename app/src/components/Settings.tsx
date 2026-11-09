@@ -6,12 +6,13 @@ import { ICON, Icon } from "../icons";
 import type { Accounts, AppTheme, BrowserProfile, Prefs, Project, Provider, SavedCommand, Session, TerminalTheme, ThemeName, Usage, VersionInfo, VoiceStatus } from "../types";
 import type { Appearance } from "../lib/appearance";
 import { AppearanceSection, BrowserSection, type LinkTarget } from "./SettingsLook";
+import { ProfilesSection } from "./SettingsProfiles";
 import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
 import { CommandsSection, KeymapSection, TerminalThemeCard, type FindEntry } from "./SettingsTerminal";
 import { GitSection } from "./SettingsGit";
 import { Limits } from "./StatusBar";
 
-export type SettingsSection = "contas" | "agentes" | "git" | "skills" | "recursos" | "aparencia" | "navegador" | "atalhos" | "comandos" | "voz" | "sobre";
+export type SettingsSection = "contas" | "agentes" | "git" | "skills" | "recursos" | "aparencia" | "navegador" | "atalhos" | "comandos" | "voz" | "perfis" | "sobre";
 
 const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }[] = [
   { key: "contas", label: "Contas e uso", icon: "user" },
@@ -24,6 +25,7 @@ const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }
   { key: "atalhos", label: "Atalhos", icon: "keyboard" },
   { key: "comandos", label: "Comandos salvos", icon: "terminal" },
   { key: "voz", label: "Voz", icon: "mic" },
+  { key: "perfis", label: "Perfis e backup", icon: "folder" },
   { key: "sobre", label: "Sobre", icon: "info" },
 ];
 
@@ -66,6 +68,9 @@ const FIND: FindEntry[] = [
   { section: "navegador", label: "Importar cookies do Chrome", terms: "chrome cookies import importar brave edge arc login sessão" },
   { section: "navegador", label: "⌘ + clique num link do terminal abre", find: "clique num link", terms: "links terminal open abrir navegador mac safari chrome routing roteamento" },
   { section: "navegador", label: "Histórico do navegador", terms: "history historico apagar limpar clear navegador" },
+  { section: "perfis", label: "Perfis", terms: "profiles perfil perfis pessoal trabalho seller pro separar dados workspace" },
+  { section: "perfis", label: "Exportar a configuração", terms: "backup export exportar copia de seguranca zip salvar configuração" },
+  { section: "perfis", label: "Importar um backup", find: "Conferir", terms: "backup import importar restaurar restore zip" },
   { section: "atalhos", label: "Atalhos", terms: "shortcuts keybindings hotkeys keyboard teclado atajos remapear" },
   { section: "comandos", label: "Comandos salvos", terms: "saved commands snippets prompts scripts comandos guardados" },
   { section: "voz", label: "Voz", terms: "voice dictation whisper ditado microfone microphone dictado" },
@@ -293,6 +298,7 @@ export function Settings(props: Props) {
             <TerminalThemeCard client={props.client} value={props.termTheme} onChange={props.onTermTheme} />
           </AppearanceSection>
         )}
+        {props.section === "perfis" && <ProfilesSection client={props.client} openSessions={props.openSessions} />}
         {props.section === "navegador" && (
           <BrowserSection
             client={props.client}

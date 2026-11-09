@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { restartCore, type CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, fold, megabytes, shortPath } from "../lib/format";
 import { chime } from "../lib/pomodoro";
-import type { PermissionMode, Prefs, Provider, Resources, SemanticStatus, SkillInfo } from "../types";
+import type { PermissionMode, Prefs, Provider, Resources, SemanticStatus, SkillInfo, SkillTarget } from "../types";
 
 type PrefsChange = Partial<Omit<Prefs, "avisos">> & { avisos?: Partial<Prefs["avisos"]> };
 
@@ -336,10 +336,20 @@ function ShutdownCard({ client, openSessions }: { client: CoreClient | null; ope
 
 // --- Skills ---------------------------------------------------------------------------------
 
+const TARGET_LABEL: Record<SkillTarget, string> = { claude: "Claude", codex: "Codex", projeto: "este projeto" };
+
 export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | null; cwd: string; cwdLabel: string | null }) {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  /** v0.9.8: instalar e compartilhar. */
+  const [origin, setOrigin] = useState("");
+  const [target, setTarget] = useState<SkillTarget>("claude");
+  const [replace, setReplace] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const [armedDelete, setArmedDelete] = useState<string | null>(null);
 
   useEffect(() => {
     if (!client) return;
@@ -351,7 +361,32 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
     return () => {
       alive = false;
     };
-  }, [client, cwd]);
+  }, [client, cwd, reload]);
+
+  const act = async (label: string, job: () => Promise<string>) => {
+    if (!client) return;
+    setBusy(label);
+    setError(null);
+    setDone(null);
+    try {
+      setDone(await job());
+      setReload((n) => n + 1);
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const install = () =>
+    act("instalar", async () => {
+      const answer = await client!.installSkill(origin.trim(), target, cwd, replace);
+      setOrigin("");
+      const skipped = answer.ignoradas.length ? ` Ficaram de fora: ${answer.ignoradas.map((i) => `${i.nome} (${i.motivo})`).join("; ")}.` : "";
+      return answer.instaladas.length
+        ? `Instalada${answer.instaladas.length > 1 ? "s" : ""} no ${TARGET_LABEL[target]}: ${answer.instaladas.join(", ")}.${skipped}`
+        : `Nenhuma skill instalada.${skipped}`;
+    });
 
   const shown = useMemo(() => {
     const words = fold(query).split(/\s+/).filter(Boolean);
@@ -375,6 +410,35 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
         projeto {cwdLabel ? <b>{cwdLabel}</b> : "em foco"}. Cada uma é uma pasta com um SKILL.md.
       </p>
       <MetisSkillCard client={client} />
+      <div className="card skill-install">
+        <div className="setting-row">
+          <span className="setting-label">
+            Instalar uma skill
+            <span className="small">De um repositório git (https), de uma pasta ou de um .zip. A MÊTIS acha cada pasta com SKILL.md e copia; nada é executado.</span>
+          </span>
+        </div>
+        <form
+          className="skill-install-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (origin.trim()) void install();
+          }}
+        >
+          <input value={origin} onChange={(event) => setOrigin(event.target.value)} placeholder="https://github.com/… ou ~/Downloads/skill.zip" spellCheck={false} />
+          <select value={target} onChange={(event) => setTarget(event.target.value as SkillTarget)} aria-label="Onde instalar">
+            <option value="claude">no Claude</option>
+            <option value="codex">no Codex</option>
+            {cwd && <option value="projeto">neste projeto</option>}
+          </select>
+          <label className="small">
+            <input type="checkbox" checked={replace} onChange={(event) => setReplace(event.target.checked)} /> substituir a que tiver o mesmo nome
+          </label>
+          <button type="submit" className="btn primary" disabled={!origin.trim() || busy === "instalar"}>
+            {busy === "instalar" ? "Instalando…" : "Instalar"}
+          </button>
+        </form>
+      </div>
+      {done && <p className="small settings-done">{done}</p>}
       <div className="skills-bar">
         <input className="skills-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar skill pelo nome ou pelo que ela faz…" spellCheck={false} />
         {skills && (
@@ -407,9 +471,71 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
                 {skill.descricao && <span className="skill-description">{skill.descricao}</span>}
                 <span className="small mono">{shortPath(skill.pasta)}</span>
               </span>
-              <button type="button" className="pill ghost" onClick={() => reveal(skill.pasta)}>
-                Mostrar no Finder
-              </button>
+              <div className="row-buttons skill-actions">
+                {skill.destino && skill.fonte?.tipo === "git" && (
+                  <button
+                    type="button"
+                    className="pill ghost"
+                    disabled={!!busy}
+                    title={`Busca de novo em ${skill.fonte.origem}`}
+                    onClick={() =>
+                      void act(`atualizar:${skill.arquivo}`, async () => {
+                        const answer = await client!.updateSkill(skill.nome, skill.destino!, cwd);
+                        return answer.antes === answer.commit ? `${skill.nome} já estava em dia.` : `${skill.nome} atualizada.`;
+                      })
+                    }
+                  >
+                    Atualizar
+                  </button>
+                )}
+                {skill.destino && (
+                  <button
+                    type="button"
+                    className="pill ghost"
+                    disabled={!!busy}
+                    title="Um .zip em Downloads para mandar a quem quiser"
+                    onClick={() => void act(`exportar:${skill.arquivo}`, async () => `Zip em ${shortPath((await client!.exportSkill(skill.nome, skill.destino!, cwd)).arquivo)}.`)}
+                  >
+                    Exportar
+                  </button>
+                )}
+                {skill.destino &&
+                  (["claude", "codex", ...(cwd ? (["projeto"] as const) : [])] as SkillTarget[])
+                    .filter((t) => t !== skill.destino)
+                    .slice(0, 1)
+                    .map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className="pill ghost"
+                        disabled={!!busy}
+                        onClick={() => void act(`copiar:${skill.arquivo}`, async () => (await client!.copySkill(skill.nome, skill.destino!, t, cwd), `${skill.nome} copiada para o ${TARGET_LABEL[t]}.`))}
+                      >
+                        Copiar para o {TARGET_LABEL[t]}
+                      </button>
+                    ))}
+                <button type="button" className="pill ghost" onClick={() => reveal(skill.pasta)}>
+                  Mostrar no Finder
+                </button>
+                {skill.destino && (
+                  <button
+                    type="button"
+                    className={`pill ${armedDelete === skill.arquivo ? "danger" : "ghost"}`}
+                    disabled={!!busy}
+                    title="Vai para a Lixeira (dá para recuperar)"
+                    onClick={() => {
+                      if (armedDelete !== skill.arquivo) {
+                        setArmedDelete(skill.arquivo);
+                        return;
+                      }
+                      setArmedDelete(null);
+                      void act(`apagar:${skill.arquivo}`, async () => (await client!.deleteSkill(skill.nome, skill.destino!, cwd), `${skill.nome} foi para a Lixeira.`));
+                    }}
+                  >
+                    {armedDelete === skill.arquivo ? "Confirmar" : "Lixeira"}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

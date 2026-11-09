@@ -141,6 +141,7 @@ conectores. Você roda num terminal dela: o comando `metis` e o servidor MCP "me
 - `brain_buscar`, `brain_ler`, `brain_precedentes`, `brain_conflitos` — o Brain.
 - `tarefas`, `tarefa_mover`, `tarefa_nova` — o kanban do projeto desta pasta.
 - `lembrete` — mensagem do bot do Slack na DM do Pedro, na hora marcada.
+- `codigo_grafo_consultar`, `codigo_grafo_caminho`, `codigo_grafo_explicar` — o grafo do código desta pasta (graphify), quando o repositório tem graphify-out/: pergunte a ele antes de sair lendo arquivo por arquivo.
 - Ferramentas de cada conta conectada (Slack, ClickUp…), com o id da conta na frente.
 - `saida` — só nas automações: devolve o resultado do passo no formato combinado.
 

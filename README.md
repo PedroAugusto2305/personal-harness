@@ -4,9 +4,17 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.7)
+## O que já faz (v0.9.8)
 
-**Chegando na 0.9.8, parte 4 de 5 (automações):**
+**Na 0.9.8, tudo o que o MAPA prometeu, em cinco partes. Parte 5 (código e estudo):**
+
+- **Checks falhos ao agente** e **revisão de PR por IA** (Claude em modo plano ou Codex só leitura, sem editar nem comentar no GitHub), no cartão do PR do painel de Git.
+- **Grafo do código pela central de MCP:** numa worktree com o grafo do graphify, os agentes consultam o grafo; na aba Arquivos, atualizar sem IA ou gerar com o agente.
+- **Estudo completo:** Foco (revisar os vencidos, medir, praticar), O que eu sei (um conceito por nota em `01-PROJETOS/<projeto>/conceitos`, com domínio, revisão espaçada e calibração da confiança) e Plano (o cronograma da nota do projeto).
+- **Perfis** (Ajustes → Perfis e backup): cada perfil é uma MÊTIS separada, com pasta, núcleo, senhas e Brain próprios; **backup** da configuração num .zip sem segredos, com conferir antes de importar.
+- **Skills:** instalar de git, pasta ou .zip no Claude, no Codex ou no projeto; atualizar, exportar, copiar para a outra CLI e mandar para a Lixeira.
+
+**Parte 4 de 5 (automações):**
 
 - **Passo Código** (Python ou JavaScript, escrito pelo Claude), **gatilhos por evento** da MÊTIS e **por novidade** num conector.
 - **Criar e ajustar por frase**, **importar do n8n** e **estratégias de agentes** (melhor de N, portão de revisão…).
