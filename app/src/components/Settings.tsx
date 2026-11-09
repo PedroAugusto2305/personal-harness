@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, PROVIDERS, fold, shortPath } from "../lib/format";
 import { ACTIONS, formatCombo, hintFor, type Overrides } from "../lib/keymap";
 import { ICON, Icon } from "../icons";
-import type { Accounts, Prefs, Project, Provider, SavedCommand, Session, TerminalTheme, ThemeName, Usage, VersionInfo, VoiceStatus } from "../types";
-import { THEME_LABEL } from "./Chrome";
+import type { Accounts, AppTheme, BrowserProfile, Prefs, Project, Provider, SavedCommand, Session, TerminalTheme, ThemeName, Usage, VersionInfo, VoiceStatus } from "../types";
+import type { Appearance } from "../lib/appearance";
+import { AppearanceSection, BrowserSection, type LinkTarget } from "./SettingsLook";
 import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
 import { CommandsSection, KeymapSection, TerminalThemeCard, type FindEntry } from "./SettingsTerminal";
 import { GitSection } from "./SettingsGit";
 import { Limits } from "./StatusBar";
 
-export type SettingsSection = "contas" | "agentes" | "git" | "skills" | "recursos" | "aparencia" | "atalhos" | "comandos" | "voz" | "sobre";
+export type SettingsSection = "contas" | "agentes" | "git" | "skills" | "recursos" | "aparencia" | "navegador" | "atalhos" | "comandos" | "voz" | "sobre";
 
 const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }[] = [
   { key: "contas", label: "Contas e uso", icon: "user" },
@@ -19,6 +20,7 @@ const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }
   { key: "skills", label: "Skills", icon: "spark" },
   { key: "recursos", label: "Recursos", icon: "cpu" },
   { key: "aparencia", label: "Aparência", icon: "palette" },
+  { key: "navegador", label: "Navegador", icon: "globe" },
   { key: "atalhos", label: "Atalhos", icon: "keyboard" },
   { key: "comandos", label: "Comandos salvos", icon: "terminal" },
   { key: "voz", label: "Voz", icon: "mic" },
@@ -53,6 +55,17 @@ const FIND: FindEntry[] = [
   { section: "aparencia", label: "Tema do terminal", terms: "terminal theme colors palette paleta cores xterm" },
   { section: "aparencia", label: "Importar do Ghostty", terms: "ghostty import theme importar tema" },
   { section: "aparencia", label: "Colar um tema", terms: "paste theme pegar tema ghostty" },
+  { section: "aparencia", label: "Criar tema com prompt", terms: "prompt theme generate gerar tema ia ai cores colors crear" },
+  { section: "aparencia", label: "Importar do VS Code ou do Obsidian", terms: "vscode visual studio code cursor obsidian import theme importar tema" },
+  { section: "aparencia", label: "Fonte da interface", terms: "font fonte letra tipografia typography interface inter sf pro fuente" },
+  { section: "aparencia", label: "Fonte do terminal e do código", terms: "font mono monospace fira code jetbrains menlo terminal editor fonte" },
+  { section: "aparencia", label: "Tamanho da letra do terminal", terms: "font size tamanho letra terminal tamaño" },
+  { section: "aparencia", label: "Densidade", terms: "density compact comfortable densidade compacta confortavel espaçamento spacing" },
+  { section: "aparencia", label: "Zoom da janela", terms: "zoom scale escala aumentar diminuir maior menor" },
+  { section: "navegador", label: "Perfis", terms: "browser profiles perfil perfis navegador cookies login contas partition partição" },
+  { section: "navegador", label: "Importar cookies do Chrome", terms: "chrome cookies import importar brave edge arc login sessão" },
+  { section: "navegador", label: "⌘ + clique num link do terminal abre", find: "clique num link", terms: "links terminal open abrir navegador mac safari chrome routing roteamento" },
+  { section: "navegador", label: "Histórico do navegador", terms: "history historico apagar limpar clear navegador" },
   { section: "atalhos", label: "Atalhos", terms: "shortcuts keybindings hotkeys keyboard teclado atajos remapear" },
   { section: "comandos", label: "Comandos salvos", terms: "saved commands snippets prompts scripts comandos guardados" },
   { section: "voz", label: "Voz", terms: "voice dictation whisper ditado microfone microphone dictado" },
@@ -74,8 +87,6 @@ const PROVIDER_INFO: Record<Provider, { title: string; env: string; home: string
     usageHint: "O uso do Codex é lido da própria CLI a cada 3 minutos.",
   },
 };
-
-export const THEMES: ThemeName[] = ["dracula", "grafite", "claro"];
 
 interface Props {
   section: SettingsSection;
@@ -112,6 +123,17 @@ interface Props {
   onTermTheme: (theme: TerminalTheme | null) => void;
   /** v0.9.4: o terminal da atualização nasceu; a tela vai para ele. */
   onUpdateStarted: (session: Session) => void;
+  // v0.9.8: aparência e navegador
+  appThemes: AppTheme[];
+  appearance: Appearance;
+  onAppearance: (value: Appearance) => void;
+  profiles: BrowserProfile[];
+  defaultProfile: string;
+  onDefaultProfile: (id: string) => void;
+  linkTarget: LinkTarget;
+  onLinkTarget: (value: LinkTarget) => void;
+  openTabs: (profileId: string) => number;
+  onCloseProfileTabs: (profileId: string) => void;
 }
 
 /**
@@ -260,9 +282,28 @@ export function Settings(props: Props) {
         {props.section === "skills" && <SkillsSection client={props.client} cwd={props.skillsCwd} cwdLabel={props.skillsCwdLabel} />}
         {props.section === "recursos" && <ResourcesSection client={props.client} onClose={props.onCloseSession} onOpen={props.onGoToSession} />}
         {props.section === "aparencia" && (
-          <AppearanceSection theme={props.theme} onTheme={props.onTheme}>
+          <AppearanceSection
+            client={props.client}
+            theme={props.theme}
+            onTheme={props.onTheme}
+            themes={props.appThemes}
+            appearance={props.appearance}
+            onAppearance={props.onAppearance}
+          >
             <TerminalThemeCard client={props.client} value={props.termTheme} onChange={props.onTermTheme} />
           </AppearanceSection>
+        )}
+        {props.section === "navegador" && (
+          <BrowserSection
+            client={props.client}
+            profiles={props.profiles}
+            defaultProfile={props.defaultProfile}
+            onDefaultProfile={props.onDefaultProfile}
+            linkTarget={props.linkTarget}
+            onLinkTarget={props.onLinkTarget}
+            openTabs={props.openTabs}
+            onCloseProfileTabs={props.onCloseProfileTabs}
+          />
         )}
         {props.section === "atalhos" && (
           <KeymapSection keymap={props.keymap} file={props.keymapFile} onSave={props.onSaveKeymap} onReload={props.onReloadKeymap} />
@@ -410,45 +451,6 @@ function AccountsSection({ accounts, usage, run, onOpenSession }: Props) {
           </div>
         );
       })}
-    </section>
-  );
-}
-
-function AppearanceSection({ theme, onTheme, children }: { theme: ThemeName; onTheme: (theme: ThemeName) => void; children?: ReactNode }) {
-  return (
-    <section className="settings-page">
-      <h1>Aparência</h1>
-      <p className="lead">O tema é um conjunto de cores. Trocar aqui muda a interface e os terminais na hora.</p>
-      <div className="themes">
-        {THEMES.map((name) => (
-          <button key={name} type="button" className="theme-card" aria-pressed={theme === name} onClick={() => onTheme(name)}>
-            <span className="theme-preview" data-theme={name} aria-hidden="true">
-              <span className="tp-bar" />
-              <span className="tp-body">
-                <span className="tp-side">
-                  <span className="tp-line acc" />
-                  <span className="tp-line" />
-                  <span className="tp-line" />
-                </span>
-                <span className="tp-term">
-                  <span className="tp-line acc short" />
-                  <span className="tp-line" />
-                  <span className="tp-line short" />
-                </span>
-              </span>
-            </span>
-            <span className="theme-name">{THEME_LABEL[name]}</span>
-          </button>
-        ))}
-        <div className="theme-card soon" aria-disabled="true">
-          <span className="theme-preview prompt" aria-hidden="true">
-            <Icon d={ICON.palette} size={26} strokeWidth={1.4} />
-          </span>
-          <span className="theme-name">Criar tema com prompt</span>
-          <span className="small">Você descreve, um agente gera as cores e a MÊTIS confere o contraste. Chega numa próxima versão.</span>
-        </div>
-      </div>
-      {children}
     </section>
   );
 }

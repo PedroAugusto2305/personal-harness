@@ -11,19 +11,46 @@ export interface PaletteItem {
 }
 
 /** Salto rápido (⌘K): pula para um terminal ou roda uma ação, só com o teclado. */
-export function Palette({ items, onClose, placeholder }: { items: PaletteItem[]; onClose: () => void; placeholder?: string }) {
+export function Palette({
+  items,
+  onClose,
+  placeholder,
+  extra,
+}: {
+  items: PaletteItem[];
+  onClose: () => void;
+  placeholder?: string;
+  /** v0.9.8: itens que dependem do texto (endereço digitado, histórico do navegador), na frente. */
+  extra?: (query: string) => Promise<PaletteItem[]>;
+}) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
+  const [found, setFound] = useState<PaletteItem[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
 
+  useEffect(() => {
+    if (!extra) return;
+    let stale = false;
+    const timer = window.setTimeout(() => {
+      void extra(query)
+        .then((list) => !stale && setFound(list))
+        .catch(() => !stale && setFound([]));
+    }, 120);
+    return () => {
+      stale = true;
+      window.clearTimeout(timer);
+    };
+  }, [extra, query]);
+
   const shown = useMemo(() => {
     const words = fold(query).split(/\s+/).filter(Boolean);
-    return items.filter((item) => {
+    const matching = items.filter((item) => {
       const haystack = fold(`${item.label} ${item.group} ${item.hint ?? ""}`);
       return words.every((word) => haystack.includes(word));
-    }).slice(0, 200);
-  }, [items, query]);
+    });
+    return [...found, ...matching].slice(0, 200);
+  }, [items, query, found]);
 
   useEffect(() => input.current?.focus(), []);
   useEffect(() => setIndex(0), [query]);

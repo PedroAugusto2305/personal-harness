@@ -414,7 +414,7 @@ const highlight = HighlightStyle.define([
   { tag: t.strikethrough, textDecoration: "line-through" },
   { tag: t.link, color: "var(--acc)" },
   { tag: t.url, color: "var(--fnt)" },
-  { tag: t.monospace, fontFamily: '"Fira Code", ui-monospace, monospace', fontSize: "0.88em" },
+  { tag: t.monospace, fontFamily: "var(--mono)", fontSize: "0.88em" },
   { tag: t.quote, color: "var(--mut)" },
   { tag: [t.processingInstruction, t.meta, t.contentSeparator], color: "var(--fnt)" },
 ]);

@@ -18,6 +18,8 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuil
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 mod browser;
+#[cfg(target_os = "macos")]
+mod webkit;
 
 const DEFAULT_PORT: u16 = 47830;
 /// Janela da captura rápida (⌥Espaço), a mesma tela React com `?captura=1`.
@@ -373,6 +375,13 @@ pub fn run() {
             browser::browser_go,
             browser::browser_design,
             browser::browser_close,
+            browser::browser_eval,
+            browser::browser_photo,
+            browser::browser_user_agent,
+            browser::browser_remove_profile,
+            browser::browser_import_cookies,
+            browser::browser_zoom,
+            browser::app_zoom,
             browser::open_external
         ])
         .build(tauri::generate_context!())

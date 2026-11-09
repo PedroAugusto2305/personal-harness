@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { themeLabel } from "../lib/appearance";
 import { restartCore, windowAction } from "../lib/core";
 import { ago } from "../lib/format";
 import type { Notice, NoticeKind } from "../lib/inbox";
 import { ICON, Icon, MetisMark } from "../icons";
 import type { ThemeName, View } from "../types";
 
-export const THEME_LABEL: Record<ThemeName, string> = { dracula: "Drácula azul", grafite: "Grafite", claro: "Claro" };
 
 export function TitleBar({
   theme,
@@ -54,7 +54,7 @@ export function TitleBar({
       )}
       {bell && <Bell {...bell} />}
       <button type="button" className="chip" onClick={onCycleTheme} title="Trocar tema (mais opções em Ajustes)">
-        tema: {THEME_LABEL[theme]}
+        tema: {themeLabel(theme)}
       </button>
       <span className="chip">v{__APP_VERSION__}</span>
     </header>

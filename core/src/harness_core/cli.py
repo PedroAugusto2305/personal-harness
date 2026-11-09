@@ -22,8 +22,10 @@
     --json                             nos comandos de listar: a saída em JSON, para agentes
     metis automacoes                   as automações, com estado e a última execução
     metis rodar <automação>            roda a versão publicada agora (id ou nome)
-    metis worktree nova <projeto> <nome> [--base REF] [--sem-env]
+    metis worktree nova <projeto> <nome> [--base REF | --commit SHA] [--sem-env]
                                        worktree nova (projeto por id ou nome); imprime pasta e branch
+    metis worktree nova <projeto> [nome] --branch B
+                                       abre um branch que já existe (local ou origin/…) numa worktree
     metis agente <claude|codex|agente> [--pasta P] [--modelo M] [--esforco E] [--titulo T] [pedido ...]
                                        abre um agente num terminal da MÊTIS (pasta padrão: a atual)
     metis versao                       a versão em uso e se há uma nova (na MÊTIS instalada)
@@ -255,7 +257,14 @@ def _worktree_command(home, args) -> int:
     project = next((p for p in _core(home, "GET", "/projects") if p["id"] == args.projeto or p["name"].casefold() == wanted), None)
     if project is None:
         raise CoreRefused(f"projeto não encontrado: {args.projeto}. Os projetos são os da barra lateral da MÊTIS.")
-    body = {"name": args.nome, "base": args.base or None, "copy_env": not args.sem_env}
+    if args.branch:
+        body = {"name": args.nome, "base": args.branch, "copy_env": not args.sem_env, "modo": "branch"}
+    elif not args.nome:
+        raise CoreRefused("diga o nome da worktree (ou --branch para abrir um branch que já existe)")
+    elif args.commit:
+        body = {"name": args.nome, "base": args.commit, "copy_env": not args.sem_env, "modo": "commit"}
+    else:
+        body = {"name": args.nome, "base": args.base or None, "copy_env": not args.sem_env}
     created = _core(home, "POST", f"/projects/{urllib.parse.quote(project['id'], safe='')}/worktrees", body)
     if args.json:
         print(json.dumps(created, ensure_ascii=False))
@@ -348,8 +357,11 @@ def main(argv: list[str] | None = None) -> int:
     worktree = sub.add_parser("worktree", help="cria uma worktree num projeto da MÊTIS")
     worktree.add_argument("acao", choices=("nova",))
     worktree.add_argument("projeto", help="id ou nome do projeto")
-    worktree.add_argument("nome", help="nome da worktree (vira a branch)")
-    worktree.add_argument("--base", default="", help="branch, tag ou commit de partida (padrão: o atual)")
+    worktree.add_argument("nome", nargs="?", default="", help="nome da worktree (vira a branch; com --branch é opcional)")
+    start = worktree.add_mutually_exclusive_group()
+    start.add_argument("--base", default="", help="branch, tag ou commit de partida (padrão: o atual)")
+    start.add_argument("--branch", default="", help="abre um branch que já existe (local ou origin/…) em vez de criar um")
+    start.add_argument("--commit", default="", help="branch novo com o nome, a partir deste commit")
     worktree.add_argument("--sem-env", action="store_true", help="não copia os .env do projeto")
     agent = sub.add_parser("agente", help="abre o Claude, o Codex ou um agente da MÊTIS num terminal")
     agent.add_argument("alvo", help="claude, codex ou o nome (ou id) de um agente")

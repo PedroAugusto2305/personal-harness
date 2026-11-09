@@ -9,7 +9,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder};
@@ -127,6 +128,8 @@ pub async fn browser_open(
     width: f64,
     height: f64,
     incognito: bool,
+    profile: Option<String>,
+    user_agent: Option<String>,
 ) -> Result<(), String> {
     if !label.starts_with("browser-") {
         return Err("aba de navegador inválida".into());
@@ -143,7 +146,18 @@ pub async fn browser_open(
     let popup = (app.clone(), label.clone());
     let download = (app.clone(), label.clone());
 
-    let builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed))
+    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed));
+    // Perfil (v0.9.8): cada um tem o próprio cofre de cookies e de armazenamento no WebKit.
+    #[cfg(target_os = "macos")]
+    if let Some(hex) = profile.as_deref().filter(|p| !p.is_empty() && !incognito) {
+        builder = builder.data_store_identifier(crate::webkit::identifier_bytes(hex)?);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = &profile;
+    if let Some(agent) = user_agent.as_deref().filter(|a| !a.trim().is_empty()) {
+        builder = builder.user_agent(agent);
+    }
+    let builder = builder
         .initialization_script(SCRIPT)
         .incognito(incognito)
         .devtools(true)
@@ -255,6 +269,89 @@ pub async fn browser_close(app: AppHandle, label: String) -> Result<(), String> 
         Some(view) => view.close().map_err(|e| e.to_string()),
         None => Ok(()),
     }
+}
+
+/// Espera a resposta do lado nativo sem travar o runtime.
+async fn wait<T: Send + 'static>(rx: mpsc::Receiver<Result<T, String>>, seconds: u64, late: &str) -> Result<T, String> {
+    let late = late.to_string();
+    tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(seconds)).map_err(|_| late)?)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Roda um script na página e devolve o valor dele em JSON (v0.9.8: os comandos do agente).
+#[tauri::command]
+pub async fn browser_eval(app: AppHandle, label: String, script: String) -> Result<String, String> {
+    let view = webview(&app, &label)?;
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    let slot = Mutex::new(Some(tx));
+    view.eval_with_callback(script, move |value| {
+        if let Some(tx) = slot.lock().ok().and_then(|mut s| s.take()) {
+            let _ = tx.send(Ok(value));
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    wait(rx, 15, "a página não respondeu (ainda carregando?)").await
+}
+
+/// Foto da parte visível da página, em JPEG base64.
+#[tauri::command]
+pub async fn browser_photo(app: AppHandle, label: String) -> Result<String, String> {
+    let view = webview(&app, &label)?;
+    let (tx, rx) = mpsc::channel();
+    #[cfg(target_os = "macos")]
+    view.with_webview(move |platform| crate::webkit::snapshot(platform.inner(), tx)).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (&view, tx.send(Err("foto só no macOS".into())));
+    }
+    wait(rx, 20, "a foto não ficou pronta em 20 s").await
+}
+
+/// User agent da emulação (vazio volta ao normal). A tela recarrega a página depois.
+#[tauri::command]
+pub async fn browser_user_agent(app: AppHandle, label: String, agent: Option<String>) -> Result<(), String> {
+    let view = webview(&app, &label)?;
+    #[cfg(target_os = "macos")]
+    view.with_webview(move |platform| crate::webkit::set_user_agent(platform.inner(), agent)).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    let _ = (&view, agent);
+    Ok(())
+}
+
+/// Apaga o cofre de um perfil (a tela fecha as abas dele antes).
+#[tauri::command]
+pub async fn browser_remove_profile(app: AppHandle, profile: String) -> Result<(), String> {
+    let (tx, rx) = mpsc::channel();
+    #[cfg(target_os = "macos")]
+    app.run_on_main_thread(move || crate::webkit::remove_store(profile, tx)).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (&app, profile, tx.send(Ok(())));
+    }
+    wait(rx, 20, "o WebKit não apagou o perfil em 20 s").await
+}
+
+/// Cookies importados (do Chrome) para o cofre de um perfil; None = Padrão.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn browser_import_cookies(app: AppHandle, profile: Option<String>, cookies: Vec<crate::webkit::CookieIn>) -> Result<usize, String> {
+    let (tx, rx) = mpsc::channel();
+    app.run_on_main_thread(move || crate::webkit::import_cookies(profile, cookies, tx)).map_err(|e| e.to_string())?;
+    wait(rx, 60, "o WebKit não gravou os cookies em 60 s").await
+}
+
+/// Zoom da página de uma aba (a emulação encolhe o aparelho que não cabe no painel).
+#[tauri::command]
+pub async fn browser_zoom(app: AppHandle, label: String, factor: f64) -> Result<(), String> {
+    webview(&app, &label)?.set_zoom(factor.clamp(0.25, 3.0)).map_err(|e| e.to_string())
+}
+
+/// Zoom da janela da MÊTIS inteira (Ajustes → Aparência, ⌘+ e ⌘-).
+#[tauri::command]
+pub async fn app_zoom(app: AppHandle, factor: f64) -> Result<(), String> {
+    let main = app.get_webview("main").ok_or("janela principal não encontrada")?;
+    main.set_zoom(factor.clamp(0.7, 1.6)).map_err(|e| e.to_string())
 }
 
 /// Abre no navegador do Mac (http e https só).

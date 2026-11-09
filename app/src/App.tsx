@@ -6,7 +6,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { BoardsView } from "./components/BoardsView";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
-import { CoreVersionBanner, Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
+import { CoreVersionBanner, Ribbon, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { ApprovalCard, ConnectorsView } from "./components/ConnectorsView";
 import { StudyView } from "./components/StudyView";
@@ -18,13 +18,15 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { Inspector, type InspectorTab } from "./components/Inspector";
 import { KanbanView, type KanbanRequest } from "./components/KanbanView";
 import { Palette, type PaletteItem } from "./components/Palette";
-import { Settings, THEMES, type SettingsSection } from "./components/Settings";
+import { Settings, type SettingsSection } from "./components/Settings";
+import type { LinkTarget } from "./components/SettingsLook";
 import { Sidebar, type Selected } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { Tabs, type TabItem } from "./components/Tabs";
 import { TerminalView, type Slot } from "./components/TerminalView";
 import { MiniMap } from "./components/MiniMap";
-import { browser, describePick, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
+import { agentAction, browser, describePick, normalizeUrl, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
+import { applyAppearance, applyTheme, BUILTIN_THEMES, customOf, loadAppearance, nextZoom, saveAppearance, setCustomThemes, themeKey, themeLabel, type Appearance } from "./lib/appearance";
 import { CoreError, inTauri, type NewSessionOptions } from "./lib/core";
 import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
 import type { Notice } from "./lib/inbox";
@@ -71,6 +73,10 @@ import type {
   ThemeName,
   View,
   Worktree,
+  AppTheme,
+  BrowserCommand,
+  BrowserProfile,
+  WorktreeMode,
 } from "./types";
 import { useHarness } from "./useHarness";
 import { placeOf, useWorktrees, worktreeLabel, type Place } from "./useWorktrees";
@@ -151,7 +157,22 @@ export default function App() {
   const [section, setSection] = useState<SettingsSection>("contas");
   const [folder, setFolder] = useState<string>(() => stored("harness.folder", "~"));
   const [selected, setSelected] = useState<Selected | null>(() => stored<Selected | null>("harness.selected", null));
-  const [theme, setTheme] = useState<ThemeName>(() => stored<ThemeName>("harness.theme", "dracula"));
+  const [theme, setTheme] = useState<ThemeName>(() => {
+    // O tema do núcleo em uso fica guardado aqui também: a tela abre já com ele, antes da lista chegar.
+    const saved = stored<AppTheme | null>("harness.themeCustom", null);
+    if (saved) setCustomThemes([saved]);
+    return stored<ThemeName>("harness.theme", "dracula");
+  });
+  /** v0.9.8: temas feitos por prompt ou importados (~/.harness/temas). */
+  const [appThemes, setAppThemes] = useState<AppTheme[]>([]);
+  const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
+  /** Perfis do navegador e o perfil das abas novas. */
+  const [profiles, setProfiles] = useState<BrowserProfile[]>([{ id: "padrao", nome: "Padrão", identificador: null }]);
+  const [defaultProfile, setDefaultProfile] = useState<string>(() => stored("harness.web.perfil", "padrao"));
+  /** ⌘ + clique num link do terminal: na MÊTIS ou no navegador do Mac (⇧ troca). */
+  /** Nome da worktree na tela: o apelido da barra lateral (v0.9.8) ou o branch. */
+  const wtName = (worktree: Parameters<typeof worktreeLabel>[0]) => harness.sidebar.nomes[worktree.path] || worktreeLabel(worktree);
+  const [linkTarget, setLinkTarget] = useState<LinkTarget>(() => stored<LinkTarget>("harness.web.links", "metis"));
   const [language, setLanguage] = useState<string>(() => stored("harness.voice.language", "pt"));
   /** v0.9.3: a divisão da tela de cada worktree ("" = fora dos projetos), salva entre aberturas. */
   const [layouts, setLayouts] = useState<Record<string, Layout>>(storedLayouts);
@@ -192,9 +213,16 @@ export default function App() {
   const lastTerm = useRef<string | null>(null);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    applyTheme(theme);
     remember("harness.theme", theme);
-  }, [theme]);
+    remember("harness.themeCustom", customOf(theme));
+  }, [theme, appThemes]);
+  useEffect(() => {
+    applyAppearance(appearance, inTauri());
+    saveAppearance(appearance);
+  }, [appearance]);
+  useEffect(() => remember("harness.web.perfil", defaultProfile), [defaultProfile]);
+  useEffect(() => remember("harness.web.links", linkTarget), [linkTarget]);
   useEffect(() => remember("harness.folder", folder), [folder]);
   useEffect(() => remember("harness.selected", selected), [selected]);
   useEffect(() => remember("harness.voice.language", language), [language]);
@@ -544,18 +572,25 @@ export default function App() {
 
   const webCount = useRef(0);
   /** Aba de navegador nova, ligada à worktree em foco (é para o agente dela que o modo de design manda). */
-  const openWeb = (url?: string, options: { root?: string; incognito?: boolean; design?: boolean } = {}) => {
+  const openWeb = (url?: string, options: { root?: string; incognito?: boolean; design?: boolean; profile?: string; background?: boolean } = {}): string => {
     const root = options.root ?? contextPlace?.worktree.path ?? "";
     const port = contextPlace ? harness.sessions.find((s) => placeFor(s.cwd)?.worktree.path === root && s.ports.length)?.ports[0] : undefined;
     const start = url ?? (port ? `http://localhost:${port}` : "about:blank");
     webCount.current += 1;
     const label = `browser-${Date.now().toString(36)}${webCount.current}`;
     const key = `doc:web:${label}`;
-    setDocs((all) => [...all, { key, type: "web", root, path: start, label, incognito: options.incognito }]);
+    const profile = options.incognito ? undefined : (options.profile ?? defaultProfile);
+    setDocs((all) => [...all, { key, type: "web", root, path: start, label, incognito: options.incognito, profile }]);
     // design: true pede o modo de design assim que a página nativa nascer (ver BrowserView).
-    setWebInfo((all) => ({ ...all, [label]: { url: start, title: null, loading: start !== "about:blank", design: !!options.design } }));
+    // Aberta pelo agente (background), a aba entra na lista sem tirar você do que está vendo.
+    setWebInfo((all) => ({
+      ...all,
+      [label]: { url: start, title: null, loading: start !== "about:blank", design: !!options.design, agentAt: options.background ? Date.now() : undefined },
+    }));
+    if (options.background) return label;
     select(key, root ? placeKeyOf(root) : "");
     if (start === "about:blank") window.setTimeout(() => setUrlFocusTick((n) => n + 1), 50);
+    return label;
   };
 
   /** Fechar aba com edição não salva (v0.9.7): o primeiro clique avisa, o segundo (em 5 s) descarta. */
@@ -596,8 +631,8 @@ export default function App() {
     return true;
   };
 
-  const createWorktree = async (project: Project, name: string, copyEnv: boolean, openClaude: boolean) => {
-    const created = await harness.run((c) => c.createWorktree(project.id, name, copyEnv));
+  const createWorktree = async (project: Project, name: string, copyEnv: boolean, openClaude: boolean, modo: WorktreeMode = "nova", base?: string) => {
+    const created = await harness.run((c) => c.createWorktree(project.id, name, copyEnv, base, modo));
     if (!created) return false;
     await wt.refresh();
     setSelected({ project: project.id, path: created.path });
@@ -1057,6 +1092,11 @@ export default function App() {
         return view === "term" && focusNeighbor("top");
       case "foco.baixo":
         return view === "term" && focusNeighbor("bottom");
+      case "zoom.mais":
+      case "zoom.menos":
+      case "zoom.normal":
+        setAppearance((current) => ({ ...current, zoom: id === "zoom.normal" ? 1 : nextZoom(current.zoom, id === "zoom.mais" ? 1 : -1) }));
+        return true;
       case "web.recarregar":
       case "web.voltar":
       case "web.avancar":
@@ -1103,8 +1143,170 @@ export default function App() {
 
   // --- navegador embutido: eventos que vêm das páginas ---------------------------
 
-  const browserLive = useRef({ docs, placeFor, keys, openWeb, setToast });
-  browserLive.current = { docs, placeFor, keys, openWeb, setToast };
+  const browserLive = useRef({ docs, placeFor, keys, openWeb, setToast, client: harness.client });
+  browserLive.current = { docs, placeFor, keys, openWeb, setToast, client: harness.client };
+  const webInfoRef = useRef(webInfo);
+  webInfoRef.current = webInfo;
+
+  // Perfis do navegador e temas do núcleo: carregam ao ligar e quando o núcleo avisa que mudaram.
+  useEffect(() => {
+    if (!harness.client) return;
+    void harness.client
+      .browserProfiles()
+      .then((answer) => setProfiles(answer.perfis))
+      .catch(() => undefined);
+  }, [harness.client, harness.profilesTick]);
+  useEffect(() => {
+    if (!harness.client) return;
+    void harness.client
+      .appThemes()
+      .then((answer) => {
+        setCustomThemes(answer.temas);
+        setAppThemes(answer.temas);
+        // O tema em uso foi apagado: volta ao Drácula.
+        setTheme((current) => (current.startsWith("tema:") && !answer.temas.some((t) => themeKey(t) === current) ? "dracula" : current));
+      })
+      .catch(() => undefined);
+  }, [harness.client, harness.appThemesTick]);
+
+  // --- navegador pelo MCP (v0.9.8): o agente pede pela central, a aba responde ------------
+
+  /** Aba de navegador mais recente de cada worktree (a que o agente usa quando não diz qual). */
+  const lastWeb = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const doc = docs.find((d) => d.key === focusedKey);
+    if (doc?.type === "web" && doc.label) lastWeb.current[doc.root] = doc.label;
+  }, [focusedKey, docs]);
+
+  const handleBrowserCommand = async (command: BrowserCommand): Promise<unknown> => {
+    if (!browser.available()) throw new Error("o navegador da MÊTIS só funciona no app (não na versão de desenvolvimento no Chrome)");
+    const sleep = (ms: number) => new Promise((done) => window.setTimeout(done, ms));
+    const until = async (check: () => boolean, ms: number) => {
+      const started = Date.now();
+      while (!check()) {
+        if (Date.now() - started > ms) return false;
+        await sleep(100);
+      }
+      return true;
+    };
+    const root = command.cwd ? (browserLive.current.placeFor(command.cwd)?.worktree.path ?? "") : "";
+    const all = () => browserLive.current.docs.filter((d) => d.type === "web");
+    const here = () => all().filter((d) => d.root === root);
+    const args = command.args;
+    const wanted = typeof args.aba === "string" ? args.aba : null;
+    const pick = () => {
+      if (wanted) {
+        const found = all().find((d) => d.label === wanted);
+        if (!found) throw new Error(`a aba ${wanted} não existe (veja navegador_abas)`);
+        return found;
+      }
+      const tabs = here();
+      return tabs.find((d) => d.label === lastWeb.current[root]) ?? tabs[tabs.length - 1] ?? null;
+    };
+    const about = (label: string) => {
+      const info = webInfoRef.current[label];
+      return { aba: label, url: info?.url ?? "", titulo: info?.title ?? "" };
+    };
+    const touch = (label: string) => {
+      lastWeb.current[root] = label;
+      setWebInfo((current) => (current[label] ? { ...current, [label]: { ...current[label], agentAt: Date.now() } } : current));
+    };
+    // A página nativa nasce (mesmo escondida) e responde.
+    const ready = async (label: string) => {
+      const started = Date.now();
+      for (;;) {
+        try {
+          await browser.eval(label, "1");
+          return;
+        } catch {
+          if (Date.now() - started > 12000) throw new Error("a aba não ficou pronta em 12 s");
+          await sleep(150);
+        }
+      }
+    };
+    const settle = async (label: string) => {
+      await sleep(350);
+      await until(() => !webInfoRef.current[label]?.loading, 15000);
+    };
+
+    if (command.action === "abas") {
+      const active = pick()?.label;
+      return here().map((d) => ({ ...about(d.label!), ativa: d.label === active, perfil: profiles.find((p) => p.id === (d.profile ?? "padrao"))?.nome ?? "Padrão" }));
+    }
+    if (command.action === "abrir") {
+      const url = normalizeUrl(String(args.url ?? ""));
+      const current = args.nova_aba ? null : pick();
+      let label: string;
+      if (current?.label) {
+        label = current.label;
+        touch(label);
+        await ready(label);
+        await browser.navigate(label, url);
+      } else {
+        label = browserLive.current.openWeb(url, { root, background: true });
+        touch(label);
+        await ready(label);
+      }
+      await settle(label);
+      return about(label);
+    }
+    const doc = pick();
+    if (!doc?.label) throw new Error("Nenhuma aba do navegador nesta worktree: abra uma com navegador_abrir.");
+    const label = doc.label;
+    touch(label);
+    await ready(label);
+    switch (command.action) {
+      case "ler":
+        return { ...about(label), texto: String(await agentAction(label, "ler", {})) };
+      case "clicar":
+      case "digitar":
+      case "tecla":
+      case "escolher":
+      case "passar":
+      case "rolar": {
+        const done = await agentAction(label, command.action, args);
+        await settle(label);
+        return { ...about(label), feito: String(done) };
+      }
+      case "ir": {
+        const go = { voltar: "back", avancar: "forward", recarregar: "reload" } as const;
+        const acao = String(args.acao) as keyof typeof go;
+        if (!go[acao]) throw new Error("acao: voltar, avancar ou recarregar");
+        await browser.go(label, go[acao]);
+        await settle(label);
+        return { ...about(label), feito: acao };
+      }
+      case "esperar": {
+        const seconds = Math.min(30, Math.max(1, Number(args.segundos) || 5));
+        const started = Date.now();
+        while (Date.now() - started < seconds * 1000) {
+          const found = (await agentAction(label, "achar", { texto: args.texto, seletor: args.seletor }).catch(() => null)) as { achou?: boolean } | null;
+          if (found?.achou) return { ...about(label), achou: true };
+          await sleep(250);
+        }
+        return { ...about(label), achou: false };
+      }
+      case "foto":
+        return { ...about(label), mime: "image/jpeg", base64: await browser.photo(label) };
+      case "console":
+      case "rede":
+        return { aba: label, ...((await agentAction(label, command.action, args)) as object) };
+      case "js":
+        return { aba: label, valor: await agentAction(label, "js", { codigo: args.codigo }, 15000) };
+      case "fechar":
+        setDocs((current) => current.filter((d) => d.label !== label));
+        return { aba: label };
+      default:
+        throw new Error(`ação desconhecida: ${command.action}`);
+    }
+  };
+  harness.browserHandler.current = (command) => {
+    const client = browserLive.current.client;
+    void handleBrowserCommand(command)
+      .then((result) => client?.browserAnswer(command.id, true, result))
+      .catch((cause) => client?.browserAnswer(command.id, false, null, cause instanceof Error ? cause.message : String(cause)))
+      .catch(() => undefined);
+  };
 
   // `metis web <endereço>` num terminal (de você ou de um agente) abre a aba aqui.
   useEffect(() => {
@@ -1143,7 +1345,17 @@ export default function App() {
   useEffect(() => {
     if (!inTauri()) return;
     const stops: Promise<() => void>[] = [
-      onBrowserEvent<BrowserState>("browser:state", (state) =>
+      onBrowserEvent<BrowserState>("browser:state", (state) => {
+        if (state.loading === false && state.url && /^https?:/i.test(state.url)) {
+          const doc = browserLive.current.docs.find((d) => d.label === state.label);
+          if (doc && !doc.incognito) {
+            const url = state.url;
+            window.setTimeout(() => {
+              const info = webInfoRef.current[state.label];
+              if (info?.url === url) void browserLive.current.client?.addWebHistory(url, info.title).catch(() => undefined);
+            }, 1500);
+          }
+        }
         setWebInfo((all) => {
           const prev = all[state.label] ?? { url: "about:blank", title: null, loading: false, design: false };
           return {
@@ -1155,8 +1367,8 @@ export default function App() {
               loading: state.loading ?? prev.loading,
             },
           };
-        }),
-      ),
+        });
+      }),
       onBrowserEvent<{ label: string; data: string }>("browser:pick", ({ label, data }) => void pickRef.current(label, data)),
       onBrowserEvent<{ label: string; data: string }>("browser:design", ({ label }) =>
         setWebInfo((all) => (all[label] ? { ...all, [label]: { ...all[label], design: false } } : all)),
@@ -1227,7 +1439,7 @@ export default function App() {
         title: session.title,
         glyph: sessionGlyph(session, 14),
         dot: STATUS_COLOR[session.status],
-        hint: place ? `${place.project.name} · ${worktreeLabel(place.worktree)}` : shortPath(session.cwd),
+        hint: place ? `${place.project.name} · ${wtName(place.worktree)}` : shortPath(session.cwd),
         away: (place?.worktree.path ?? "") !== placeKey,
       };
     }),
@@ -1240,7 +1452,7 @@ export default function App() {
     })),
   ];
   const tabByKey = new Map(tabItems.map((item) => [item.key, item]));
-  const placeLabel = selectedPlace ? `${selectedPlace.project.name} · ${worktreeLabel(selectedPlace.worktree)}` : "fora dos projetos";
+  const placeLabel = selectedPlace ? `${selectedPlace.project.name} · ${wtName(selectedPlace.worktree)}` : "fora dos projetos";
 
   // --- comandos salvos (v0.9.3) -------------------------------------------------------
 
@@ -1316,7 +1528,7 @@ export default function App() {
         (wt.byProject[project.id] ?? []).map((worktree) => ({
           id: `jump-place-${worktree.path}`,
           group: "Worktrees",
-          label: `${project.name} · ${worktreeLabel(worktree)}`,
+          label: `${project.name} · ${wtName(worktree)}`,
           hint: worktree.path === placeKey ? "aqui" : worktree.changes ? `●${worktree.changes}` : undefined,
           glyph: <Icon d={worktree.main ? ICON.folder : ICON.branch} size={13} />,
           run: () => {
@@ -1361,6 +1573,33 @@ export default function App() {
     },
   ];
 
+  const allThemes: ThemeName[] = [...BUILTIN_THEMES, ...appThemes.map(themeKey)];
+
+  /** ⌘K com endereço e histórico do navegador (v0.9.8). */
+  const paletteExtra = async (query: string): Promise<PaletteItem[]> => {
+    const text = query.trim();
+    if (text.length < 2) return [];
+    const out: PaletteItem[] = [];
+    const url = normalizeUrl(text);
+    const looksLikeAddress = !url.startsWith("https://www.google.com/search");
+    const root = contextPlace?.worktree.path;
+    if (looksLikeAddress) out.push({ id: "addr-open", group: "Navegador", label: `Abrir ${url.replace(/^https?:\/\//, "")}`, hint: "nova aba", glyph: <Icon d={ICON.globe} size={14} />, run: () => openWeb(url, { root }) });
+    const found = harness.client ? (await harness.client.webHistory(text, 6).catch(() => ({ itens: [] }))).itens : [];
+    for (const item of found) {
+      if (looksLikeAddress && item.url === url) continue;
+      out.push({
+        id: `hist-${item.url}`,
+        group: "Histórico do navegador",
+        label: item.titulo || item.url.replace(/^https?:\/\//, ""),
+        hint: item.url.replace(/^https?:\/\//, "").slice(0, 60),
+        glyph: <Icon d={ICON.globe} size={14} />,
+        run: () => openWeb(item.url, { root }),
+      });
+    }
+    if (!looksLikeAddress) out.push({ id: "addr-search", group: "Navegador", label: `Buscar “${text}” no Google`, glyph: <Icon d={ICON.globe} size={14} />, run: () => openWeb(url, { root }) });
+    return out;
+  };
+
   const paletteItems: PaletteItem[] =
     palette === "jump"
       ? jumpItems()
@@ -1369,7 +1608,7 @@ export default function App() {
         : palette === "files"
       ? paletteFiles.map((path) => ({
           id: `file-${path}`,
-          group: contextPlace ? `Arquivos · ${contextPlace.project.name} · ${worktreeLabel(contextPlace.worktree)}` : "Arquivos",
+          group: contextPlace ? `Arquivos · ${contextPlace.project.name} · ${wtName(contextPlace.worktree)}` : "Arquivos",
           label: path,
           run: () => openFile(path),
         }))
@@ -1385,7 +1624,7 @@ export default function App() {
           ...(["claude", "codex", "shell"] as SessionKind[]).map((kind) => ({
             id: `new-${kind}`,
             group: "Abrir",
-            label: `Novo ${KIND_LABEL[kind]} em ${selectedPlace ? `${selectedPlace.project.name} · ${worktreeLabel(selectedPlace.worktree)}` : folder.trim() || "~"}`,
+            label: `Novo ${KIND_LABEL[kind]} em ${selectedPlace ? `${selectedPlace.project.name} · ${wtName(selectedPlace.worktree)}` : folder.trim() || "~"}`,
             glyph: <span style={{ color: KIND_COLOR[kind] }}>{KIND_GLYPH[kind]}</span>,
             run: () => void create(kind),
           })),
@@ -1409,12 +1648,12 @@ export default function App() {
             (wt.byProject[project.id] ?? []).map((worktree) => ({
               id: `place-${worktree.path}`,
               group: "Worktrees",
-              label: `${project.name} · ${worktreeLabel(worktree)}`,
+              label: `${project.name} · ${wtName(worktree)}`,
               hint: worktree.changes ? `●${worktree.changes}` : undefined,
               run: () => (setView("term"), setFloatFocused(false), setSelected({ project: project.id, path: worktree.path })),
             })),
           ),
-          { id: "web", group: "Navegador", label: "Abrir navegador", hint: contextPlace ? worktreeLabel(contextPlace.worktree) : undefined, run: () => openWeb() },
+          { id: "web", group: "Navegador", label: "Abrir navegador", hint: contextPlace ? wtName(contextPlace.worktree) : undefined, run: () => openWeb() },
           { id: "web-private", group: "Navegador", label: "Abrir aba anônima", run: () => openWeb(undefined, { incognito: true }) },
           focusedDoc?.type === "web" && focusedDoc.label
             ? {
@@ -1467,7 +1706,9 @@ export default function App() {
           ...harness.accounts.codex.accounts
             .filter((a) => !a.active)
             .map((a) => ({ id: `acc-codex-${a.id}`, group: "Contas", label: `Usar a conta ${a.name} no Codex`, run: () => void harness.run((c) => c.activateAccount("codex", a.id)) })),
-          ...THEMES.filter((t) => t !== theme).map((t) => ({ id: `theme-${t}`, group: "Aparência", label: `Tema ${THEME_LABEL[t]}`, run: () => setTheme(t) })),
+          ...allThemes.filter((t) => t !== theme).map((t) => ({ id: `theme-${t}`, group: "Aparência", label: `Tema ${themeLabel(t)}`, run: () => setTheme(t) })),
+          { id: "zoom-in", group: "Aparência", label: "Aumentar o zoom", hint: `${hint("zoom.mais")} · agora ${Math.round(appearance.zoom * 100)}%`, run: () => runAction("zoom.mais") },
+          { id: "zoom-out", group: "Aparência", label: "Diminuir o zoom", hint: hint("zoom.menos"), run: () => runAction("zoom.menos") },
           { id: "capture", group: "Hoje", label: "Captura rápida", hint: "⌥Espaço de qualquer app", run: openCapture },
           { id: "study", group: "Estudo", label: "Estudo", hint: "Pomodoro e placar", run: () => setView("study") },
           pomodoro.state.phase === "idle"
@@ -1592,7 +1833,7 @@ export default function App() {
     <div className="app" {...browserDrag}>
       <TitleBar
         theme={theme}
-        onCycleTheme={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
+        onCycleTheme={() => setTheme(allThemes[(allThemes.indexOf(theme) + 1) % allThemes.length])}
         onPalette={() => setPalette("all")}
         pomodoro={pomodoro.state.phase !== "idle" ? { label: pomodoro.label, phase: pomodoro.state.phase } : null}
         onPomodoro={() => setView("study")}
@@ -1630,7 +1871,7 @@ export default function App() {
             onSavePrefs={harness.savePrefs}
             openSessions={openSessions}
             skillsCwd={contextPlace?.worktree.path ?? ""}
-            skillsCwdLabel={contextPlace ? `${contextPlace.project.name} · ${worktreeLabel(contextPlace.worktree)}` : null}
+            skillsCwdLabel={contextPlace ? `${contextPlace.project.name} · ${wtName(contextPlace.worktree)}` : null}
             onCloseSession={harness.close}
             onGoToSession={(id) => select(id)}
             keymap={harness.keymap}
@@ -1643,6 +1884,16 @@ export default function App() {
             onRunCommand={runCommand}
             termTheme={termTheme}
             onTermTheme={setTermTheme}
+            appThemes={appThemes}
+            appearance={appearance}
+            onAppearance={setAppearance}
+            profiles={profiles}
+            defaultProfile={defaultProfile}
+            onDefaultProfile={setDefaultProfile}
+            linkTarget={linkTarget}
+            onLinkTarget={setLinkTarget}
+            openTabs={(id) => docs.filter((d) => d.type === "web" && (d.profile ?? "padrao") === id).length}
+            onCloseProfileTabs={(id) => setDocs((current) => current.filter((d) => !(d.type === "web" && (d.profile ?? "padrao") === id)))}
             onUpdateStarted={(session) => {
               harness.adopt(session);
               select(session.id, placeKeyOf(session.cwd));
@@ -1785,6 +2036,11 @@ export default function App() {
             }}
             onAgents={() => setView("agents")}
             onDismissError={() => harness.setError(null)}
+            sidebar={harness.sidebar}
+            onPin={(path, fixo) => void harness.run((c) => c.patchSidebar({ fixar: { caminho: path, fixo } })).then((state) => state && harness.setSidebar(state))}
+            onAlias={(path, nome) => void harness.run((c) => c.patchSidebar({ nome: { caminho: path, nome } })).then((state) => state && harness.setSidebar(state))}
+            onColor={(projeto, cor) => void harness.run((c) => c.patchSidebar({ cor: { projeto, cor } })).then((state) => state && harness.setSidebar(state))}
+            onRenameSession={(id, titulo) => void harness.run((c) => c.renameSession(id, titulo))}
           />
         )}
         {/* Os terminais ficam sempre montados; nas outras telas, só somem. */}
@@ -1824,13 +2080,14 @@ export default function App() {
                       box={boxOf(session.id)}
                       focused={session.id === focusedKey}
                       tiled={tiled}
-                      colors={termTheme?.cores}
+                      colors={termTheme?.cores ?? customOf(theme)?.terminal ?? null}
+                      font={appearance}
                       searchSignal={searchSignal?.id === session.id ? searchSignal.n : undefined}
                       accountName={accountName(session)}
                       badge={agent ? <AgentSprite agent={agent} client={harness.client} size={16} /> : undefined}
-                      place={place ? `${place.project.name} · ${worktreeLabel(place.worktree)}` : null}
+                      place={place ? `${place.project.name} · ${wtName(place.worktree)}` : null}
                       dropping={drop === session.id}
-                      onLink={(url, external) => (external ? void openExternal(url) : openWeb(url, { root: place?.worktree.path }))}
+                      onLink={(url, external) => (external !== (linkTarget === "mac") ? void openExternal(url) : void openWeb(url, { root: place?.worktree.path }))}
                       onFocus={() => focusSlot(session.id)}
                       readOnly={session.kind !== "shell"}
                       onTyped={(text) => {
@@ -1874,6 +2131,11 @@ export default function App() {
                         initialUrl={doc.path}
                         incognito={!!doc.incognito}
                         info={webInfo[doc.label!]}
+                        profileId={doc.profile ?? "padrao"}
+                        profiles={profiles}
+                        keepAlive={!!webInfo[doc.label!]?.agentAt}
+                        onProfile={(id) => setDocs((current) => current.map((d) => (d.key === doc.key ? { ...d, profile: id } : d)))}
+                        onDevice={(id) => setWebInfo((current) => ({ ...current, [doc.label!]: { ...current[doc.label!], device: id } }))}
                         shown={docSlot !== "hidden" && view === "term" && !overlayOpen}
                         slot={docSlot}
                         box={boxOf(doc.key)}
@@ -1971,7 +2233,7 @@ export default function App() {
                       ? harness.connection === "offline"
                         ? "núcleo fora do ar"
                         : "conectando ao núcleo…"
-                      : `em ${selectedPlace ? `${selectedPlace.project.name} · ${worktreeLabel(selectedPlace.worktree)}` : folder.trim() || "~"} · ${hint("paleta")} para tudo · ${hint("pular")} para pular`}
+                      : `em ${selectedPlace ? `${selectedPlace.project.name} · ${wtName(selectedPlace.worktree)}` : folder.trim() || "~"} · ${hint("paleta")} para tudo · ${hint("pular")} para pular`}
                   </span>
                 </div>
               )}
@@ -2076,7 +2338,7 @@ export default function App() {
         <HistoryPanel
           client={harness.client}
           here={contextPlace?.worktree.path ?? ""}
-          hereLabel={contextPlace ? worktreeLabel(contextPlace.worktree) : null}
+          hereLabel={contextPlace ? wtName(contextPlace.worktree) : null}
           onResume={resumeConversation}
           onClose={() => setHistoryOpen(false)}
         />
@@ -2085,6 +2347,7 @@ export default function App() {
         <Palette
           key={palette}
           items={paletteItems}
+          extra={palette === "all" ? paletteExtra : undefined}
           onClose={() => setPalette(null)}
           placeholder={
             palette === "files"
@@ -2111,7 +2374,7 @@ export default function App() {
       )}
       {pendingDelete && (
         <Confirm
-          title={`Apagar a worktree ${worktreeLabel(pendingDelete.worktree)}?`}
+          title={`Apagar a worktree ${wtName(pendingDelete.worktree)}?`}
           confirmLabel={pendingDelete.busyTerminals.length ? "Fechar terminais e apagar" : pendingDelete.force ? "Apagar mesmo assim" : "Apagar"}
           danger
           busy={deleting}

@@ -144,6 +144,21 @@ conectores. Você roda num terminal dela: o comando `metis` e o servidor MCP "me
 - Ferramentas de cada conta conectada (Slack, ClickUp…), com o id da conta na frente.
 - `saida` — só nas automações: devolve o resultado do passo no formato combinado.
 
+## Navegador da MÊTIS
+
+Pela central de MCP você usa o navegador da MÊTIS, na aba da worktree desta pasta, e o Pedro vê o
+seu cursor agindo na página:
+
+- `navegador_abrir` (endereço ou aba nova), `navegador_abas`, `navegador_fechar`.
+- `navegador_ler` — o texto da página com refs como [e12]. Rode antes de agir.
+- `navegador_clicar`, `navegador_digitar`, `navegador_tecla`, `navegador_escolher`, `navegador_passar`, `navegador_rolar` — pela ref (ou seletor CSS).
+- `navegador_ir` (voltar, avançar, recarregar) e `navegador_esperar` (um texto ou seletor aparecer).
+- `navegador_foto`, `navegador_console`, `navegador_rede` e `navegador_js` — para conferir e depurar.
+
+Regras do navegador: use `navegador_ler` antes de agir e as refs [eN] que ele mostra; nunca digite senha,
+dado de cartão nem documento: peça ao Pedro; envio que fala com outras pessoas (formulário, compra,
+mensagem) só com o Pedro de acordo.
+
 ## Regras
 
 - O que fala com outras pessoas (mensagem em canal, criar ou mudar algo no ClickUp) espera a aprovação do Pedro na MÊTIS: peça e aguarde, não contorne.

@@ -26,6 +26,8 @@ export interface DocTab {
   /** Só nas abas de navegador: o rótulo da página nativa. */
   label?: string;
   incognito?: boolean;
+  /** v0.9.8: perfil do navegador (id; ausente = Padrão). */
+  profile?: string;
 }
 
 export function docTitle(doc: DocTab, webTitle?: string | null): string {
