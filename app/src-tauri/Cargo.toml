@@ -1,6 +1,6 @@
 [package]
 name = "harness"
-version = "0.9.8"
+version = "0.9.9"
 description = "MÊTIS: OS pessoal e ADE no Mac"
 authors = ["Pedro Aquino"]
 edition = "2024"
@@ -20,15 +20,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
 tauri-plugin-global-shortcut = "2"
+# v0.9.9: seletor de pasta nativo (Adicionar projeto), no lugar de digitar o caminho.
+tauri-plugin-dialog = "=2.8.3"
 
 # v0.9.8: o navegador fala direto com o WebKit (foto da página, user agent, cofre de cookies
 # de cada perfil). As mesmas versões que o wry já usa: nada novo é baixado.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDate", "NSDictionary", "NSError", "NSHTTPCookie", "NSString", "NSUUID", "NSValue", "NSGeometry", "NSArray"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSData", "NSDate", "NSDictionary", "NSError", "NSHTTPCookie", "NSString", "NSUUID", "NSValue", "NSGeometry", "NSArray"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSView", "NSWindow", "NSResponder", "NSGraphics"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration", "WKWebsiteDataStore", "WKHTTPCookieStore", "WKWebViewConfiguration"] }
+# v0.9.9: aviso nativo do macOS (ícone da MÊTIS, clique abre a sessão), pela Central de Notificações.
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "block2", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSound", "UNNotificationResponse", "UNNotification", "UNNotificationTrigger", "UNNotificationSettings"] }
 
 [profile.release]
 codegen-units = 1

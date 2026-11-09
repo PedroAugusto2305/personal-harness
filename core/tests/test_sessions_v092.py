@@ -201,7 +201,7 @@ def test_notices_follow_the_hook_name_and_restart_keeps_the_name(core, monkeypat
     from harness_core import app as app_mod
 
     sent: list[tuple[str, str]] = []
-    monkeypatch.setattr(app_mod, "mac_notify", lambda title, text, sound=True: sent.append((title, text)))
+    monkeypatch.setattr(app_mod, "mac_notify", lambda title, text, sound=True, target="", group="": sent.append((title, text)))
     folder = settings.worktrees / "r" / "avisos"
     folder.mkdir(parents=True)
     session = client.post("/sessions", json={"kind": "claude", "cwd": str(folder), "title": "Claude"}, headers=AUTH).json()

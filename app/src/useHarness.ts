@@ -18,8 +18,7 @@ import type {
   SessionKind,
   SessionStatus,
   Usage,
-  SavedCommand,
-} from "./types";
+  SavedCommand, AutoQueueView } from "./types";
 
 const NO_ACCOUNTS: Accounts = { claude: { active: "padrao", accounts: [] }, codex: { active: "padrao", accounts: [] } };
 
@@ -81,6 +80,8 @@ export function useHarness() {
   const browserHandler = useRef<((command: BrowserCommand) => void) | null>(null);
   /** v0.9.8 (parte 3): o que os agentes fizeram (terminou, perguntou, saiu), mais novo primeiro. */
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+  /** v0.9.9: a fila da coluna Auto do kanban, ao vivo. */
+  const [kanbanAuto, setKanbanAuto] = useState<AutoQueueView | null>(null);
   /** Sobe quando os perfis do navegador ou os temas da tela mudam no núcleo. */
   const [profilesTick, setProfilesTick] = useState(0);
   const [appThemesTick, setAppThemesTick] = useState(0);
@@ -276,6 +277,9 @@ export function useHarness() {
           break;
         case "estudo.mudou":
           setBrainTick((n) => n + 1);
+          break;
+        case "kanban.auto":
+          setKanbanAuto({ limite: event.limite, rodando: event.rodando, na_fila: event.na_fila, itens: event.itens });
           break;
         case "activity.event":
           setAgentEvents((list) => [event.item, ...list.filter((e) => e.id !== event.item.id)].slice(0, 300));
@@ -497,6 +501,8 @@ export function useHarness() {
     browserHandler,
     agentEvents,
     setAgentEvents,
+    kanbanAuto,
+    setKanbanAuto,
     profilesTick,
     appThemesTick,
     sidebar,

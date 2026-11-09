@@ -1,11 +1,12 @@
 // O "Adicionar" do quadro: nota do Brain (busca), sessão aberta ou nova, tarefa do kanban do
 // projeto, link, nota sua e grupo. Cada cartão novo entra no meio da tela, sem encostar em outro.
 
+import { KindIcon } from "../KindIcon";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ICON, Icon } from "../../icons";
 import { normalizeUrl, TASK_STATE } from "../../lib/canvas";
 import type { CoreClient } from "../../lib/core";
-import { KIND_COLOR, KIND_GLYPH, STATUS_COLOR, STATUS_LABEL, shortPath } from "../../lib/format";
+import { KIND_COLOR, STATUS_COLOR, STATUS_LABEL, shortPath } from "../../lib/format";
 import { TYPE_ICON, TYPE_LABEL } from "../../lib/obsidian";
 import type { Agent, BrainHit, KanbanTask, Session, TaskState } from "../../types";
 import { AgentSprite } from "../AgentSprite";
@@ -117,7 +118,7 @@ export function AddMenu(props: Props) {
           <div className="bd-add-results">
             <button type="button" className="bd-add-row" data-primary="true" onClick={props.onNewSession}>
               <span className="bd-row-glyph" style={{ color: KIND_COLOR.claude }}>
-                {KIND_GLYPH.claude}
+                <KindIcon kind="claude" size={16} />
               </span>
               <span className="bd-row-text">
                 <b>Nova sessão do Claude aqui</b>
@@ -130,7 +131,7 @@ export function AddMenu(props: Props) {
               return (
                 <button key={s.id} type="button" className="bd-add-row" onClick={() => props.onAddSession(s)}>
                   <span className="bd-row-glyph" style={{ color: KIND_COLOR[s.kind] }}>
-                    {agent ? <AgentSprite agent={agent} client={props.client} size={20} /> : KIND_GLYPH[s.kind]}
+                    {agent ? <AgentSprite agent={agent} client={props.client} size={20} /> : <KindIcon kind={s.kind} size={16} />}
                   </span>
                   <span className="bd-row-text">
                     <b>{agent?.name ?? s.title}</b>

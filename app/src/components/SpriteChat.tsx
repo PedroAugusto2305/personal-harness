@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { SpriteStrip } from "./AgentSprite";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { clock } from "../lib/format";
@@ -21,11 +22,12 @@ interface Props {
   onUse: (jobId: string) => void;
 }
 
-const IDEAS = ["guerreira espartana com lança e escudo", "filósofo de barba longa com pergaminho", "sacerdotisa com lira e coroa de louros"];
+const IDEAS = ["cabelo ruivo, coroa de louros e um livro", "barba branca, toga azul e um pergaminho", "elmo coríntio, capa vermelha, lança e escudo"];
 
 /**
- * Chat da sprite: você descreve, o Codex desenha e a MÊTIS pixeliza em 32 × 32.
- * Sempre no estilo greco-romano. Com uma sprite pronta, a próxima mensagem a ajusta.
+ * Chat da sprite: você diz as características, o GPT desenha (pela ferramenta de imagem do Codex,
+ * com o seu plano) sempre no modelo da MÊTIS, e ela deixa em pixel art de verdade na grade do
+ * desenho. Com uma sprite pronta, a próxima mensagem a ajusta.
  */
 export function SpriteChat({ client, name, description, color, chosen, onUse }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -80,8 +82,14 @@ export function SpriteChat({ client, name, description, color, chosen, onUse }: 
   return (
     <div className="sprite-chat card">
       <div className="sprite-chat-head">
-        <span className="setting-label">Criar a sprite por prompt</span>
-        <span className="small">Estilo greco-romano sempre · o Codex desenha (usa o seu plano) e a MÊTIS deixa em pixel art 32 × 32</span>
+        {client && <img className="pixel sprite-model" src={client.spriteModelUrl()} alt="Modelo das sprites" title="Toda sprite sai neste modelo" />}
+        <span className="sprite-chat-title">
+          <span className="setting-label">Criar a sprite por prompt</span>
+          <span className="small">
+            Toda sprite sai neste modelo: corpo inteiro, greco-romana, pixel art com contorno preto. Você diz as características (cabelo, roupa, cores, o que
+            segura); o GPT desenha pelo Codex, com o seu plano.
+          </span>
+        </span>
       </div>
       <div className="sprite-chat-list" ref={list}>
         {messages.length === 0 && (
@@ -104,13 +112,17 @@ export function SpriteChat({ client, name, description, color, chosen, onUse }: 
               {message.job?.status === "running" && (
                 <span className="drawing">
                   <span className="rec-dot" aria-hidden="true" />
-                  {message.job.base ? "ajustando" : "desenhando"} com o Codex… {clock((now - message.job.created_at * 1000) / 1000)}
+                  o GPT está {message.job.base ? "ajustando" : "desenhando"}… {clock((now - message.job.created_at * 1000) / 1000)}
                 </span>
               )}
               {message.job?.status === "error" && <span className="error-text">Não deu: {message.job.error}</span>}
               {message.job?.status === "done" && client && (
                 <div className="sprite-result">
-                  <img className="pixel sprite-preview" src={client.spriteJobUrl(message.job.id)} width={96} height={96} alt="Sprite gerada" />
+                  {(message.job.frames ?? 0) > 1 ? (
+                    <SpriteStrip url={client.spriteJobUrl(message.job.id, true)} frames={message.job.frames!} size={96} />
+                  ) : (
+                    <img className="pixel sprite-preview" src={client.spriteJobUrl(message.job.id)} width={96} height={96} alt="Sprite gerada" />
+                  )}
                   <div className="sprite-result-side">
                     {message.job.note && <span className="small">{message.job.note}</span>}
                     <div className="form-buttons">
@@ -141,7 +153,7 @@ export function SpriteChat({ client, name, description, color, chosen, onUse }: 
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={base ? "O que mudar? Ex.: elmo mais dourado, manto mais longo" : "Descreva o personagem. Ex.: estrategista com elmo coríntio e pergaminho"}
+          placeholder={base ? "O que mudar? Ex.: cabelo mais curto, manto verde" : "Características: cabelo, roupa, cores e o objeto que segura"}
           disabled={!client || !!running}
           maxLength={2000}
           onKeyDown={(event) => {

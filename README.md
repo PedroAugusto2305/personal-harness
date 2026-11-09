@@ -4,7 +4,18 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.8)
+## O que já faz (v0.9.9)
+
+**Na 0.9.9, as telas dos mockups e o apanhado do Pedro:**
+
+- **Sala dos agentes** (ícone de pessoas): a casa de trabalho dos agentes, o escritório animado de dia e de noite, com cada agente na sua mesa, o movimento parado da sprite (respira e pisca) e o balão quando ele trabalha ou espera você. Arraste para qualquer lugar; solto perto de uma mesa, ele senta. Apagar um agente pela lista ou pelo painel.
+- **Sprites no modelo da MÊTIS:** quem desenha é sempre o GPT (a ferramenta de imagem do Codex, pelo seu plano), no modelo de referência e com as características que você pedir, em 4 quadros de movimento parado.
+- **Kanban com a coluna Auto:** Pendente, Auto, Em andamento, Em teste e Concluído, com as tarefas de todos os projetos. Solte uma tarefa em Auto e ela roda sozinha num agente (numa worktree nova ou na pasta do projeto) e para em Em teste para você revisar.
+- **Telas no desenho dos mockups:** Hoje, Brain (árvore do vault, abas e o grafo de sempre), Estudo (as perguntas do Sócrates como formulário), Terminais (barra de entrada em cada agente) e Conectores (cada ferramenta livre, pedindo aprovação ou desligada).
+- **Avisos do macOS com o ícone da MÊTIS**, pela Central de Notificações; clicar no aviso abre a sessão, a aprovação ou a automação.
+- **Uso dos modelos:** tokens e custo equivalente em API por modelo, por dia e por projeto (Ajustes → Contas e uso). Clicar no uso da barra de baixo abre as barras do plano de cada conta.
+- **Projetos e workspaces no jeito do Orca:** Adicionar projeto (abrir pasta, os repositórios do Mac, clonar ou criar) e Novo workspace (⌘N).
+- **Ícones oficiais:** Claude e Codex com o ícone deles em todo lugar, e cada conector com o logo da ferramenta.
 
 **Na 0.9.8, tudo o que o MAPA prometeu, em cinco partes. Parte 5 (código e estudo):**
 

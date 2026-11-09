@@ -2,8 +2,9 @@
 
 - Mac acordado: um `caffeinate -i` que vive enquanto o ajuste pede (sempre, ou só com
   agente trabalhando ou automação rodando) e morre junto com o núcleo (`-w <pid>`).
-- Aviso do macOS: quando nenhuma janela da MÊTIS está aberta, o próprio núcleo avisa
-  (osascript, com o texto passado como argumento, nunca dentro do script).
+- Aviso do macOS: quando nenhuma janela da MÊTIS está aberta, o próprio núcleo avisa: pelo
+  executável do app (`--aviso`, com o ícone da MÊTIS, v0.9.9) ou, sem ele, pelo osascript
+  (com o texto passado como argumento, nunca dentro do script).
 - Recursos: memória e CPU do núcleo e de cada sessão (o processo e os filhos dele), por `ps`.
 - Skills: as do usuário (~/.claude/skills, também das outras contas e ~/.codex/skills) e as
   do projeto (<pasta>/.claude/skills), com nome e descrição tirados do SKILL.md.
@@ -11,9 +12,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -54,8 +57,31 @@ def wants_awake(mode: str, working_sessions: int, running_automations: int) -> b
     return False
 
 
-def mac_notify(title: str, text: str, sound: bool = True) -> None:
-    """Aviso do macOS (Central de Notificações). Título e texto vão como argumentos do script."""
+# v0.9.9: o executável da MÊTIS (dentro do .app), registrado pela janela. Com ele o aviso sai
+# pelo próprio app (`--aviso`), com o ícone e o nome da MÊTIS; sem ele, pelo osascript.
+_notifier = {"exe": ""}
+
+
+def set_notifier(exe: str) -> bool:
+    """Guarda o executável do app, se for mesmo um `<Nome>.app/Contents/MacOS/<bin>`; "" apaga."""
+    path = Path(exe) if exe else None
+    ok = bool(
+        path
+        and path.is_absolute()
+        and path.is_file()
+        and path.parent.name == "MacOS"
+        and path.parent.parent.name == "Contents"
+        and path.parent.parent.parent.suffix == ".app"
+    )
+    _notifier["exe"] = str(path) if ok else ""
+    return ok
+
+
+def notifier() -> str:
+    return _notifier["exe"]
+
+
+def _osascript_notify(title: str, text: str, sound: bool) -> None:
     script = [
         "on run argv",
         'display notification (item 2 of argv) with title (item 1 of argv)' + (' sound name "Glass"' if sound else ""),
@@ -68,6 +94,30 @@ def mac_notify(title: str, text: str, sound: bool = True) -> None:
         subprocess.Popen([*args, title[:120], text[:240]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         pass
+
+
+def _app_notify(exe: str, payload: dict, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> bool:
+    """O app avisa e sai (0 = o macOS aceitou; 2 fora do .app, 3 sem permissão, 4 erro)."""
+    try:
+        done = run([exe, "--aviso", json.dumps(payload, ensure_ascii=False)], capture_output=True, timeout=8)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return done.returncode == 0
+
+
+def mac_notify(title: str, text: str, sound: bool = True, target: str = "", group: str = "") -> None:
+    """Aviso do macOS (Central de Notificações). Pelo app da MÊTIS quando a janela registrou o
+    executável; senão pelo osascript, com título e texto como argumentos do script. Não trava
+    quem chama: o aviso sai numa thread."""
+    exe = _notifier["exe"]
+    payload = {"titulo": title[:120], "texto": text[:300], "som": sound, "alvo": target, "grupo": group}
+
+    def send() -> None:
+        if exe and _app_notify(exe, payload):
+            return
+        _osascript_notify(title, text, sound)
+
+    threading.Thread(target=send, name="aviso-mac", daemon=True).start()
 
 
 def process_table(run: Callable[[list[str]], str] | None = None) -> dict[int, tuple[int, float, float, str]]:

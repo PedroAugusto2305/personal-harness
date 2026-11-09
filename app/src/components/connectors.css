@@ -1,0 +1,562 @@
+/* Conectores (v0.9.9): o mockup "Conectores", com as contas de verdade. */
+
+.cx-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.cx-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cx-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.cx-head-text {
+  flex: 1 1 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cx-head h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.cx-head-text > span {
+  color: var(--mut);
+  line-height: 1.5;
+}
+
+.cx-btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--tx);
+  cursor: pointer;
+}
+
+.cx-btn:hover:not(:disabled) {
+  background: var(--elev);
+}
+
+.cx-btn.primary {
+  border: 0;
+  background: var(--acc);
+  color: var(--onacc);
+  font-weight: 600;
+}
+
+.cx-btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--acc) 88%, white);
+}
+
+.cx-btn.danger {
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+  color: var(--err);
+}
+
+.cx-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cx-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cx-tabs button {
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+}
+
+.cx-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--acc);
+  color: var(--tx);
+  font-weight: 600;
+}
+
+.cx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.cx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--side);
+  color: var(--tx);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cx-card.static {
+  cursor: default;
+}
+
+.cx-card:not(.static):hover {
+  border-color: var(--line2);
+}
+
+.cx-card[aria-pressed="true"] {
+  border-color: var(--acc);
+  background: var(--soft);
+}
+
+.cx-card-empty {
+  border-style: dashed;
+}
+
+.cx-card .cx-btn {
+  align-self: flex-start;
+  height: 30px;
+}
+
+.cx-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cx-card-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cx-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-kind {
+  font-size: 12px;
+  color: var(--fnt);
+}
+
+.cx-on {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--run);
+  white-space: nowrap;
+}
+
+.cx-dot {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--run);
+}
+
+.cx-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cx-chips:empty {
+  display: none;
+}
+
+.cx-chip {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--acct);
+  font-size: 11.5px;
+  line-height: 20px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-summary {
+  font-size: 12px;
+  color: var(--mut);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.cx-section {
+  padding-top: 8px;
+}
+
+.cx-table-wrap {
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.cx-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.cx-table thead tr {
+  background: var(--side);
+}
+
+.cx-table th,
+.cx-table td {
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.cx-table thead th {
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
+.cx-table tbody tr {
+  border-top: 1px solid var(--line);
+}
+
+.cx-table tbody th {
+  font-weight: 500;
+}
+
+.cx-cell {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--fnt);
+}
+
+button.cx-cell {
+  cursor: pointer;
+}
+
+button.cx-cell:hover:not(:disabled) {
+  outline: 1px solid var(--line2);
+}
+
+.cx-cell[data-v="livre"] {
+  background: var(--soft);
+  color: var(--acct);
+}
+
+.cx-cell[data-v="aprovacao"] {
+  background: color-mix(in srgb, var(--wait) 16%, transparent);
+  color: var(--wait);
+}
+
+.cx-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cx-calls {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.cx-calls:has(> p) {
+  border: 0;
+}
+
+.cx-call {
+  display: grid;
+  grid-template-columns: 76px 120px 190px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--side);
+}
+
+.cx-call:last-child {
+  border-bottom: 0;
+}
+
+.cx-call-time {
+  color: var(--fnt);
+}
+
+.cx-call-who {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-call-tool {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.cx-call-tool > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cx-call-tool,
+.cx-call-what {
+  color: var(--mut);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-aside {
+  flex: 0 0 340px;
+  min-width: 0;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: var(--side);
+  border-left: 1px solid var(--line);
+}
+
+.cx-aside-empty {
+  display: block;
+  padding: 18px;
+}
+
+.cx-panel {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cx-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cx-panel-name {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.cx-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cx-block-title {
+  font-weight: 600;
+}
+
+.cx-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--bg);
+  color: var(--tx);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cx-account[aria-current="true"] {
+  border-color: var(--acc);
+}
+
+.cx-account-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-add {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--line2);
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+}
+
+.cx-add:hover {
+  border-color: var(--acc);
+  color: var(--acct);
+}
+
+.cx-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--mut);
+  line-height: 1.4;
+}
+
+.cx-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.cx-tool-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cx-mode {
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mut);
+  font-size: 11.5px;
+  text-align: right;
+  cursor: pointer;
+}
+
+.cx-mode:hover {
+  background: var(--elev);
+}
+
+.cx-mode[data-mode="aprovacao"] {
+  color: var(--wait);
+}
+
+.cx-mode[data-mode="desligada"] {
+  color: var(--fnt);
+}
+
+.cx-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cx-buttons .cx-btn {
+  flex: 1 1 120px;
+}
+
+.cx-link {
+  align-self: flex-start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--acct);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cx-link:hover {
+  text-decoration: underline;
+}
+
+.cx-note {
+  font-size: 12px;
+  color: var(--fnt);
+  line-height: 1.5;
+}
+
+.cx-error {
+  color: var(--err);
+}
+
+.cx-setup .conn-setup {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cx-panel .conn-reminder {
+  margin: 0;
+}
+
+@media (max-width: 1100px) {
+  .cx-aside {
+    flex-basis: 300px;
+  }
+}
+
+/* Logos das ferramentas (v0.9.9): o quadradinho com a marca no lugar da inicial. */
+.brand-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--elev);
+  color: var(--tx);
+  overflow: hidden;
+}
+
+.brand-icon img {
+  display: block;
+  border-radius: 22%;
+}
+
+.cx-th-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.cli-mcp-name,
+.registry-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cli-mcp-name .brand-icon,
+.registry-name .brand-icon {
+  flex: 0 0 auto;
+}

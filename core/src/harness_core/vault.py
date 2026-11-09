@@ -163,6 +163,36 @@ class Vault:
     def rel(self, path: Path) -> str:
         return path.relative_to(self.root).as_posix()
 
+    def tree(self, limit: int = 5000) -> list[dict]:
+        """v0.9.9: as pastas e as notas do vault, como a barra de arquivos do Obsidian.
+
+        Pastas primeiro, em ordem de nome; as de sistema (SKIP_DIRS) e as ocultas ficam de fora.
+        """
+        count = 0
+
+        def walk(folder: Path) -> list[dict]:
+            nonlocal count
+            try:
+                entries = sorted(folder.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+            except OSError:
+                return []
+            out: list[dict] = []
+            for entry in entries:
+                if count >= limit or entry.name.startswith("."):
+                    continue
+                if entry.is_dir():
+                    if entry.name in SKIP_DIRS:
+                        continue
+                    children = walk(entry)
+                    if children:
+                        out.append({"nome": entry.name, "caminho": self.rel(entry), "tipo": "pasta", "filhos": children})
+                elif entry.suffix == ".md":
+                    count += 1
+                    out.append({"nome": entry.stem, "caminho": self.rel(entry), "tipo": "nota"})
+            return out
+
+        return walk(self.root) if self.root.is_dir() else []
+
     def resolve(self, rel_path: str) -> Path:
         """Caminho relativo ao vault → arquivo, sem deixar sair do vault."""
         target = (self.root / rel_path).resolve()

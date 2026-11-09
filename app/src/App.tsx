@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Agents } from "./components/Agents";
+import { KindIcon } from "./components/KindIcon";
+import { Agents, toDraft } from "./components/Agents";
 import { ICON, Icon } from "./icons";
 import { AgentSprite, spriteState } from "./components/AgentSprite";
 import { AutomationsView } from "./components/AutomationsView";
@@ -14,6 +15,9 @@ import { TodayView } from "./components/TodayView";
 import { usePomodoro } from "./lib/pomodoro";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
+import "./components/terminals.css";
+import { warmMonaco } from "./lib/monaco";
+import { AddProjectDialog, NewWorkspaceDialog, type NewWorkspaceRequest } from "./components/ProjectDialogs";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { Inspector, type InspectorTab } from "./components/Inspector";
 import { KanbanView, type KanbanRequest } from "./components/KanbanView";
@@ -27,8 +31,8 @@ import { TerminalView, type Slot } from "./components/TerminalView";
 import { MiniMap } from "./components/MiniMap";
 import { agentAction, browser, describePick, normalizeUrl, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
 import { applyAppearance, applyTheme, BUILTIN_THEMES, customOf, loadAppearance, nextZoom, saveAppearance, setCustomThemes, themeKey, themeLabel, type Appearance } from "./lib/appearance";
-import { CoreError, inTauri, type NewSessionOptions } from "./lib/core";
-import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
+import { appExecutable, CoreError, inTauri, onNativeNoticeClick, takePendingNotice, type NewSessionOptions } from "./lib/core";
+import { KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
 import type { Notice } from "./lib/inbox";
 import { quotePaths, submit, terminals } from "./lib/terminals";
 import { bindings, comboOf, hintFor, recorder } from "./lib/keymap";
@@ -76,7 +80,6 @@ import type {
   AppTheme,
   BrowserCommand,
   BrowserProfile,
-  WorktreeMode,
 } from "./types";
 import { useHarness } from "./useHarness";
 import { placeOf, useWorktrees, worktreeLabel, type Place } from "./useWorktrees";
@@ -157,6 +160,8 @@ export default function App() {
   const [section, setSection] = useState<SettingsSection>("contas");
   const [folder, setFolder] = useState<string>(() => stored("harness.folder", "~"));
   const [selected, setSelected] = useState<Selected | null>(() => stored<Selected | null>("harness.selected", null));
+  /** v0.9.9: os diálogos de projeto no jeito do Orca. `back`: veio do Novo workspace e volta para ele. */
+  const [projectDialog, setProjectDialog] = useState<{ kind: "add"; back?: boolean } | { kind: "workspace"; project: string | null } | null>(null);
   const [theme, setTheme] = useState<ThemeName>(() => {
     // O tema do núcleo em uso fica guardado aqui também: a tela abre já com ele, antes da lista chegar.
     const saved = stored<AppTheme | null>("harness.themeCustom", null);
@@ -223,8 +228,38 @@ export default function App() {
   /** v0.9.2: o menu do sino e o painel "Retomar uma conversa". */
   const [bellOpen, setBellOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const dock = useRef<DockHandle>(null);
+  /**
+   * v0.9.9: cada terminal de agente tem a sua barra dentro do painel (mockup). Quem pede
+   * "escreva na barra" fala com este repassador, que acha a barra do terminal certo (o em
+   * foco, ou o pedido por dockOverride); terminal sem barra (shell) recebe a colagem direto.
+   */
+  const docks = useRef(new Map<string, DockHandle>());
+  const dock = useMemo(() => {
+    const target = () => live.current.dockTargetId;
+    const handle = () => docks.current.get(target() ?? "") ?? null;
+    const fallback = (text: string) => {
+      const id = target();
+      const term = id ? terminals.get(id) : undefined;
+      if (term) {
+        term.paste(text);
+        term.focus();
+      } else setToast("Abra um terminal do Claude ou do Codex: o texto vai para a barra dele.");
+    };
+    const proxy: DockHandle = {
+      insert: (text) => (handle() ? handle()!.insert(text) : fallback(text)),
+      type: (text) => (handle() ? handle()!.type(text) : fallback(text)),
+      focus: () => (handle() ? handle()!.focus() : terminals.get(target() ?? "")?.focus()),
+      toggleVoice: () => handle()?.toggleVoice(),
+    };
+    return { current: proxy };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const lastTerm = useRef<string | null>(null);
+
+  // v0.9.9: o editor de código (Monaco) carrega em segundo plano para abrir na hora.
+  useEffect(() => {
+    if (harness.client) warmMonaco();
+  }, [harness.client]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -378,7 +413,7 @@ export default function App() {
     return agent ? (
       <AgentSprite agent={agent} client={harness.client} size={size} state={spriteState(session)} />
     ) : (
-      <span style={{ color: KIND_COLOR[session.kind] }}>{KIND_GLYPH[session.kind]}</span>
+      <KindIcon kind={session.kind} />
     );
   };
 
@@ -637,36 +672,46 @@ export default function App() {
 
   // --- projetos e worktrees ------------------------------------------------
 
-  const addProject = async (path: string) => {
-    const project = await harness.run((c) => c.addProject(path));
-    if (!project) return false;
-    setSelected({ project: project.id, path: project.path });
-    harness.bumpWorktrees();
-    return true;
+  /** v0.9.9: o diálogo Adicionar projeto chama isto com a pasta escolhida, a sugerida ou a digitada. */
+  const addProjectPath = async (path: string): Promise<Project | null> => {
+    const client = harness.client;
+    if (!client) return null;
+    return client.addProject(path);
   };
 
-  const createWorktree = async (project: Project, name: string, copyEnv: boolean, openClaude: boolean, modo: WorktreeMode = "nova", base?: string) => {
-    const created = await harness.run((c) => c.createWorktree(project.id, name, copyEnv, base, modo));
+  /** Projeto entrou (pasta, clone ou novo): fica escolhido e, se veio do Novo workspace, volta para ele. */
+  const projectAdded = (project: Project) => {
+    setSelected({ project: project.id, path: project.path });
+    harness.bumpWorktrees();
+    setToast(`${project.name} entrou nos projetos.`);
+    setProjectDialog((current) => (current?.kind === "add" && current.back ? { kind: "workspace", project: project.id } : null));
+  };
+
+  /** v0.9.9: Novo workspace (⌘N): a worktree e o que abre nela (Claude, Codex, um agente ou um terminal). */
+  const createWorkspace = async (request: NewWorkspaceRequest): Promise<boolean> => {
+    const { project, name, copyEnv, open, mode, base, prompt } = request;
+    const created = await harness.run((c) => c.createWorktree(project.id, name, copyEnv, base, mode));
     if (!created) return false;
     await wt.refresh();
     setSelected({ project: project.id, path: created.path });
+    setView("term");
     const setup = created.setup
       ? "; o script de setup roda num terminal à vista"
       : created.setup_erro
         ? `; o script de setup não abriu (${created.setup_erro})`
         : "";
-    setToast(`Worktree ${created.branch} criada${created.copied.length ? `, com ${created.copied.join(", ")}` : ""}${setup}.`);
+    setToast(`Workspace ${created.branch} criado${created.copied.length ? `, com ${created.copied.join(", ")}` : ""}${setup}.`);
     // O terminal do setup entra na lista na hora (o evento do núcleo pode chegar depois da resposta);
-    // ganha o foco só se o Claude não for abrir.
+    // ganha o foco só se nada mais for abrir.
     if (created.setup) {
       const id = created.setup;
       if (!sessionsRef.current.some((s) => s.id === id)) {
         const found = (await harness.client?.listSessions().catch(() => []))?.find((s) => s.id === id);
         if (found) harness.adopt(found);
       }
-      if (!openClaude) select(id, created.path);
+      if (!open) select(id, created.path);
     }
-    if (openClaude) void create("claude", { cwd: created.path });
+    if (open) void create(open.kind, { cwd: created.path, agent: open.agent, prompt: open.kind === "shell" ? undefined : prompt || undefined });
     return true;
   };
 
@@ -780,6 +825,44 @@ export default function App() {
     if (notice.sessao) setToast("Essa sessão já foi fechada.");
   };
   const closeBell = useCallback(() => setBellOpen(false), []);
+
+  // v0.9.9: clique num aviso nativo do macOS. O alvo vem no aviso ("sessao:<id>", "aprovacao:<id>",
+  // "automacao:<id>"); com o aviso no sino, abre como o sino abriria e marca lido.
+  const noticeTarget = useRef<(target: string) => void>(() => undefined);
+  noticeTarget.current = (target: string) => {
+    const [kind, id = ""] = target.split(":");
+    const field = kind === "sessao" ? "sessao" : kind === "aprovacao" ? "aprovacao" : kind === "automacao" ? "automacao" : null;
+    const notice = field && id ? harness.inbox.items.find((n) => n[field] === id) : undefined;
+    if (notice) return openNotice(notice);
+    if (kind === "sessao" && harness.sessions.some((s) => s.id === id)) return select(id);
+    if (kind === "aprovacao") return setView("connectors");
+    if (kind === "automacao") return setView("automations");
+  };
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let alive = true;
+    void onNativeNoticeClick((target) => {
+      void takePendingNotice(); // tratado ao vivo: não volta ao recarregar a janela
+      noticeTarget.current(target);
+    }).then((fn) => (alive ? (stop = fn) : fn()));
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []);
+
+  // O clique que abriu o app chegou antes da janela ouvir: com as sessões carregadas, vai até ele.
+  useEffect(() => {
+    if (!harness.hydrated) return;
+    void takePendingNotice().then((target) => target && noticeTarget.current(target));
+  }, [harness.hydrated]);
+
+  // O núcleo avisa pelo executável do app com a janela fechada (ícone da MÊTIS em vez do osascript).
+  useEffect(() => {
+    const client = harness.client;
+    if (!client) return;
+    void appExecutable().then((exe) => (exe ? client.setNotifier(exe).catch(() => undefined) : undefined));
+  }, [harness.client]);
 
   // --- Brain e kanban -------------------------------------------------------
 
@@ -970,10 +1053,17 @@ export default function App() {
   const deliverPaths = (target: string | null, paths: string[]) => {
     if (!paths.length) return;
     const text = quotePaths(paths);
-    const id = target && target !== "dock" ? target : null;
+    if (target?.startsWith("dock:")) {
+      const own = docks.current.get(target.slice(5));
+      if (own) return own.insert(text);
+    }
+    const id = target && target !== "dock" && !target.startsWith("dock:") ? target : null;
     const handle = terminals.get(id ?? live.current.dockTargetId ?? "");
-    if (target === "dock" || !handle) {
-      dock.current?.insert(text);
+    // Terminal de agente (só para ler): o caminho vai para a barra dele, não para o terminal.
+    const ownDock = docks.current.get(id ?? live.current.dockTargetId ?? "");
+    if (target === "dock" || !handle || ownDock) {
+      if (ownDock) ownDock.insert(text);
+      else dock.current?.insert(text);
       return;
     }
     handle.paste(`${text} `);
@@ -1053,6 +1143,9 @@ export default function App() {
     switch (id) {
       case "paleta":
         paletteToggle("all");
+        return true;
+      case "workspace.novo":
+        setProjectDialog({ kind: "workspace", project: selected?.project ?? null });
         return true;
       case "pular":
         paletteToggle("jump");
@@ -1646,7 +1739,7 @@ export default function App() {
             id: `new-${kind}`,
             group: "Abrir",
             label: `Novo ${KIND_LABEL[kind]} em ${selectedPlace ? `${selectedPlace.project.name} · ${wtName(selectedPlace.worktree)}` : folder.trim() || "~"}`,
-            glyph: <span style={{ color: KIND_COLOR[kind] }}>{KIND_GLYPH[kind]}</span>,
+            glyph: <KindIcon kind={kind} />,
             run: () => void create(kind),
           })),
           {
@@ -1951,6 +2044,10 @@ export default function App() {
               });
             }}
             connectors={harness.connectors ?? []}
+            sessions={harness.sessions}
+            events={harness.agentEvents}
+            tick={harness.routinesTick}
+            onOpenSession={(id) => (setView("term"), select(id))}
           />
         )}
         {view === "study" && (
@@ -1966,6 +2063,10 @@ export default function App() {
               select(session.id, placeKeyOf(session.cwd));
             }}
             onOpenNote={(title) => openNote({ title })}
+            sessions={harness.sessions}
+            onAdopt={(session) => harness.adopt(session)}
+            onOpenSession={(id) => (setView("term"), select(id))}
+            onError={setToast}
           />
         )}
         {view === "today" && (
@@ -1988,6 +2089,13 @@ export default function App() {
               setSection("contas");
               setView("settings");
             }}
+            events={harness.agentEvents}
+            connectors={harness.connectors ?? []}
+            onView={setView}
+            onOpenKanban={(project) => {
+              setView("kanban");
+              setKanbanRequest((last) => ({ id: (last?.id ?? 0) + 1, ...(project ? { project } : {}) }));
+            }}
           />
         )}
         {view === "connectors" && (
@@ -2002,6 +2110,8 @@ export default function App() {
             events={harness.agentEvents}
             onEvents={harness.setAgentEvents}
             onOpenSession={(id) => (setView("term"), select(id))}
+            agents={harness.agents}
+            onSaveAgent={(agent, connectors) => void harness.run((c) => c.updateAgent(agent.id, { ...toDraft(agent), connectors }))}
           />
         )}
         {view === "automations" && (
@@ -2038,6 +2148,10 @@ export default function App() {
             onError={setToast}
             suggestionsTick={harness.suggestionsTick}
             onOpenTab={openNoteTab}
+            sessions={harness.sessions}
+            agents={harness.agents}
+            onOpenSession={(id) => (setView("term"), select(id))}
+            onStart={harness.create}
           />
         )}
         {view === "kanban" && (
@@ -2053,6 +2167,10 @@ export default function App() {
             onError={setToast}
             onOpenSession={(id) => (setView("term"), select(id))}
             clickupAccounts={(harness.connectors ?? []).filter((a) => a.kind === "clickup")}
+            auto={harness.kanbanAuto}
+            onAuto={harness.setKanbanAuto}
+            agents={harness.agents}
+            onTerminals={() => setView("term")}
           />
         )}
         {view === "term" && (
@@ -2077,12 +2195,12 @@ export default function App() {
             onLaunchAgent={launchAgent}
             onSelect={select}
             onClose={harness.close}
-            onAddProject={addProject}
+            onOpenAddProject={() => setProjectDialog({ kind: "add" })}
+            onNewWorkspace={(projectId) => setProjectDialog({ kind: "workspace", project: projectId ?? selected?.project ?? null })}
             onRemoveProject={(project) => {
               void harness.run((c) => c.removeProject(project.id)).then(() => setToast(`${project.name} saiu da lista; o repositório continua no disco.`));
               if (selected?.project === project.id) setSelected(null);
             }}
-            onCreateWorktree={createWorktree}
             onDeleteWorktree={(project, worktree) => setPendingDelete({ project, worktree, force: false, reason: null, busyTerminals: [] })}
             onAccounts={() => {
               setSection("contas");
@@ -2095,6 +2213,12 @@ export default function App() {
             onAlias={(path, nome) => void harness.run((c) => c.patchSidebar({ nome: { caminho: path, nome } })).then((state) => state && harness.setSidebar(state))}
             onColor={(projeto, cor) => void harness.run((c) => c.patchSidebar({ cor: { projeto, cor } })).then((state) => state && harness.setSidebar(state))}
             onRenameSession={(id, titulo) => void harness.run((c) => c.renameSession(id, titulo))}
+            onTasks={() => {
+              setView("kanban");
+              const name = contextPlace?.project.name;
+              setKanbanRequest((last) => ({ id: (last?.id ?? 0) + 1, tasks: true, ...(name && boardNames.includes(name) ? { project: name } : {}) }));
+            }}
+            onRoutines={() => setView("today")}
           />
         )}
         {/* Os terminais ficam sempre montados; nas outras telas, só somem. */}
@@ -2171,6 +2295,23 @@ export default function App() {
                       quotaHint={quotaHint(session)}
                       onClose={() => closeTab(session.id)}
                       onHistory={() => setHistoryOpen(true)}
+                      footer={
+                        // Todo painel de agente tem a própria barra, o flutuante também (ele é só de leitura).
+                        session.kind !== "shell" ? (
+                          <Dock
+                            ref={(handle) => {
+                              if (handle) docks.current.set(session.id, handle);
+                              else docks.current.delete(session.id);
+                            }}
+                            client={harness.client}
+                            target={session}
+                            targetAccount={accountName(session)}
+                            language={language}
+                            dropping={drop === `dock:${session.id}`}
+                            compact
+                          />
+                        ) : undefined
+                      }
                     />
                   );
                 })}
@@ -2247,7 +2388,7 @@ export default function App() {
                       <div className="pane-empty-buttons">
                         {(["claude", "codex", "shell"] as SessionKind[]).map((kind) => (
                           <button key={kind} type="button" className="btn" disabled={!ready} onClick={() => void create(kind)}>
-                            <span style={{ color: KIND_COLOR[kind] }}>{KIND_GLYPH[kind]}</span> {KIND_LABEL[kind]}
+                            <KindIcon kind={kind} /> {KIND_LABEL[kind]}
                           </button>
                         ))}
                         <button type="button" className="btn" onClick={() => openWeb()}>
@@ -2268,10 +2409,10 @@ export default function App() {
                   </p>
                   <div className="pane-empty-buttons">
                     <button type="button" className="btn primary" disabled={!ready} onClick={() => void create("claude")}>
-                      ✻ Claude Code
+                      <KindIcon kind="claude" size={15} /> Claude Code
                     </button>
                     <button type="button" className="btn" disabled={!ready} onClick={() => void create("codex")}>
-                      ◇ Codex
+                      <KindIcon kind="codex" size={15} /> Codex
                     </button>
                     <button type="button" className="btn" disabled={!ready} onClick={() => void create("shell")}>
                       &gt;_ Shell
@@ -2361,20 +2502,15 @@ export default function App() {
                 suggestionsTick={harness.suggestionsTick}
                 contextSession={dockTarget}
                 onNotice={setToast}
+                approvals={harness.approvals}
+                onDecide={decide}
               />
             )}
           </div>
-          <Dock
-            ref={dock}
-            client={harness.client}
-            target={dockTarget}
-            targetAccount={dockTarget ? accountName(dockTarget) : null}
-            language={language}
-            dropping={drop === "dock"}
-          />
         </main>
       </div>
       <StatusBar
+        client={harness.client}
         usage={harness.usage}
         accounts={harness.accounts}
         active={dockTarget}
@@ -2393,6 +2529,21 @@ export default function App() {
           setView("settings");
         }}
       />
+      {projectDialog?.kind === "add" && (
+        <AddProjectDialog client={harness.client} onClose={() => setProjectDialog(null)} onAddPath={addProjectPath} onAdded={projectAdded} onError={(message) => harness.setError(message)} />
+      )}
+      {projectDialog?.kind === "workspace" && (
+        <NewWorkspaceDialog
+          client={harness.client}
+          projects={harness.projects}
+          colors={harness.sidebar.cores}
+          agents={harness.agents}
+          initialProject={projectDialog.project}
+          onClose={() => setProjectDialog(null)}
+          onAddProject={() => setProjectDialog({ kind: "add", back: true })}
+          onCreate={createWorkspace}
+        />
+      )}
       {historyOpen && (
         <HistoryPanel
           client={harness.client}

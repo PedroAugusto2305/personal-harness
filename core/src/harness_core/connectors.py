@@ -108,6 +108,20 @@ class ConnectorError(ValueError):
     pass
 
 
+#: Modos de uma ferramenta de conector (v0.9.9).
+TOOL_MODES = ("livre", "aprovacao", "desligada")
+
+
+def tool_mode(account: "ConnectorAccount | None", name: str, write: bool) -> str:
+    """O modo em vigor: o escolhido na tela, senão escrita pede aprovação (se a conta pede)."""
+    chosen = (account.tool_modes or {}).get(name) if account else None
+    if chosen in TOOL_MODES:
+        return chosen
+    if write and (account.approve_writes if account else True):
+        return "aprovacao"
+    return "livre"
+
+
 @dataclass
 class ConnectorAccount:
     id: str
@@ -119,6 +133,9 @@ class ConnectorAccount:
     approve_writes: bool = True
     #: Conta usada por `metis lembrete` e pela ferramenta lembrete dos agentes.
     reminders: bool = False
+    #: v0.9.9: modo por ferramenta ("livre", "aprovacao" ou "desligada"); sem entrada, vale o
+    #: padrão (escrita pede aprovação quando approve_writes, leitura é livre).
+    tool_modes: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {**asdict(self), "service": CATALOG[self.kind]["name"]}
@@ -244,6 +261,17 @@ class ConnectorStore:
             for key in ("name", "approve_writes", "reminders"):
                 if key in changes and changes[key] is not None:
                     setattr(target, key, changes[key])
+            modes = changes.get("tool_modes")
+            if modes:
+                merged = dict(target.tool_modes or {})
+                for tool, mode in modes.items():
+                    if mode in (None, "", "padrao"):
+                        merged.pop(tool, None)
+                    elif mode in TOOL_MODES:
+                        merged[str(tool)[:120]] = mode
+                    else:
+                        raise ConnectorError(f"modo de ferramenta desconhecido: {mode} (livre, aprovacao ou desligada)")
+                target.tool_modes = merged
             self._save(accounts)
             return target
 

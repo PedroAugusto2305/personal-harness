@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { KindIcon } from "./KindIcon";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
-import { KIND_COLOR, KIND_GLYPH, PROVIDERS, STATUS_COLOR, STATUS_LABEL, fold, shortPath } from "../lib/format";
-import type { Accounts, Agent, Project, RefBranch, RefCommit, Session, SessionKind, SidebarState, Worktree, WorktreeMode } from "../types";
+import { KIND_COLOR, PROVIDERS, STATUS_COLOR, STATUS_LABEL, fold, shortPath } from "../lib/format";
+import type { Accounts, Agent, Project, Session, SessionKind, SidebarState, Worktree } from "../types";
 import { placeOf, worktreeLabel } from "../useWorktrees";
 import { AgentSprite, spriteState } from "./AgentSprite";
+import { modelLabel } from "./Dock";
 
 export interface Selected {
   project: string;
@@ -32,9 +34,10 @@ interface Props {
   onLaunchAgent: (agent: Agent) => void;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onAddProject: (path: string) => Promise<boolean>;
+  /** v0.9.9: os diálogos do Orca: adicionar projeto e novo workspace (⌘N). */
+  onOpenAddProject: () => void;
+  onNewWorkspace: (projectId?: string) => void;
   onRemoveProject: (project: Project) => void;
-  onCreateWorktree: (project: Project, name: string, copyEnv: boolean, openClaude: boolean, modo?: WorktreeMode, base?: string) => Promise<boolean>;
   onDeleteWorktree: (project: Project, worktree: Worktree) => void;
   onAccounts: () => void;
   onAgents: () => void;
@@ -45,6 +48,9 @@ interface Props {
   onAlias: (path: string, name: string) => void;
   onColor: (projectId: string, color: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  /** v0.9.9: os atalhos do topo (mockup): Tarefas abre o kanban, Rotinas abre o Hoje. */
+  onTasks: () => void;
+  onRoutines: () => void;
 }
 
 function useStoredSet(key: string): [Set<string>, (id: string) => void] {
@@ -70,6 +76,16 @@ function useStoredSet(key: string): [Set<string>, (id: string) => void] {
   return [value, toggle];
 }
 
+/** "4m", "2h", "3d": há quanto tempo (o mockup mostra o modelo e o tempo na linha da sessão). */
+function ageOf(epoch: number | null | undefined): string {
+  if (!epoch) return "";
+  const seconds = Math.max(0, Date.now() / 1000 - epoch);
+  if (seconds < 60) return "agora";
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
 /** Cores para o projeto (v0.9.8): um ponto na barra e uma faixa nas worktrees dele. */
 const PROJECT_COLORS = ["#82a0ff", "#8be9fd", "#50fa7b", "#f1fa8c", "#ffb86c", "#ff79c6", "#bd93f9", "#ff5555", "#a9aec9"];
 
@@ -86,15 +102,36 @@ export function Sidebar(props: Props) {
   const [statusFilter, toggleStatus] = useStoredSet("harness.sidebar.filtros");
   const [filter, setFilter] = useState("");
   const [filterOpen, setFilterOpen] = useState(() => statusFilter.size > 0);
-  const [adding, setAdding] = useState(false);
-  const [newPath, setNewPath] = useState("");
-  const [creatingIn, setCreatingIn] = useState<string | null>(null);
   /** Projeto com o editor de scripts da worktree aberto (v0.9.2). */
   const [scriptsFor, setScriptsFor] = useState<string | null>(null);
   const [agentMenu, setAgentMenu] = useState(false);
   /** v0.9.8: renomear worktree (apelido) ou terminal, e a paleta de cor de um projeto. */
   const [renaming, setRenaming] = useState<{ kind: "worktree" | "session"; key: string; value: string } | null>(null);
   const [colorFor, setColorFor] = useState<string | null>(null);
+  /** v0.9.9: o que mostrar nos atalhos do topo (tarefas andando e rotinas ativas). */
+  const [counts, setCounts] = useState<{ tasks: number; routines: number } | null>(null);
+  useEffect(() => {
+    const client = props.client;
+    if (!client) return;
+    let alive = true;
+    const load = () =>
+      void Promise.all([client.boardProjects(), client.routines()])
+        .then(([board, r]) => {
+          if (!alive) return;
+          setCounts({
+            tasks: board.reduce((n, p) => n + p.tasks["em-andamento"] + p.tasks["em-teste"], 0),
+            routines: r.routines.filter((x) => x.active).length,
+          });
+        })
+        .catch(() => undefined);
+    load();
+    // A contagem lê as notas de todos os projetos no núcleo: a cada 5 minutos basta.
+    const timer = window.setInterval(load, 300_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [props.client]);
 
   const placeOfSession = (s: Session) => placeOf(s.cwd, projects, worktrees);
   const loose = sessions.filter((s) => !placeOfSession(s));
@@ -150,17 +187,18 @@ export function Sidebar(props: Props) {
       <div key={session.id} className="session-item" data-nested={nested ? "true" : undefined}>
         <button
           type="button"
-          className="session-row"
+          className="session-row one-line"
           aria-current={session.id === props.focusedId ? "true" : undefined}
           onClick={() => props.onSelect(session.id)}
           onDoubleClick={() => setRenaming({ kind: "session", key: session.id, value: session.title })}
-          title="Duplo clique renomeia"
+          title={`${session.title}${account ? ` · ${account}` : ""} · ${session.hibernando ? "hibernando" : STATUS_LABEL[session.status]}${session.ports.length ? ` · :${session.ports.join(" :")}` : ""} · duplo clique renomeia`}
         >
+          <span className="session-dot" style={{ background: session.hibernando ? "var(--fnt)" : STATUS_COLOR[session.status] }} />
           {agent ? (
-            <AgentSprite agent={agent} client={props.client} size={18} state={spriteState(session)} />
+            <AgentSprite agent={agent} client={props.client} size={16} state={spriteState(session)} />
           ) : (
             <span className="session-glyph" style={{ color: KIND_COLOR[session.kind] }}>
-              {KIND_GLYPH[session.kind]}
+              <KindIcon kind={session.kind} size={14} />
             </span>
           )}
           <span className="meta">
@@ -172,10 +210,10 @@ export function Sidebar(props: Props) {
                 {account && <span className="small"> · {account}</span>}
               </span>
             )}
-            <span className="small mono">
-              <span className="dot" style={{ background: session.hibernando ? "var(--fnt)" : STATUS_COLOR[session.status] }} />{" "}
-              {session.hibernando ? "hibernando" : STATUS_LABEL[session.status]}
-              {session.ports.length > 0 && ` · :${session.ports.join(" :")}`}
+            <span className="session-meta">
+              {[modelLabel(session.statusline?.model).toLowerCase(), ageOf(session.status_desde ?? session.created_at), session.ports.length ? `:${session.ports[0]}` : ""]
+                .filter(Boolean)
+                .join(" ")}
             </span>
           </span>
         </button>
@@ -209,7 +247,7 @@ export function Sidebar(props: Props) {
             onClick={() => props.onSelectPlace({ project: project.id, path: worktree.path })}
             onDoubleClick={() => setRenaming({ kind: "worktree", key: worktree.path, value: alias ?? "" })}
           >
-            <Icon d={worktree.main ? ICON.folder : ICON.branch} size={13} />
+            <Icon d={worktree.main ? ICON.folder : ICON.branch} size={15} />
             {editing ? (
               renameInput("Apelido da worktree (vazio volta ao nome do branch)")
             ) : (
@@ -269,50 +307,55 @@ export function Sidebar(props: Props) {
 
   return (
     <nav className="sidebar" aria-label="Projetos e terminais">
+      <div className="side-top">
+        <button type="button" className="side-link" onClick={props.onTasks} title="Kanban: tarefas dos projetos">
+          <Icon d={ICON.kanban} size={15} />
+          <span className="side-label">Tarefas</span>
+          {counts && counts.tasks > 0 && <span className="side-count" title="em andamento ou em teste">{counts.tasks}</span>}
+        </button>
+        <button type="button" className="side-link" onClick={props.onRoutines} title="Rotinas de hoje (tela Hoje)">
+          <Icon d={ICON.history} size={15} />
+          <span className="side-label">Rotinas</span>
+          {counts && <span className="side-count">{counts.routines}</span>}
+        </button>
+      </div>
       <div className="context">
-        {selectedProject && selectedWorktree ? (
-          <button type="button" className="context-chip" onClick={() => props.onSelectPlace(null)} title="Abrir terminais fora dos projetos">
-            <Icon d={ICON.branch} size={13} />
-            <span className="context-name">
-              {selectedProject.name} <span className="small">· {nameOf(selectedWorktree)}</span>
-            </span>
-            <Icon d={ICON.close} size={11} strokeWidth={2} />
+        <div className="side-new">
+          <span className="side-new-label" title={selectedProject && selectedWorktree ? selectedWorktree.path : props.folder || "~"}>
+            novo em{" "}
+            {selectedProject && selectedWorktree ? (
+              <>
+                {selectedProject.name} · {nameOf(selectedWorktree)}{" "}
+                <button type="button" className="side-clear" onClick={() => props.onSelectPlace(null)} title="Abrir terminais fora dos projetos" aria-label="Tirar a worktree escolhida">
+                  ×
+                </button>
+              </>
+            ) : (
+              shortPath(props.folder || "~")
+            )}
+          </span>
+          <button type="button" disabled={!props.ready} onClick={() => props.onCreate("claude")} title="Claude Code" aria-label="Novo Claude Code">
+            <KindIcon kind="claude" size={16} />
           </button>
-        ) : (
-          <label className="folder">
-            <span className="section-title">Abrir em</span>
-            <input
-              value={props.folder}
-              onChange={(event) => props.onFolder(event.target.value)}
-              spellCheck={false}
-              placeholder="~/pasta"
-            />
-          </label>
-        )}
-        <div className="new-buttons">
-          <button type="button" className="btn primary" disabled={!props.ready} onClick={() => props.onCreate("claude")}>
-            Claude
+          <button type="button" disabled={!props.ready} onClick={() => props.onCreate("codex")} title="Codex" aria-label="Novo Codex">
+            <KindIcon kind="codex" size={16} />
           </button>
-          <button type="button" className="btn" disabled={!props.ready} onClick={() => props.onCreate("codex")}>
-            Codex
+          <button type="button" disabled={!props.ready} onClick={() => props.onCreate("shell")} title="Shell" aria-label="Novo shell">
+            <span className="mono">{">_"}</span>
           </button>
-          <button type="button" className="btn" disabled={!props.ready} onClick={() => props.onCreate("shell")}>
-            Shell
+          <button type="button" onClick={props.onWeb} title="Navegador da MÊTIS (com modo de design)" aria-label="Abrir navegador">
+            <Icon d={ICON.globe} size={16} strokeWidth={1.7} />
           </button>
-          <button type="button" className="btn" onClick={props.onWeb} title="Abrir o navegador da MÊTIS (com modo de design)" aria-label="Abrir navegador">
-            <Icon d={ICON.globe} size={14} />
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={!props.ready}
-            aria-expanded={agentMenu}
-            onClick={() => setAgentMenu((open) => !open)}
-            title="Abrir um agente"
-          >
-            <Icon d={ICON.agents} size={14} />
+          <button type="button" disabled={!props.ready} aria-expanded={agentMenu} onClick={() => setAgentMenu((open) => !open)} title="Abrir um agente" aria-label="Abrir um agente">
+            <Icon d={ICON.agents} size={16} strokeWidth={1.7} />
           </button>
         </div>
+        {!(selectedProject && selectedWorktree) && (
+          <label className="folder">
+            <span className="section-title">Pasta</span>
+            <input value={props.folder} onChange={(event) => props.onFolder(event.target.value)} spellCheck={false} placeholder="~/pasta" />
+          </label>
+        )}
         {agentMenu && (
           <AgentMenu
             agents={props.agents}
@@ -350,20 +393,26 @@ export function Sidebar(props: Props) {
         )}
         <div className="tree-head">
           <span className="section-title">Projetos</span>
-          <button
-            type="button"
-            className="icon-btn"
-            title="Filtrar worktrees e terminais"
-            aria-label="Filtrar"
-            aria-expanded={filterOpen}
-            data-on={filtering ? "true" : undefined}
-            onClick={() => setFilterOpen((v) => !v)}
-          >
-            <Icon d={ICON.filter} size={13} />
-          </button>
-          <button type="button" className="icon-btn" title="Adicionar projeto" aria-label="Adicionar projeto" onClick={() => setAdding((v) => !v)}>
-            <Icon d={ICON.plus} size={14} strokeWidth={2} />
-          </button>
+          {/* v0.9.9: os três juntos à direita, como no Orca. */}
+          <span className="tree-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              title="Filtrar worktrees e terminais"
+              aria-label="Filtrar"
+              aria-expanded={filterOpen}
+              data-on={filtering ? "true" : undefined}
+              onClick={() => setFilterOpen((v) => !v)}
+            >
+              <Icon d={ICON.sliders} size={17} strokeWidth={1.7} />
+            </button>
+            <button type="button" className="icon-btn" title="Adicionar projeto" aria-label="Adicionar projeto" onClick={props.onOpenAddProject}>
+              <Icon d={ICON.folderPlus} size={17} strokeWidth={1.7} />
+            </button>
+            <button type="button" className="icon-btn" title="Novo workspace (⌘N)" aria-label="Novo workspace" onClick={() => props.onNewWorkspace()}>
+              <Icon d={ICON.plus} size={17} strokeWidth={1.8} />
+            </button>
+          </span>
         </div>
         {filterOpen && (
           <div className="tree-filter">
@@ -384,25 +433,13 @@ export function Sidebar(props: Props) {
             </div>
           </div>
         )}
-        {adding && (
-          <form
-            className="inline-form"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (newPath.trim() && (await props.onAddProject(newPath.trim()))) {
-                setNewPath("");
-                setAdding(false);
-              }
-            }}
-          >
-            <input autoFocus value={newPath} onChange={(e) => setNewPath(e.target.value)} placeholder="~/caminho/do/repositorio" spellCheck={false} />
-            <button type="submit" className="btn primary" disabled={!newPath.trim()}>
-              Adicionar
+        {projects.length === 0 && (
+          <div className="tree-empty">
+            <p className="tree-hint small">Adicione um repositório git para ver as worktrees e abrir agentes nelas.</p>
+            <button type="button" className="btn primary" onClick={props.onOpenAddProject}>
+              Adicionar projeto
             </button>
-          </form>
-        )}
-        {projects.length === 0 && !adding && (
-          <p className="tree-hint small">Adicione um repositório git para ver as worktrees e abrir agentes nelas.</p>
+          </div>
         )}
 
         {projects.map((project) => {
@@ -434,9 +471,9 @@ export function Sidebar(props: Props) {
                 <button
                   type="button"
                   className="icon-btn row-action"
-                  title="Nova worktree"
-                  aria-label={`Nova worktree em ${project.name}`}
-                  onClick={() => setCreatingIn(creatingIn === project.id ? null : project.id)}
+                  title="Novo workspace neste projeto"
+                  aria-label={`Novo workspace em ${project.name}`}
+                  onClick={() => props.onNewWorkspace(project.id)}
                 >
                   <Icon d={ICON.plus} size={13} strokeWidth={2} />
                 </button>
@@ -482,18 +519,6 @@ export function Sidebar(props: Props) {
               {open && (
                 <div className="project-body">
                   {props.worktreeErrors[project.id] && <div className="tree-hint small">{props.worktreeErrors[project.id]}</div>}
-                  {creatingIn === project.id && (
-                    <NewWorktreeForm
-                      client={props.client}
-                      project={project}
-                      onCancel={() => setCreatingIn(null)}
-                      onCreate={async (name, copyEnv, openClaude, modo, base) => {
-                        const ok = await props.onCreateWorktree(project, name, copyEnv, openClaude, modo, base);
-                        if (ok) setCreatingIn(null);
-                        return ok;
-                      }}
-                    />
-                  )}
                   {list.map((worktree) => worktreeRow(project, worktree, false))}
                 </div>
               )}
@@ -521,161 +546,13 @@ export function Sidebar(props: Props) {
           const name = entry.accounts.find((a) => a.id === entry.active)?.name ?? "padrão";
           return (
             <span key={provider}>
-              <span style={{ color: KIND_COLOR[provider] }}>{KIND_GLYPH[provider]}</span> {name}
+              <KindIcon kind={provider} /> {name}
             </span>
           );
         })}
         <span className="account-switch">trocar</span>
       </button>
     </nav>
-  );
-}
-
-const MODES: { key: WorktreeMode; label: string }[] = [
-  { key: "nova", label: "Branch novo" },
-  { key: "branch", label: "De um branch" },
-  { key: "commit", label: "De um commit" },
-];
-
-/** Worktree nova (v0.9.8): branch novo, um branch que já existe (local ou do remoto) ou um commit. */
-function NewWorktreeForm({
-  client,
-  project,
-  onCreate,
-  onCancel,
-}: {
-  client: CoreClient | null;
-  project: Project;
-  onCreate: (name: string, copyEnv: boolean, openClaude: boolean, modo: WorktreeMode, base?: string) => Promise<boolean>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [mode, setMode] = useState<WorktreeMode>("nova");
-  const [query, setQuery] = useState("");
-  const [base, setBase] = useState<string | null>(null);
-  const [refs, setRefs] = useState<{ branches: RefBranch[]; commits: RefCommit[] } | null>(null);
-  const [copyEnv, setCopyEnv] = useState(true);
-  const [openClaude, setOpenClaude] = useState(true);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (mode === "nova" || !client) return;
-    let stale = false;
-    const timer = window.setTimeout(() => {
-      void client
-        .refs(project.id, query)
-        .then((answer) => !stale && setRefs(answer))
-        .catch(() => !stale && setRefs({ branches: [], commits: [] }));
-    }, 150);
-    return () => {
-      stale = true;
-      window.clearTimeout(timer);
-    };
-  }, [client, project.id, mode, query]);
-
-  const needsName = mode !== "branch";
-  const canCreate = (!needsName || name.trim()) && (mode === "nova" || base) && !busy;
-  const folder = project.path.split("/").pop();
-  return (
-    <form
-      className="inline-form worktree-form"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        if (!canCreate) return;
-        setBusy(true);
-        await onCreate(name.trim(), copyEnv, openClaude, mode, base ?? undefined);
-        setBusy(false);
-      }}
-      onKeyDown={(event) => event.key === "Escape" && onCancel()}
-    >
-      <div className="segmented small-seg" role="radiogroup" aria-label="De onde sai a worktree">
-        {MODES.map((m) => (
-          <button
-            key={m.key}
-            type="button"
-            role="radio"
-            aria-checked={mode === m.key}
-            onClick={() => {
-              setMode(m.key);
-              setBase(null);
-              setQuery("");
-            }}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      {mode !== "nova" && (
-        <div className="ref-pick">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === "branch" ? "procurar branch (local ou origin/…)" : "procurar commit (sha ou mensagem)"}
-            spellCheck={false}
-          />
-          <ul className="ref-list" role="listbox" aria-label={mode === "branch" ? "Branches" : "Commits"}>
-            {mode === "branch" &&
-              refs?.branches.map((b) => (
-                <li key={b.nome}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={base === b.nome}
-                    disabled={!!b.em_uso}
-                    title={b.em_uso ? `já aberto em ${shortPath(b.em_uso)}` : b.titulo}
-                    onClick={() => setBase(b.nome)}
-                  >
-                    <span className="mono">{b.nome}</span>
-                    <span className="small">{b.em_uso ? "já aberto" : b.titulo}</span>
-                  </button>
-                </li>
-              ))}
-            {mode === "commit" &&
-              refs?.commits.map((c) => (
-                <li key={c.sha}>
-                  <button type="button" role="option" aria-selected={base === c.sha} title={`${c.autor} · ${c.quando}`} onClick={() => setBase(c.sha)}>
-                    <span className="mono">{c.curto}</span>
-                    <span className="small">{c.titulo}</span>
-                  </button>
-                </li>
-              ))}
-            {refs && (mode === "branch" ? refs.branches : refs.commits).length === 0 && <li className="small doc-empty">Nada com isso.</li>}
-          </ul>
-        </div>
-      )}
-      <input
-        autoFocus={mode === "nova"}
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder={mode === "branch" ? "nome da pasta (opcional: usa o do branch)" : `nome da tarefa em ${project.name}`}
-        spellCheck={false}
-      />
-      <label className="check">
-        <input type="checkbox" checked={copyEnv} onChange={(e) => setCopyEnv(e.target.checked)} /> copiar o .env
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={openClaude} onChange={(e) => setOpenClaude(e.target.checked)} /> abrir o Claude nela
-      </label>
-      <div className="form-buttons">
-        <button type="submit" className="btn primary" disabled={!canCreate}>
-          {busy ? "Criando…" : "Criar worktree"}
-        </button>
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancelar
-        </button>
-      </div>
-      <span className="small">
-        {mode === "nova"
-          ? `Branch novo com esse nome, em ~/orca/workspaces/${folder}/.`
-          : mode === "branch"
-            ? base
-              ? `Abre o branch ${base} numa pasta própria (o do remoto vira um branch local que o acompanha).`
-              : "Escolha o branch."
-            : base
-              ? `Branch novo com esse nome, a partir do commit ${base.slice(0, 8)}.`
-              : "Escolha o commit."}
-      </span>
-    </form>
   );
 }
 

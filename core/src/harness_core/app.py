@@ -8,6 +8,7 @@ import os
 import json
 from datetime import datetime
 import secrets
+import shutil
 import subprocess
 import threading
 import time
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 from . import __version__
 from . import files as fs
 from . import gitops
-from .accounts import PROVIDERS, AccountStore, UnknownAccount
+from .accounts import PROVIDERS, AccountStore, UnknownAccount, slugify
 from .activity import ActivityLog
 from .agent_draft import DraftError, draft_agent
 from .agents import Agent, AgentError, AgentStore, allowed_connectors
@@ -39,19 +40,20 @@ from .semantic import Embedder
 from .suggestions import SuggestionError, Suggestions, render_pending
 from .history import codex_rollout_for
 from .history import list_sessions as history_sessions
-from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
+from .system import Awake, list_skills, mac_notify, notifier, process_table, set_notifier, tree_usage, wants_awake
 from .prefs import PrefsError
 from . import barra, ghostty, github, system, themes, updates
 from . import app_themes, barra_lateral
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
+from .kanban_auto import AutoError, AutoItem, AutoQueue, auto_prompt
 from .kanban import Kanban
 from .clickup_rest import ClickupBoard, ClickupError
 from .vault import Vault, VaultError, link_target, split_frontmatter, write_atomic
-from .sprites import SpriteStudio
+from .sprites import SpriteStudio, model_image
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
 from .config import DEFAULT_PORT as metis_profiles_port, Settings, load_settings
-from .connectors import CATALOG, ConnectorError, ConnectorStore
+from .connectors import CATALOG, ConnectorError, ConnectorStore, tool_mode
 from .keychain import Keychain
 from .keychain import Vault as SecretVault
 from .mcp_hub import Context, Hub, ToolError
@@ -63,7 +65,8 @@ from . import backup as metis_backup, profiles as metis_profiles  # v0.9.8 parte
 from .keychain import service_for as keychain_service
 from .browser_bridge import BrowserAnswer, BrowserBridge, BrowserHistory, BrowserProfiles, HistoryVisit, ImportBody, ProfileBody, ProfileError
 from .slack import MANIFEST, SlackError
-from .projects import ProjectError, ProjectStore
+from .model_usage import ModelUsage
+from .projects import ProjectError, ProjectStore, clone_repo, create_repo, default_parent, find_repos
 from .relay import install_cli_shim, install_relay
 from .routines import DAYS, Routine, RoutineError, RoutineStore, decide, next_slot, slot_on
 from .routines import PREFIX as ROUTINE_PREFIX, RoutineFlows
@@ -121,6 +124,16 @@ class NewAccount(BaseModel):
 class NewProject(BaseModel):
     path: str = Field(min_length=1)
     name: str | None = None
+
+
+class CloneProject(BaseModel):
+    url: str = Field(min_length=3, max_length=500)
+    pasta: str = Field(default="", max_length=1000)
+
+
+class CreateProject(BaseModel):
+    nome: str = Field(min_length=1, max_length=80)
+    pasta: str = Field(default="", max_length=1000)
 
 
 class NewWorktree(BaseModel):
@@ -275,6 +288,23 @@ class TaskMove(BaseModel):
     state: str = Field(pattern="^(pendente|em-andamento|em-teste|concluida)$")
 
 
+class AutoEnqueue(BaseModel):
+    """v0.9.9: tarefa na coluna Auto do kanban."""
+
+    projeto: str = Field(min_length=1, max_length=200)
+    tarefa: str = Field(min_length=1, max_length=80)
+    cli: str = Field(default="claude", pattern="^(claude|codex)$")
+    agente: str = Field(default="", max_length=80)
+    modelo: str = Field(default="", pattern=r"^[A-Za-z0-9._:/-]{0,80}$")
+    esforco: str = Field(default="", pattern="^(|low|medium|high|xhigh)$")
+    permissao: str = Field(default="auto", pattern="^(padrao|manual|auto|yolo)$")
+    onde: str = Field(default="worktree", pattern="^(worktree|pasta)$")
+
+
+class AutoLimit(BaseModel):
+    limite: int = Field(ge=1, le=4)
+
+
 class NotePath(BaseModel):
     path: str = Field(min_length=4)
 
@@ -293,6 +323,8 @@ class ConnectorPatch(BaseModel):
     name: str | None = Field(default=None, max_length=40)
     approve_writes: bool | None = None
     reminders: bool | None = None
+    #: v0.9.9: {ferramenta: "livre" | "aprovacao" | "desligada" | "padrao"}
+    tool_modes: dict[str, str] | None = Field(default=None, max_length=400)
 
 
 # v0.9.8 parte 3: corpos das rotas novas de conectores
@@ -398,6 +430,10 @@ class TitlesBody(BaseModel):
 class MacNotice(BaseModel):
     titulo: str = Field(min_length=1, max_length=120)
     texto: str = Field(default="", max_length=240)
+
+
+class AppNotifier(BaseModel):
+    exe: str = Field(default="", max_length=1024)
 
 
 class ScriptsBody(BaseModel):
@@ -682,10 +718,11 @@ def create_app(
         notices = manager.prefs.get()["avisos"]
         if kind is None or notices["silencio"]:
             return
+        target = f"sessao:{session.id}"
         if kind == "espera" and notices["espera"]:
-            mac_notify(f"{session.title} espera você", message or Path(session.cwd).name, notices["som"])
+            mac_notify(f"{session.title} espera você", message or Path(session.cwd).name, notices["som"], target, session.id)
         elif kind == "terminou" and notices["terminou"]:
-            mac_notify(f"{session.title} terminou", Path(session.cwd).name, notices["som"])
+            mac_notify(f"{session.title} terminou", Path(session.cwd).name, notices["som"], target, session.id)
 
     manager.on_hook = on_hook
     automations = AutomationStore(settings.home)
@@ -807,6 +844,7 @@ def create_app(
         install_relay(settings.relay_path)
         install_cli_shim(settings.relay_path.parent, settings.home, settings.profile)
         engine.bind(asyncio.get_running_loop())  # eventos de outras threads disparam automações neste loop
+        app.state.auto.bind(asyncio.get_running_loop())  # v0.9.9: a fila Auto do kanban roda neste loop
         # Primeiro índice do Brain em segundo plano: a janela abre sem esperar por ele.
         asyncio.get_running_loop().run_in_executor(None, lambda: brain.refresh(max_age=0))
         pollers = []
@@ -839,6 +877,7 @@ def create_app(
     app.state.embedder = embedder
     app.state.engine = engine
     app.state.cli_homes = None  # None = ~/.claude e ~/.codex; os testes apontam para pastas temporárias
+    app.state.model_usage = ModelUsage(manager.accounts.list, projects.list, settings.worktrees, lambda: app.state.cli_homes)
     app.state.skills_downloads = None  # v0.9.8: None = ~/Downloads (exportar skill); os testes trocam
     app.state.skills_trash = None  # None = ~/.Trash (tirar skill)
     app.state.chrome_support = None  # None = ~/Library/Application Support (cookies do Chrome); os testes trocam
@@ -1205,6 +1244,11 @@ def create_app(
         if not notices["silencio"]:
             mac_notify(body.titulo, body.texto, notices["som"])
 
+    @app.put("/avisos/app", dependencies=[Depends(require_token)])
+    def set_app_notifier(body: AppNotifier) -> dict:
+        """A janela informa o executável do app (v0.9.9): com a janela fechada, o aviso sai por ele."""
+        return {"ok": set_notifier(body.exe), "exe": notifier()}
+
     @app.get("/ajustes", dependencies=[Depends(require_token)])
     def get_prefs() -> dict:
         return manager.prefs.get()
@@ -1355,6 +1399,11 @@ def create_app(
         await manager.refresh_codex_usage()
         return manager.usage.to_dict()
 
+    @app.get("/uso/modelos", dependencies=[Depends(require_token)])
+    async def model_usage_report(dias: int = Query(30, ge=1, le=90)) -> dict:
+        """v0.9.9: tokens e custo equivalente em API por modelo, dia e projeto, dos registros das CLIs."""
+        return await asyncio.to_thread(app.state.model_usage.report, dias)
+
     # --- voz ---------------------------------------------------------------
 
     @app.get("/voice", dependencies=[Depends(require_token)])
@@ -1414,6 +1463,35 @@ def create_app(
         projects_changed()
         return project.__dict__
 
+    # v0.9.9: o diálogo "Adicionar projeto" (repositórios do Mac, clonar, criar), no jeito do Orca.
+    @app.get("/projects/sugestoes", dependencies=[Depends(require_token)])
+    async def project_suggestions() -> dict:
+        known = projects.list()
+        found = await asyncio.to_thread(find_repos, known, settings.worktrees)
+        return {"repositorios": found, "pasta_padrao": str(default_parent(known))}
+
+    @app.post("/projects/clone", dependencies=[Depends(require_token)], status_code=201)
+    async def clone_project(body: CloneProject) -> dict:
+        parent = Path(body.pasta).expanduser() if body.pasta.strip() else default_parent(projects.list())
+        try:
+            path = await asyncio.to_thread(clone_repo, body.url, parent)
+            project = projects.add(str(path))
+        except ProjectError as exc:
+            raise fail(exc) from exc
+        projects_changed()
+        return project.__dict__
+
+    @app.post("/projects/criar", dependencies=[Depends(require_token)], status_code=201)
+    async def create_project(body: CreateProject) -> dict:
+        parent = Path(body.pasta).expanduser() if body.pasta.strip() else default_parent(projects.list())
+        try:
+            path = await asyncio.to_thread(create_repo, body.nome, parent)
+            project = projects.add(str(path), body.nome.strip())
+        except ProjectError as exc:
+            raise fail(exc) from exc
+        projects_changed()
+        return project.__dict__
+
     @app.delete("/projects/{project_id}", dependencies=[Depends(require_token)], status_code=204)
     def remove_project(project_id: str) -> None:
         try:
@@ -1439,24 +1517,29 @@ def create_app(
 
         return list(await asyncio.gather(*(summary(i) for i in items)))
 
-    @app.post("/projects/{project_id}/worktrees", dependencies=[Depends(require_token)], status_code=201)
-    async def new_worktree(project_id: str, body: NewWorktree) -> dict:
-        try:
-            created = await gitops.create_worktree(project_path(project_id), settings.worktrees, body.name, body.base, body.copy_env, body.modo)
-        except gitops.GitError as exc:
-            raise fail(exc) from exc
+    def worktree_created(project_id: str, created: dict, name: str) -> dict:
+        """Depois de criar uma worktree (pela barra lateral ou pela coluna Auto): avisa a janela,
+        dispara o evento `worktree.criada` das automações e roda o script de setup do projeto."""
         manager.events.publish({"type": "worktrees", "project": project_id})
         engine.fire_event("worktree.criada", {"projeto": projects.get(project_id).name, "caminho": created["path"], "branch": created.get("branch") or ""})
         script = projects.scripts(project_id).get("setup")
         if script:
             # O setup roda num terminal à vista na worktree nova: dá para acompanhar e corrigir.
             try:
-                setup = manager.create("shell", created["path"], title=f"Setup · {created.get('branch') or body.name}")
+                setup = manager.create("shell", created["path"], title=f"Setup · {created.get('branch') or name}")
                 manager.send_text(setup.id, script, paste=False)
                 created = {**created, "setup": setup.id}
             except (UnknownKind, ExecutableNotFound, OSError) as exc:
                 created = {**created, "setup_erro": str(exc)}
         return created
+
+    @app.post("/projects/{project_id}/worktrees", dependencies=[Depends(require_token)], status_code=201)
+    async def new_worktree(project_id: str, body: NewWorktree) -> dict:
+        try:
+            created = await gitops.create_worktree(project_path(project_id), settings.worktrees, body.name, body.base, body.copy_env, body.modo)
+        except gitops.GitError as exc:
+            raise fail(exc) from exc
+        return worktree_created(project_id, created, body.name)
 
     @app.delete("/projects/{project_id}/worktrees", dependencies=[Depends(require_token)])
     async def delete_worktree(project_id: str, path: str = Query(...), force: bool = False) -> dict:
@@ -1956,6 +2039,11 @@ def create_app(
         brain_changed(project)
         return {"hash": hashlib.sha256(body.texto.encode("utf-8")).hexdigest(), "alterado": target.stat().st_mtime}
 
+    @app.get("/brain/arvore", dependencies=[Depends(require_token)])
+    def brain_tree() -> list[dict]:
+        """v0.9.9: a árvore de pastas e notas do vault (Brain e Estudo)."""
+        return vault.tree()
+
     @app.get("/brain/titulos", dependencies=[Depends(require_token)])
     def brain_titles(q: str = "", limite: int = Query(default=20, ge=1, le=50)) -> list[dict]:
         """Títulos para o autocompletar de [[ no editor de notas."""
@@ -2121,6 +2209,123 @@ def create_app(
             raise brain_fail(exc) from exc
         brain_changed(name)
         return project
+
+    @app.get("/kanban/tarefas", dependencies=[Depends(require_token)])
+    def all_tasks() -> list[dict]:
+        """v0.9.9: as tarefas de todos os projetos do Brain, com o projeto e o número de cada uma."""
+        out: list[dict] = []
+        for project in kanban.projects():
+            try:
+                tasks = kanban.tasks(project["name"])
+            except VaultError:
+                continue
+            for n, task in enumerate(tasks, start=1):
+                out.append({**task, "projeto": project["name"], "n": n})
+        return out
+
+    # --- coluna Auto (v0.9.9) ---
+
+    def project_directory(name: str) -> str:
+        project = next((p for p in kanban.projects() if p["name"] == name), None)
+        if project is None:
+            raise AutoError(f"projeto não encontrado no Brain: {name}")
+        folder = str(project.get("directory") or "").strip()
+        if not folder:
+            raise AutoError(f"a nota de {name} não tem diretorio: no frontmatter (a pasta do código)")
+        path = Path(folder).expanduser()
+        if not path.is_dir():
+            raise AutoError(f"a pasta do projeto não existe: {folder}")
+        return str(path)
+
+    async def auto_start(item: AutoItem) -> tuple[str, str]:
+        # Antes de mexer no git: o agente existe e a CLI está instalada (senão sobrava uma worktree sem uso).
+        agent = None
+        if item.agente:
+            try:
+                agent = agents.get(item.agente)
+            except AgentError as exc:
+                raise AutoError(f"o agente {item.agente} não existe mais: escolha outro no Rodar sozinha") from exc
+        kind = agent.cli if agent is not None and agent.cli in ("claude", "codex") else item.cli
+        if not shutil.which(kind):
+            raise AutoError(f"o {kind} não está instalado (comando {kind} não encontrado)")
+        cwd = await asyncio.to_thread(project_directory, item.projeto)
+        created = None
+        project = None
+        if item.onde == "worktree":
+            try:
+                project = projects.add(cwd)
+                projects_changed()
+                # O id do item no nome: rodar a mesma tarefa de novo não bate na pasta da vez anterior.
+                name = f"auto-{(slugify(item.texto)[:32].strip('-') or item.tarefa)}-{item.id[:4]}"
+                created = await gitops.create_worktree(project.path, settings.worktrees, name, None, True, "nova")
+            except (ProjectError, gitops.GitError) as exc:
+                raise AutoError(f"não deu para criar a worktree: {exc}") from exc
+            created = worktree_created(project.id, created, name)
+            cwd = created["path"]
+        try:
+            session = manager.create(kind, cwd, title=f"Auto · {item.texto[:40]}", agent=agent, permission=item.permissao,
+                                     prompt=auto_prompt(item), model=item.modelo or None, effort=item.esforco or None)  # fmt: skip
+        except Exception as exc:
+            # O agente não abriu: a worktree que acabou de nascer sai junto (branch sem commit nenhum).
+            if created is not None and project is not None:
+                try:
+                    await gitops.remove_worktree(project.path, created["path"], force=True)
+                    manager.events.publish({"type": "worktrees", "project": project.id})
+                except gitops.GitError:
+                    pass
+            raise AutoError(f"o agente não abriu: {exc}") from exc
+        return session.id, cwd
+
+    def auto_move(projeto: str, tarefa: str, state: str) -> None:
+        kanban.move(projeto, tarefa, state)
+        brain_changed(projeto)
+
+    auto = AutoQueue(settings.home / "kanban-auto.json", start=auto_start, move=auto_move, publish=manager.events.publish)
+    manager.events.listen(auto.on_bus_event)
+    app.state.auto = auto
+
+    @app.get("/kanban/auto", dependencies=[Depends(require_token)])
+    def auto_view() -> dict:
+        return auto.view()
+
+    @app.post("/kanban/auto", dependencies=[Depends(require_token)], status_code=201)
+    def auto_enqueue(body: AutoEnqueue) -> dict:
+        try:
+            task = next((t for t in kanban.tasks(body.projeto) if t["id"] == body.tarefa), None)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        if task is None:
+            raise HTTPException(status_code=404, detail="tarefa não encontrada (a nota mudou?)")
+        if body.agente:
+            try:
+                agents.get(body.agente)
+            except AgentError as exc:
+                raise HTTPException(status_code=400, detail=f"o agente {body.agente} não existe mais") from exc
+        try:
+            item = auto.enqueue(body.projeto, body.tarefa, task.get("texto") or task["text"], cli=body.cli, agente=body.agente, modelo=body.modelo,
+                                esforco=body.esforco, permissao=body.permissao, onde=body.onde)  # fmt: skip
+        except AutoError as exc:
+            raise fail(exc) from exc
+        return item.to_dict()
+
+    @app.delete("/kanban/auto/{item_id}", dependencies=[Depends(require_token)])
+    def auto_cancel(item_id: str) -> dict:
+        try:
+            return auto.cancel(item_id).to_dict()
+        except AutoError as exc:
+            raise fail(exc) from exc
+
+    @app.delete("/kanban/auto", dependencies=[Depends(require_token)], status_code=204)
+    def auto_clear() -> None:
+        auto.clear_done()
+
+    @app.put("/kanban/auto/limite", dependencies=[Depends(require_token)])
+    def auto_limit(body: AutoLimit) -> dict:
+        try:
+            auto.set_limit(body.limite)
+        except AutoError as exc:
+            raise fail(exc) from exc
+        return auto.view()
 
     @app.get("/brain/projects/{name}/tasks", dependencies=[Depends(require_token)])
     def brain_tasks(name: str) -> list[dict]:
@@ -2401,7 +2606,8 @@ def create_app(
         try:
             account = connectors.update(account_id, **body.model_dump())
         except ConnectorError as exc:
-            raise fail(exc, 404) from exc
+            # Modo de ferramenta inválido é pedido errado (400); conta que não existe, 404.
+            raise fail(exc, 400 if "modo de ferramenta" in str(exc) else 404) from exc
         connectors_changed()
         return account.to_dict()
 
@@ -2412,6 +2618,21 @@ def create_app(
         except ConnectorError as exc:
             raise fail(exc, 404) from exc
         connectors_changed()
+
+    @app.get("/conectores/{account_id}/ferramentas", dependencies=[Depends(require_token)])
+    def connector_tools(account_id: str) -> dict:
+        """v0.9.9: as ferramentas da conta, com o modo de cada uma (livre, aprovação, desligada)."""
+        try:
+            account = connectors.get(account_id)
+            tools = hub.account_tools(account)
+        except (ConnectorError, RuntimeError, OSError) as exc:
+            raise fail(exc) from exc
+        return {
+            "ferramentas": [
+                {"nome": t.name, "descricao": t.description[:300], "escrita": bool(t.write), "modo": tool_mode(account, t.name, t.write), "escolhido": t.name in (account.tool_modes or {})}
+                for t in tools
+            ]
+        }
 
     @app.post("/conectores/{account_id}/teste", dependencies=[Depends(require_token)])
     def test_connector(account_id: str) -> dict:
@@ -3215,9 +3436,10 @@ def create_app(
         agents_changed()
 
     @app.get("/agents/{agent_id}/sprite", dependencies=[Depends(require_token_or_query)])
-    def get_sprite(agent_id: str) -> FileResponse:
+    def get_sprite(agent_id: str, anim: bool = False) -> FileResponse:
+        """A sprite parada; com `anim=1`, a tira do movimento parado (v0.9.9)."""
         try:
-            path = agents.sprite_path(agent_id)
+            path = agents.sprite_path(agent_id, anim)
         except AgentError as exc:
             raise fail(exc, 404) from exc
         if path is None:
@@ -3244,10 +3466,15 @@ def create_app(
             raise HTTPException(status_code=404, detail="trabalho desconhecido")
         return job.to_dict()
 
+    @app.get("/sprites/modelo", dependencies=[Depends(require_token_or_query)])
+    def sprite_model() -> FileResponse:
+        """v0.9.9: o modelo que toda sprite segue (o do Pedro, ou o que ele pôs em agentes/sprites/modelo.png)."""
+        return FileResponse(model_image(settings.home), media_type="image/png")
+
     @app.get("/sprites/jobs/{job_id}/image", dependencies=[Depends(require_token_or_query)])
-    def sprite_job_image(job_id: str) -> FileResponse:
+    def sprite_job_image(job_id: str, anim: bool = False) -> FileResponse:
         try:
-            path = studio.image(job_id)
+            path = studio.image(job_id, anim)
         except KeyError:
             path = None
         if path is None:
@@ -3259,8 +3486,9 @@ def create_app(
         path = studio.image(body.job)
         if path is None:
             raise HTTPException(status_code=404, detail="sprite ainda não pronta")
+        strip = studio.image(body.job, anim=True)
         try:
-            agents.set_sprite(agent_id, path.read_bytes())
+            agents.set_sprite(agent_id, path.read_bytes(), strip.read_bytes() if strip else None)
         except AgentError as exc:
             raise fail(exc, 404) from exc
         agents_changed()

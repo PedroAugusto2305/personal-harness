@@ -23,6 +23,7 @@ from .config import Settings
 from .ports import ports_by_session
 from .pty_session import PtySession
 from .prefs import Prefs, codex_trust_args, permission_args, trust_claude_folder
+from .model_usage import load_plan_usage, save_plan_usage
 from .statusline import parse_statusline
 
 # Variáveis que não podem vazar para os agentes. As do Orca fariam os hooks dele
@@ -259,7 +260,8 @@ class SessionManager:
         self.accounts = accounts or AccountStore(settings.home)
         self.sessions: dict[str, Session] = {}
         self.events = EventBus()
-        self.usage = Usage()
+        # v0.9.9: o último limite visto do Claude volta depois de reiniciar (só vem da statusline).
+        self.usage = Usage(claude=load_plan_usage(settings.home))
         # Central de MCP: dá um token por sessão de agente e esquece ao fechar (ligada pelo app).
         self.mcp_token: Callable[[str], str] | None = None
         self.mcp_forget: Callable[[str], None] | None = None
@@ -562,7 +564,11 @@ class SessionManager:
         # Só o Claude Code manda statusline; os limites são da conta, não da sessão.
         if parsed["rate_limits"]:
             account = session.account or self.accounts.active("claude").id
+            before = {k: v for k, v in (self.usage.claude.get(account) or {}).items() if k != "updated_at"}
             self.usage.claude[account] = {**parsed["rate_limits"], "updated_at": time.time()}
+            # A statusline chega a cada resposta: o arquivo só é regravado quando o limite muda.
+            if before != parsed["rate_limits"]:
+                save_plan_usage(self.settings.home, self.usage.claude)
             self._publish_usage()
         return parsed
 

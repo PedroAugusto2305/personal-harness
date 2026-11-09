@@ -38,6 +38,44 @@ export function loadMonaco(): Promise<MonacoApi> {
   return loading;
 }
 
+let warmed = false;
+
+/**
+ * v0.9.9: o editor demorava para abrir porque o Monaco (uns 4 MB de JS, mais o worker de
+ * TypeScript) só era baixado e avaliado no primeiro arquivo aberto. Agora ele carrega em
+ * segundo plano quando a MÊTIS fica ociosa, e um editor escondido nasce e morre uma vez para
+ * aquecer as fontes, o tema e o worker de linguagem: o primeiro arquivo abre na hora.
+ */
+export function warmMonaco(delayMs = 4000): void {
+  if (warmed) return;
+  warmed = true;
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  const idle = (fn: () => void) => (ric ? ric(fn, { timeout: 8000 }) : globalThis.setTimeout(fn, 200));
+  window.setTimeout(
+    () =>
+      idle(() => {
+        void loadMonaco()
+          .then((monaco) => {
+            const host = document.createElement("div");
+            host.setAttribute("aria-hidden", "true");
+            host.style.cssText = "position:fixed;left:-10000px;top:0;width:480px;height:240px;visibility:hidden;pointer-events:none";
+            document.body.appendChild(host);
+            const model = monaco.editor.createModel("const aquecer = 1;\n", "typescript");
+            const editor = monaco.editor.create(host, { model, automaticLayout: false, minimap: { enabled: true } });
+            window.setTimeout(() => {
+              editor.dispose();
+              model.dispose();
+              host.remove();
+            }, 3000);
+          })
+          .catch(() => {
+            warmed = false; // tenta de novo no próximo pedido
+          });
+      }),
+    delayMs,
+  );
+}
+
 /** Tema do Monaco tirado dos tokens CSS do tema da MÊTIS em vigor. */
 export function applyMonacoTheme(monaco: MonacoApi, theme: ThemeName): string {
   const css = getComputedStyle(document.documentElement);

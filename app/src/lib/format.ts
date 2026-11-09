@@ -19,6 +19,7 @@ export const STATUS_COLOR: Record<SessionStatus, string> = {
 /** 76200 → "76,2k"; 1000000 → "1M". */
 export function tokens(value: number | null | undefined): string {
   if (value == null) return "—";
+  if (value >= 1_000_000_000) return `${trim(value / 1_000_000_000)}B`;
   if (value >= 1_000_000) return `${trim(value / 1_000_000)}M`;
   if (value >= 1_000) return `${trim(value / 1_000)}k`;
   return String(value);

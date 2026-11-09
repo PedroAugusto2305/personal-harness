@@ -3,6 +3,7 @@
 // notas como callouts do Obsidian. Arrastar o fundo move, ⌘ + rolar dá zoom; arrastar da saída de
 // um bloco até outro liga os dois.
 
+import { KindIcon } from "../KindIcon";
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ICON, Icon } from "../../icons";
 import type { CoreClient } from "../../lib/core";
@@ -448,8 +449,8 @@ export function Canvas(props: Props) {
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => props.onOpen(n.id)}
             >
-              <span className="af-cli" style={{ color: KIND_COLOR[parts.model.cli] }}>
-                {parts.model.cli === "codex" ? "◇" : "✻"}
+              <span className="af-cli">
+                <KindIcon kind={parts.model.cli} size={16} />
               </span>
             </button>
             <span className="af-sub-name mono" style={{ left: parts.model.x - 36, top: parts.cy + 23 }}>

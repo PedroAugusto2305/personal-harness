@@ -124,6 +124,8 @@ export interface Agent {
   origin: string;
   prompt: string;
   sprite: boolean;
+  /** v0.9.9: quadros do movimento parado (0 = só a sprite parada). */
+  sprite_frames?: number;
   updated_at: number;
   /** Contas de conector liberadas pela central: "" = todas; "nenhum" = nenhuma; senão ids separados por vírgula. */
   connectors: string;
@@ -134,6 +136,8 @@ export interface SpriteJob {
   id: string;
   prompt: string;
   base: string | null;
+  /** v0.9.9: quadros do movimento parado gerados (0 = só a sprite parada). */
+  frames?: number;
   status: "running" | "done" | "error";
   error: string | null;
   note: string;
@@ -191,6 +195,7 @@ export type CoreEvent =
   | { type: "session.renamed"; id: string; title: string }
   | { type: "temas-app" }
   | { type: "activity.event"; item: AgentEvent }
+  | ({ type: "kanban.auto" } & AutoQueueView)
   | { type: "estudo.mudou" }
   | { type: "codigo.grafo"; root: string; status: string; detalhe?: string }
   | { type: "brain.changed"; project: string }
@@ -350,6 +355,19 @@ export interface ConnectorAccount {
   meta: Record<string, string | number>;
   approve_writes: boolean;
   reminders: boolean;
+  /** v0.9.9: modo escolhido por ferramenta. */
+  tool_modes?: Record<string, ToolMode>;
+}
+
+export type ToolMode = "livre" | "aprovacao" | "desligada";
+
+export interface ConnectorTool {
+  nome: string;
+  descricao: string;
+  escrita: boolean;
+  modo: ToolMode;
+  /** O modo foi escolhido na tela (senão é o padrão da conta). */
+  escolhido: boolean;
 }
 
 export interface ConnectorCatalog {
@@ -440,6 +458,46 @@ export interface KanbanTask {
   texto?: string;
   subtarefas?: Subtask[];
 }
+
+/** v0.9.9: pasta ou nota do vault, para a árvore do Brain e do Estudo. */
+export interface VaultNode {
+  nome: string;
+  caminho: string;
+  tipo: "pasta" | "nota";
+  filhos?: VaultNode[];
+}
+
+/** v0.9.9: tarefa de qualquer projeto, com o projeto e o número dela na nota. */
+export type BoardTask = KanbanTask & { projeto: string; n: number };
+
+export interface AutoItem {
+  id: string;
+  projeto: string;
+  tarefa: string;
+  texto: string;
+  criado: number;
+  cli: "claude" | "codex";
+  agente: string;
+  modelo: string;
+  esforco: "" | "low" | "medium" | "high" | "xhigh";
+  permissao: "padrao" | "manual" | "auto" | "yolo";
+  onde: "worktree" | "pasta";
+  status: "fila" | "rodando" | "feito" | "erro" | "cancelado";
+  sessao: string;
+  pasta: string;
+  erro: string;
+  inicio: number;
+  fim: number;
+}
+
+export interface AutoQueueView {
+  limite: number;
+  rodando: number;
+  na_fila: number;
+  itens: AutoItem[];
+}
+
+export type AutoSettings = Pick<AutoItem, "cli" | "agente" | "modelo" | "esforco" | "permissao" | "onde">;
 
 export interface Subtask {
   indice: number;
@@ -1255,4 +1313,38 @@ export interface AutoStrategy {
   nome: string;
   descricao: string;
   parametros: { nome: string; rotulo: string; tipo: "texto" | "pasta" | "cli" | "numero"; padrao: string | number }[];
+}
+
+// --- Uso dos modelos (v0.9.9) ------------------------------------------------------------
+
+export interface ModelUsageTotals {
+  custo: number;
+  tokens: number;
+  respostas: number;
+}
+
+export interface ModelUsageModel extends ModelUsageTotals {
+  provedor: Provider;
+  modelo: string;
+  nome: string;
+  sessoes: number;
+  entrada: number;
+  saida: number;
+  cache_5m: number;
+  cache_1h: number;
+  cache_lido: number;
+  com_preco: boolean;
+}
+
+export interface ModelUsageReport {
+  dias: number;
+  desde: string;
+  ate: string;
+  total: ModelUsageTotals & { sessoes: number; entrada: number; saida: number; cache_5m: number; cache_1h: number; cache_lido: number };
+  hoje: ModelUsageTotals;
+  por_dia: { dia: string; custo: number; tokens: number; modelos: Record<string, number>; tokens_modelos: Record<string, number> }[];
+  por_modelo: ModelUsageModel[];
+  por_projeto: (ModelUsageTotals & { projeto: string; modelos: Record<string, number> })[];
+  sem_preco: string[];
+  atualizado: number;
 }
