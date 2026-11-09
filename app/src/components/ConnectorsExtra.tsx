@@ -115,7 +115,9 @@ export function GoogleSetup({ client, onToast }: { client: CoreClient; onToast: 
               , crie um projeto (se não tiver) e ative as APIs do Gmail, do Google Calendar e do Google Drive.
             </li>
             <li>
-              Em <em>Tela de permissão OAuth</em>, escolha <em>Externo</em>, adicione você como usuário de teste.
+              Em <em>Tela de permissão OAuth</em>: conta de empresa (Workspace), escolha <em>Interno</em>; Gmail pessoal, <em>Externo</em> e depois{" "}
+              <em>Publicar o app</em>. Em modo de teste, o Google derruba o login a cada 7 dias. Ao entrar, ele avisa que o app não foi verificado:{" "}
+              <em>Avançado → continuar</em> (o app é seu).
             </li>
             <li>
               Crie um <em>ID do cliente OAuth</em> do tipo <em>App para computador</em> e cole o ID e a chave secreta abaixo. Vale para todas
