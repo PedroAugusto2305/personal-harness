@@ -25,8 +25,10 @@
 | **Uso diário:** app instalado de uma versão marcada, atualização pelo app e pelo `metis`, MÊTIS de desenvolvimento separada | ✅ `v0.9.4` |
 | **C. Git e GitHub:** stage por trecho ou linha, comparar com qualquer ref, conflitos, criar PR, issues e PRs no kanban, receitas de IA por ação | ⏳ `v0.9.6` |
 | **D. Editores:** editar arquivos da worktree, editar notas do Brain com `[[links]]` e callouts | ⏳ `v0.9.7` (falta escolher o editor) |
-| Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ⏳ |
-| Fora da `v0.9.3` no bloco B: temas do Warp e do Kitty, copiar o contexto e o ID da sessão, teclado kitty e OSC 52 no terminal | ⏳ |
+| Fora da `v0.9.2` no bloco A: configuração por agente (binário e argumentos próprios), CLI genérica, hibernação, MCP próprio pela central | ⏳ `v0.9.8` |
+| Fora da `v0.9.3` no bloco B: temas do Warp e do Kitty, copiar o contexto e o ID da sessão, teclado kitty e OSC 52 no terminal | ⏳ `v0.9.8` |
+| Itens 1.0 fora dos blocos: navegador pelo MCP, perfis e emulação, barra lateral (filtros, fixar, renomear, cores), worktree a partir de branch ou SHA, painel de agentes, tarefas unificadas, abrir em VS Code, fontes e zoom, Skills da MÊTIS | ⏳ `v0.9.8` |
+| Correções e detalhes do Pedro, revisão das telas | ⏳ `v0.9.9` |
 
 ## Agentes e contas
 
