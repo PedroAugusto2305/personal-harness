@@ -4,6 +4,16 @@ Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`R
 
 ## v0.9.8 · o que o MAPA prometeu (em andamento, em cinco partes)
 
+### Parte 4 · automações
+
+- **Passo Código:** Python ou JavaScript rodando no Mac, sem gastar cota; o Claude escreve a partir da descrição.
+- **Gatilhos novos:** evento da MÊTIS (nota nova no Brain, tarefa mudou de coluna, agente terminou ou errou, worktree criada, captura rápida) e novidade num conector (sondagem de uma ferramenta de tempos em tempos).
+- **Troca por cota:** o passo de agente roda no outro provedor quando a janela de 5 h passa de 80%, e a troca aparece na execução. Nos terminais, a mesma conta acima de 80% sugere passar o trabalho para a outra CLI.
+- **Criar e ajustar por frase:** o Claude monta (ou muda) a automação; a proposta aparece tracejada no canvas e só vai para o rascunho quando você aplica.
+- **Importar do n8n:** um workflow colado (ou lido de um n8n ligado em Conectores) vira automação, com o que não tem igual marcado para revisar.
+- **Estratégias de agentes:** explorar e construir, planejar e executar, melhor de N e portão de revisão, prontas para preencher.
+- **Rotinas viraram automações** de um gatilho e um agente, com a recuperação e o aviso no Slack de antes; a tela Hoje continua igual.
+
 ### Parte 3 · conectores e kanban
 
 - **Conectores novos:** Notion (MCP oficial, login no navegador), GitHub (MCP oficial, com o login do `gh` ou um token), Google (Gmail, Agenda e Drive pelas APIs do Google, com o cliente OAuth do Pedro) e **MCP próprio**: qualquer servidor por endereço (com login, token ou nada) ou por comando, ou um achado no **catálogo oficial de MCP**. Os logins se renovam sozinhos.

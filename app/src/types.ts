@@ -476,18 +476,31 @@ export interface ContextWindow {
 
 // --- Automações (v0.9.0) ---------------------------------------------------------------------
 
-export type AutoStepType = "ferramenta" | "agente" | "condicao" | "aprovacao" | "brain" | "esperar";
+export type AutoStepType = "ferramenta" | "agente" | "condicao" | "aprovacao" | "brain" | "esperar" | "codigo";
 export type AutoOutputType = "texto" | "numero" | "lista" | "objeto" | "sim/nao";
 export type AutoMode = "teste" | "producao";
 export type AutoRunStatus = "rodando" | "ok" | "erro" | "recusada" | "cancelada" | "pulada" | "interrompida";
 export type AutoStepStatus = "rodando" | "ok" | "erro" | "pulado" | "recusado" | "esperando";
 
+export type AutoEventName = "brain.nota" | "tarefa.moveu" | "agente.terminou" | "agente.errou" | "worktree.criada" | "captura";
+
 export interface AutoTrigger {
-  tipo: "manual" | "agendado";
+  tipo: "manual" | "agendado" | "evento" | "sondagem";
   /** 0 = segunda … 6 = domingo */
   dias?: number[];
   hora?: string;
   recupera_min?: number;
+  /** v0.9.8: avisar no Slack quando começa e quando dá erro (as rotinas). */
+  aviso?: boolean;
+  // evento
+  evento?: AutoEventName;
+  filtro?: Record<string, string>;
+  // sondagem
+  ferramenta?: string;
+  argumentos?: Record<string, unknown>;
+  cada_min?: number;
+  chave?: string;
+  caminho?: string;
   x?: number;
   y?: number;
 }
@@ -531,6 +544,13 @@ export interface AutoStep {
   limite?: number;
   // esperar
   minutos?: number;
+  // código (v0.9.8)
+  linguagem?: "python" | "javascript";
+  codigo?: string;
+  descricao?: string;
+  tempo_limite_s?: number;
+  /** Agente: roda no outro provedor quando a janela de 5 h passa de 80% (padrão sim). */
+  troca_cota?: boolean;
 }
 
 export interface AutoEdge {
@@ -1140,4 +1160,20 @@ export interface AgentEvent {
   kind: "inicio" | "terminou" | "pergunta" | "saiu" | "hibernou" | "acordou";
   title: string;
   preview: string;
+}
+
+// --- Automações (v0.9.8, parte 4) ---------------------------------------------------------
+
+export interface AutoProposal {
+  proposta: AutoFlow;
+  explicacao?: string;
+  revisar?: { passo: string; motivo: string }[];
+  nome?: string;
+}
+
+export interface AutoStrategy {
+  id: string;
+  nome: string;
+  descricao: string;
+  parametros: { nome: string; rotulo: string; tipo: "texto" | "pasta" | "cli" | "numero"; padrao: string | number }[];
 }

@@ -7,6 +7,11 @@ mensagem (`claude "<pedido>"`), pelo plano normal, e pode avisar o Pedro no Slac
 A MÊTIS só roda com o Mac acordado. Se ele dormia na hora, a rotina tem uma janela de
 recuperação: acordou dentro dela, roda (marcada como recuperada); depois, pula e fica
 registrado. Assim a Aurora das 20h50 não aparece às 3h da manhã.
+
+v0.9.8: as rotinas passam a ser automações de um gatilho agendado e um agente (`rotina-<id>`
+em ~/.harness/automacoes), com a mesma recuperação e o mesmo aviso. Na primeira subida, cada
+.md vira automação e fica como cópia (`ativa: não`, `migrada: rotina-<id>`). As rotas
+/rotinas continuam com o mesmo formato, agora por cima das automações (RoutineFlows).
 """
 
 from __future__ import annotations
@@ -48,6 +53,8 @@ class Routine:
     prompt: str = ""
     created: float = 0.0
     updated_at: float = 0.0
+    #: v0.9.8: a automação para onde a rotina foi (o .md fica só como cópia).
+    migrated: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -71,6 +78,36 @@ def parse_days(value: str) -> list[int]:
         else:
             raise RoutineError(f"dia desconhecido: {part}")
     return sorted(out)
+
+
+def normalize(data: dict) -> dict:
+    """Confere o que a tela (ou o metis) mandou para uma rotina e devolve no formato certo."""
+    name = str(data.get("name", "")).strip()
+    if not name:
+        raise RoutineError("a rotina precisa de um nome")
+    prompt = str(data.get("prompt", "")).strip()
+    if not prompt:
+        raise RoutineError("a rotina precisa de um pedido (a primeira mensagem para o agente)")
+    days = data.get("days")
+    days = parse_days(days) if isinstance(days, str) else sorted({int(d) for d in (days or []) if 0 <= int(d) <= 6})
+    if not days:
+        raise RoutineError("escolha pelo menos um dia")
+    hour, minute = _clock(str(data.get("time", "")))
+    cli = data.get("cli", "claude")
+    if cli not in CLIS:
+        raise RoutineError(f"CLI desconhecida: {cli}")
+    return {
+        "name": name,
+        "agent": str(data.get("agent", "") or "").strip(),
+        "cli": cli,
+        "folder": str(data.get("folder", "") or "").strip(),
+        "days": days,
+        "time": f"{hour:02d}:{minute:02d}",
+        "catchup": max(0, int(data.get("catchup", 60) or 0)),
+        "notify": bool(data.get("notify", True)),
+        "active": bool(data.get("active", True)),
+        "prompt": prompt,
+    }
 
 
 def render_days(days: list[int]) -> str:
@@ -185,6 +222,7 @@ class RoutineStore:
             prompt=body.strip(),
             created=created,
             updated_at=stat.st_mtime,
+            migrated=meta.get("migrada", ""),
         )
 
     def list(self) -> list[Routine]:
@@ -205,20 +243,9 @@ class RoutineStore:
         return self._read(path)
 
     def save(self, data: dict, routine_id: str | None = None) -> Routine:
-        name = str(data.get("name", "")).strip()
-        if not name:
-            raise RoutineError("a rotina precisa de um nome")
-        prompt = str(data.get("prompt", "")).strip()
-        if not prompt:
-            raise RoutineError("a rotina precisa de um pedido (a primeira mensagem para o agente)")
-        days = data.get("days")
-        days = parse_days(days) if isinstance(days, str) else sorted({int(d) for d in (days or []) if 0 <= int(d) <= 6})
-        if not days:
-            raise RoutineError("escolha pelo menos um dia")
-        hour, minute = _clock(str(data.get("time", "")))
-        cli = data.get("cli", "claude")
-        if cli not in CLIS:
-            raise RoutineError(f"CLI desconhecida: {cli}")
+        clean = normalize(data)
+        name, prompt, days, cli = clean["name"], clean["prompt"], clean["days"], clean["cli"]
+        hour, minute = _clock(clean["time"])
         if routine_id is None:
             base = slugify(name)
             routine_id, n = base, 2
@@ -244,6 +271,22 @@ class RoutineStore:
         tmp.write_text("\n".join(lines) + "\n\n" + prompt + "\n", encoding="utf-8")
         tmp.replace(path)
         return self._read(path)
+
+    def mark_migrated(self, routine_id: str, automation_id: str) -> None:
+        """O .md fica como cópia: desligado e com o nome da automação que tomou o lugar dele."""
+        path = self._file(routine_id)
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        if not lines or lines[0].strip() != "---":
+            return
+        end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+        if end is None:
+            return
+        head = [line for line in lines[1:end] if not line.startswith(("ativa:", "migrada:"))]
+        head += ["ativa: não", f"migrada: {automation_id}"]
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("\n".join([lines[0], *head, *lines[end:]]), encoding="utf-8")
+        tmp.replace(path)
 
     def delete(self, routine_id: str) -> None:
         path = self._file(routine_id)
@@ -273,3 +316,192 @@ class RoutineStore:
         with self._connect() as con:
             rows = con.execute("select * from runs where ts >= ? order by id desc limit ?", (since, limit)).fetchall()
         return [dict(r) for r in rows]
+
+
+# --- v0.9.8: as rotinas como automações ------------------------------------------------------
+
+PREFIX = "rotina-"
+RUN_OFFSET = 1_000_000  # execuções vindas das automações não colidem com as antigas da rotinas.db
+ROUTINE_AGENT_MINUTES = 120  # o primeiro turno de uma rotina pode ser longo; o terminal fica aberto
+
+
+class RoutineFlows:
+    """As rotas /rotinas por cima das automações `rotina-<id>` (um gatilho agendado e um agente),
+    no mesmo formato de sempre. Os .md antigos viram automação uma vez (migrate)."""
+
+    def __init__(self, store, engine, legacy: RoutineStore) -> None:
+        self.store = store
+        self.engine = engine
+        self.legacy = legacy
+
+    @staticmethod
+    def automation_id(routine_id: str) -> str:
+        return PREFIX + routine_id
+
+    @staticmethod
+    def flow(data: dict, created: float) -> dict:
+        clean = normalize(data)
+        return {
+            "nome": clean["name"],
+            "descricao": "Rotina: abre o agente na hora marcada, com o pedido como primeira mensagem.",
+            "gatilho": {
+                "tipo": "agendado",
+                "dias": clean["days"],
+                "hora": clean["time"],
+                # 0 de recuperação = só na hora (a regra das rotinas já trata até 2 min como na hora)
+                "recupera_min": max(clean["catchup"], 2),
+                "recuperar": clean["catchup"],
+                "aviso": clean["notify"],
+                "criada": created,
+                "x": 0,
+                "y": 0,
+            },
+            "passos": [
+                {
+                    "id": "agente",
+                    "tipo": "agente",
+                    "titulo": "Abrir o agente",
+                    "agente": clean["agent"],
+                    "cli": clean["cli"],
+                    "pasta": clean["folder"],
+                    "pedido": clean["prompt"],
+                    "onde": "visivel",
+                    "saida": {},
+                    "ferramentas": ["*"],
+                    "etiqueta": "rotina",
+                    "troca_cota": False,
+                    "tempo_limite_min": ROUTINE_AGENT_MINUTES,
+                    "x": 260,
+                    "y": 0,
+                }
+            ],
+            "ligacoes": [{"de": "gatilho", "para": "agente"}],
+        }
+
+    def _exists(self, automation_id: str) -> bool:
+        try:
+            return self.store.path(automation_id).exists()
+        except ValueError:
+            return False
+
+    def is_flow(self, routine_id: str) -> bool:
+        return self._exists(self.automation_id(routine_id))
+
+    def routine(self, automation_id: str) -> Routine | None:
+        """A rotina no formato de sempre, lida da automação (a publicada, ou o rascunho)."""
+        try:
+            flow = self.store.published(automation_id) or self.store.draft(automation_id)
+        except ValueError:
+            return None
+        trigger = flow["gatilho"]
+        step = next((s for s in flow["passos"] if s["tipo"] == "agente"), None)
+        if trigger.get("tipo") != "agendado" or step is None:
+            return None
+        state = self.engine.state(automation_id)
+        return Routine(
+            id=automation_id[len(PREFIX):],
+            name=flow["nome"],
+            agent=str(step.get("agente") or ""),
+            cli=str(step.get("cli") or "claude"),
+            folder=str(step.get("pasta") or ""),
+            days=list(trigger["dias"]),
+            time=str(trigger["hora"]),
+            catchup=int(trigger.get("recuperar", trigger.get("recupera_min", 60)) or 0),
+            notify=bool(trigger.get("aviso")),
+            active=bool(state["ativa"]),
+            prompt=str(step.get("pedido") or ""),
+            created=float(trigger.get("criada") or state.get("desde") or 0),
+            updated_at=self.store.mtime(automation_id),
+        )
+
+    def list(self) -> list[Routine]:
+        out = [r for aid in self.store.ids() if aid.startswith(PREFIX) for r in [self.routine(aid)] if r is not None]
+        mine = {r.id for r in out}
+        out += [r for r in self.legacy.list() if not r.migrated and r.id not in mine]
+        return sorted(out, key=lambda r: (r.time, r.name.lower()))
+
+    def get(self, routine_id: str) -> Routine:
+        if self.is_flow(routine_id):
+            found = self.routine(self.automation_id(routine_id))
+            if found is not None:
+                return found
+        legacy = self.legacy.get(routine_id)
+        if legacy.migrated:
+            raise RoutineError(f"rotina não encontrada: {routine_id}")
+        return legacy
+
+    def save(self, data: dict, routine_id: str | None = None) -> Routine:
+        clean = normalize(data)
+        if routine_id is None:
+            base = (slugify(clean["name"]) or "rotina")[:50].strip("-") or "rotina"
+            taken = {r.id for r in self.list()} | {p.stem for p in self.legacy.dir.glob("*.md")} if self.legacy.dir.is_dir() else {r.id for r in self.list()}
+            routine_id, n = base, 2
+            while routine_id in taken or self._exists(self.automation_id(routine_id)) or (self.store.archive_dir / f"{self.automation_id(routine_id)}.yaml").exists():
+                routine_id, n = f"{base}-{n}", n + 1
+            automation_id = self.automation_id(routine_id)
+            self.store.create(clean["name"], self.flow(clean, time.time()), automation_id=automation_id)
+        else:
+            automation_id = self.automation_id(routine_id)
+            if not self._exists(automation_id):
+                raise RoutineError(f"rotina não encontrada: {routine_id}")
+            created = self.store.draft(automation_id)["gatilho"].get("criada") or time.time()
+            self.store.save(automation_id, self.flow(clean, float(created)))
+        self.store.publish(automation_id)
+        self.engine.set_active(automation_id, clean["active"])
+        found = self.routine(automation_id)
+        assert found is not None
+        return found
+
+    def delete(self, routine_id: str) -> None:
+        automation_id = self.automation_id(routine_id)
+        if self._exists(automation_id):
+            self.engine.set_active(automation_id, False)
+            self.store.archive(automation_id)
+            return
+        self.legacy.delete(routine_id)
+
+    @staticmethod
+    def run_view(row: dict) -> dict:
+        """Uma execução da automação no formato das execuções de rotina (a tela Hoje não muda)."""
+        status = row["status"]
+        if status == "pulada":
+            mapped = "pulou"
+        elif status in ("erro", "cancelada", "interrompida", "recusada"):
+            mapped = "erro"
+        else:
+            mapped = {"agendado": "rodou", "recuperada": "recuperada"}.get(row.get("origem") or "", "manual")
+        return {
+            "id": RUN_OFFSET + int(row["id"]),
+            "routine": str(row["automation"])[len(PREFIX):],
+            "slot": row.get("slot") or 0,
+            "ts": row["started"],
+            "status": mapped,
+            "session": row.get("sessao") or "",
+            "detail": str(row.get("error") or row.get("nota") or "")[:500],
+        }
+
+    def runs(self, limit: int = 50, since: float = 0) -> list[dict]:
+        new = [self.run_view(r) for r in self.engine.runs_with_prefix(PREFIX, limit, since)]
+        old = self.legacy.runs(limit, since)
+        return sorted([*new, *old], key=lambda r: r["ts"], reverse=True)[:limit]
+
+    def migrate(self) -> list[str]:
+        """Uma vez por rotina .md: vira a automação rotina-<id> (publicada, ativa se estava) e o
+        arquivo fica como cópia desligada. Rodar de novo não faz nada (idempotente)."""
+        done = []
+        for routine in self.legacy.list():
+            if routine.migrated:
+                continue
+            automation_id = self.automation_id(routine.id)
+            try:
+                if not self._exists(automation_id):
+                    self.store.create(routine.name, self.flow(routine.to_dict(), routine.created or time.time()), automation_id=automation_id)
+                if self.store.published(automation_id) is None:
+                    self.store.publish(automation_id)
+                last = self.legacy.last_handled(routine.id)
+                self.engine.import_state(automation_id, routine.active, routine.created or time.time(), last.timestamp() if last else None)
+                self.legacy.mark_migrated(routine.id, automation_id)
+            except (ValueError, OSError):  # rotina que não abre fica como estava (o agendador antigo cuida)
+                continue
+            done.append(automation_id)
+        return done

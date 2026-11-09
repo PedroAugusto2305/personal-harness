@@ -28,12 +28,15 @@ interface Props {
 const TRIGGERS: { tipo: AutoTrigger["tipo"]; title: string; hint: string }[] = [
   { tipo: "manual", title: "Na mão", hint: "botão Rodar, ⌘K ou metis rodar no terminal" },
   { tipo: "agendado", title: "Agendado", hint: "dias e hora; se o Mac dormir, roda ao acordar" },
+  { tipo: "evento", title: "Evento da MÊTIS", hint: "nota nova no Brain, tarefa mudou, agente terminou ou errou, worktree criada, captura" },
+  { tipo: "sondagem", title: "Novidade num conector", hint: "pergunta a uma ferramenta de tempos em tempos e roda quando aparece item novo" },
 ];
 
 const LOGIC_DRAFT: Record<(typeof LOGIC)[number], StepDraft> = {
   condicao: { tipo: "condicao", titulo: "Condição", regra: "" },
   aprovacao: { tipo: "aprovacao", titulo: "Aprovação", mensagem: "", prazo_min: 60 },
   esperar: { tipo: "esperar", titulo: "Esperar", minutos: 5 },
+  codigo: { tipo: "codigo", titulo: "Código", linguagem: "python", codigo: "", descricao: "", tempo_limite_s: 30 },
   brain: { tipo: "brain", titulo: "Brain", acao: "buscar", termos: "", limite: 10 },
   ferramenta: { tipo: "ferramenta", titulo: "Ferramenta" },
   agente: { tipo: "agente", titulo: "Agente" },

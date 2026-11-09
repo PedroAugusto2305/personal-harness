@@ -56,11 +56,13 @@ from .keychain import Vault as SecretVault
 from .mcp_hub import Context, Hub, ToolError
 from . import chrome_cookies
 from . import mcp_configs, mcp_registry  # v0.9.8 parte 3: conectores
+from . import automation_ai, automation_templates, n8n_import  # v0.9.8 parte 4: automação por frase, n8n e estratégias
 from .browser_bridge import BrowserAnswer, BrowserBridge, BrowserHistory, BrowserProfiles, HistoryVisit, ImportBody, ProfileBody, ProfileError
 from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
 from .relay import install_cli_shim, install_relay
 from .routines import DAYS, Routine, RoutineError, RoutineStore, decide, next_slot, slot_on
+from .routines import PREFIX as ROUTINE_PREFIX, RoutineFlows
 from .sessions import CommandError as LaunchError
 from .sessions import ExecutableNotFound, SessionManager, UnknownKind
 from .statusline import render_statusline
@@ -418,6 +420,28 @@ class AutomationBody(BaseModel):
     desenho: dict
 
 
+# v0.9.8 parte 4: automação por frase, código escrito pelo Claude, n8n e estratégias.
+class ProposalBody(BaseModel):
+    descricao: str = Field(default="", max_length=4000)
+    atual: dict | None = None
+
+
+class CodeWriteBody(BaseModel):
+    descricao: str = Field(default="", max_length=4000)
+    linguagem: str = "python"
+    entrada_exemplo: object | None = None
+
+
+class N8nImportBody(BaseModel):
+    fluxo: object | None = None
+    conta: str | None = None
+    workflow_id: str | None = None
+
+
+class StrategyBody(BaseModel):
+    parametros: dict = Field(default_factory=dict)
+
+
 class PublishBody(BaseModel):
     versao: str = ""
 
@@ -586,6 +610,15 @@ def create_app(
     manager.on_hook = on_hook
     automations = AutomationStore(settings.home)
     engine = Engine(settings.home, automations, hub, manager, brain, kanban, vault, agents, notify=dm_pedro, publish=lambda event: manager.events.publish(event))
+    # v0.9.8: as rotinas viram automações (uma vez) e os eventos da MÊTIS disparam automações.
+    routine_flows = RoutineFlows(automations, engine, routines)
+    try:
+        routine_flows.migrate()
+    except Exception:  # noqa: BLE001 - a migração nunca impede o núcleo de subir
+        pass
+    kanban.on_move = lambda info: engine.fire_event("tarefa.moveu", info)
+    brain.on_note = lambda info: engine.fire_event("brain.nota", info)
+    manager.events.listen(engine.on_bus_event)
 
     def notify_routine(routine: Routine, who: str, slot) -> str:
         """Aviso no Slack (conta de lembretes) de que a rotina abriu. Devolve o que deu errado, se deu."""
@@ -627,6 +660,8 @@ def create_app(
         while True:
             now = datetime.now().astimezone()
             for routine in routines.list():
+                if routine.migrated:  # virou automação: quem roda é o motor (nada de execução dupla)
+                    continue
                 try:
                     verdict = decide(routine, now, routines.last_handled(routine.id))
                 except RoutineError:
@@ -691,6 +726,7 @@ def create_app(
     async def lifespan(_: FastAPI):
         install_relay(settings.relay_path)
         install_cli_shim(settings.relay_path.parent, settings.home)
+        engine.bind(asyncio.get_running_loop())  # eventos de outras threads disparam automações neste loop
         # Primeiro índice do Brain em segundo plano: a janela abre sem esperar por ele.
         asyncio.get_running_loop().run_in_executor(None, lambda: brain.refresh(max_age=0))
         pollers = []
@@ -708,6 +744,7 @@ def create_app(
             poller.cancel()
             with suppress(asyncio.CancelledError):
                 await poller
+        await engine.shutdown()
         await manager.close_all()
         connectors.close()  # os MCPs por stdio não ficam órfãos
         awake.stop()
@@ -1232,6 +1269,7 @@ def create_app(
         except gitops.GitError as exc:
             raise fail(exc) from exc
         manager.events.publish({"type": "worktrees", "project": project_id})
+        engine.fire_event("worktree.criada", {"projeto": projects.get(project_id).name, "caminho": created["path"], "branch": created.get("branch") or ""})
         script = projects.scripts(project_id).get("setup")
         if script:
             # O setup roda num terminal à vista na worktree nova: dá para acompanhar e corrigir.
@@ -2378,6 +2416,93 @@ def create_app(
             "agentes": [{"id": a["id"], "nome": a["name"], "cli": a["cli"], "cor": a["color"], "descricao": a["description"]} for a in agents.list()],
         }
 
+    # --- v0.9.8 parte 4: automação por frase, código pelo Claude, n8n e estratégias ---------------
+    # Antes de /automacoes/{automation_id}: senão "estrategias" e "proposta" viram um id.
+
+    def automation_ask(prompt: str) -> dict:
+        """Pedido pontual ao Claude (Sonnet, pelo plano, sem ferramentas); os testes trocam app.state.automation_ask."""
+        override = getattr(app.state, "automation_ask", None)
+        if override is not None:
+            return override(prompt)
+        return ask_json(prompt, claude_env(), settings.home / "automacoes-ia", model="sonnet", bare=True)
+
+    async def automation_tools() -> list[dict]:
+        catalog = await automation_catalog()
+        return catalog["ferramentas"]
+
+    @app.post("/automacoes/proposta", dependencies=[Depends(require_token)])
+    async def automation_proposal(body: ProposalBody) -> dict:
+        """Criar ou ajustar por frase: devolve a proposta conferida; nada é salvo (quem aplica é o Pedro)."""
+        catalog = await automation_catalog()
+        try:
+            return await asyncio.to_thread(automation_ai.propose, body.descricao, body.atual, catalog["ferramentas"], catalog["agentes"], automation_ask)
+        except automation_ai.ProposalInputError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (ClaudePrintError, automation_ai.ProposalError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/automacoes/codigo/escrever", dependencies=[Depends(require_token)])
+    async def automation_write_code(body: CodeWriteBody) -> dict:
+        try:
+            return await asyncio.to_thread(automation_ai.write_code, body.descricao, body.linguagem, body.entrada_exemplo, automation_ask)
+        except automation_ai.ProposalInputError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (ClaudePrintError, automation_ai.ProposalError) as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    def n8n_client(account_id: str):
+        try:
+            return connectors.mcp(account_id)
+        except ConnectorError as exc:
+            raise HTTPException(status_code=404 if "desconhecida" in str(exc) else 400, detail=str(exc)) from exc
+
+    @app.get("/automacoes/n8n/fluxos", dependencies=[Depends(require_token)])
+    async def n8n_workflows(conta: str = Query(...)) -> dict:
+        client = n8n_client(conta)
+        try:
+            return {"fluxos": await asyncio.to_thread(n8n_import.list_from_account, client)}
+        except n8n_import.ImportError_ as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - erro do MCP de fora vira mensagem, nunca 500
+            raise HTTPException(status_code=502, detail=f"o n8n não respondeu: {exc}") from exc
+
+    @app.post("/automacoes/importar-n8n", dependencies=[Depends(require_token)])
+    async def import_n8n(body: N8nImportBody) -> dict:
+        """Workflow do n8n (o JSON exportado, ou pela conta do MCP do n8n) → proposta, com o que revisar."""
+        workflow = body.fluxo
+        if workflow is None:
+            if not body.conta or not body.workflow_id:
+                raise HTTPException(status_code=400, detail="mande o JSON do workflow (fluxo) ou a conta e o workflow_id")
+            client = n8n_client(body.conta)
+            try:
+                workflow = await asyncio.to_thread(n8n_import.fetch_from_account, client, body.workflow_id)
+            except n8n_import.ImportError_ as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=f"o n8n não respondeu: {exc}") from exc
+        tools = await automation_tools()
+        kinds = {a.id: a.kind for a in connectors.list()}
+        try:
+            return await asyncio.to_thread(n8n_import.translate, workflow, tools, kinds)
+        except n8n_import.ImportError_ as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/automacoes/estrategias", dependencies=[Depends(require_token)])
+    def automation_strategies() -> dict:
+        return {"estrategias": automation_templates.catalog()}
+
+    @app.post("/automacoes/estrategias/{strategy_id}", dependencies=[Depends(require_token)], status_code=201)
+    def create_from_strategy(strategy_id: str, body: StrategyBody) -> dict:
+        """A estratégia vira um rascunho de automação (gatilho manual), para o Pedro ajustar e publicar."""
+        try:
+            flow = automation_templates.build(strategy_id, body.parametros)
+            automation_id = automations.create(flow["nome"], flow)
+        except automation_templates.StrategyError as exc:
+            raise HTTPException(status_code=404 if "desconhecida" in str(exc) else 400, detail=str(exc)) from exc
+        except AutomationError as exc:
+            raise automation_fail(exc) from exc
+        return {"id": automation_id}
+
     @app.get("/automacoes/{automation_id}", dependencies=[Depends(require_token)])
     def get_automation(automation_id: str) -> dict:
         try:
@@ -2412,6 +2537,10 @@ def create_app(
     def publish_automation(automation_id: str, body: PublishBody) -> dict:
         try:
             content = automations.version_content(automation_id, body.versao) if body.versao else None
+            # Sondagem só com ferramenta que lê: conferido antes de a versão valer.
+            import yaml
+
+            engine.check_trigger(validate(yaml.safe_load(content) if content else automations.draft(automation_id), strict=True))
             number = automations.publish(automation_id, content)
         except AutomationError as exc:
             raise automation_fail(exc) from exc
@@ -2500,18 +2629,51 @@ def create_app(
 
     def routines_changed() -> None:
         now = datetime.now().astimezone()
-        manager.events.publish({"type": "routines", "routines": [routine_view(r, now) for r in routines.list()]})
+        manager.events.publish({"type": "routines", "routines": [routine_view(r, now) for r in routine_flows.list()]})
+
+    def routine_events(event: dict) -> None:
+        """Execução de uma rotina-<id> vira o aviso de rotina de sempre na tela (abriu, pulou, erro)."""
+        kind, automation_id = event.get("type"), str(event.get("automation") or "")
+        if kind not in ("automation.step", "automation.run") or not automation_id.startswith(ROUTINE_PREFIX):
+            return
+        if kind == "automation.step" and not event.get("sessao"):
+            return
+        if kind == "automation.run" and event.get("status") not in ("erro", "pulada"):
+            return
+        row = next((r for r in engine.runs_with_prefix(automation_id, 5) if r["id"] == event.get("run")), None)
+        routine = routine_flows.routine(automation_id)
+        if row is None or routine is None:
+            return
+        manager.events.publish({"type": "routine.run", "routine": routine.to_dict(), "run": routine_flows.run_view(row), "session": row.get("sessao") or None})
+
+    manager.events.listen(routine_events)
+
+    async def run_routine_flow(routine_id: str) -> dict:
+        """Rodar agora uma rotina-automação: a execução começa e a resposta sai quando o terminal nasce."""
+        automation_id = routine_flows.automation_id(routine_id)
+        try:
+            run_id = await engine.start(automation_id, "producao", "manual")
+        except AutomationError as exc:
+            return {"id": 0, "routine": routine_id, "slot": 0, "ts": time.time(), "status": "erro", "session": "", "detail": str(exc)}
+        row = None
+        for _ in range(100):  # até 10 s: o terminal nasce no primeiro passo
+            row = next((r for r in engine.runs_with_prefix(automation_id, 5) if r["id"] == run_id), None)
+            if row is not None and (row["sessao"] or row["status"] != "rodando"):
+                break
+            await asyncio.sleep(0.1)
+        assert row is not None
+        return routine_flows.run_view(row)
 
     @app.get("/rotinas", dependencies=[Depends(require_token)])
     def list_routines() -> dict:
         now = datetime.now().astimezone()
-        return {"routines": [routine_view(r, now) for r in routines.list()], "runs": routines.runs(60)}
+        return {"routines": [routine_view(r, now) for r in routine_flows.list()], "runs": routine_flows.runs(60)}
 
     @app.post("/rotinas", dependencies=[Depends(require_token)], status_code=201)
     def create_routine(body: RoutineBody) -> dict:
         try:
-            routine = routines.save(body.model_dump())
-        except RoutineError as exc:
+            routine = routine_flows.save(body.model_dump())
+        except (RoutineError, AutomationError) as exc:
             raise fail(exc) from exc
         routines_changed()
         return routine_view(routine, datetime.now().astimezone())
@@ -2519,9 +2681,12 @@ def create_app(
     @app.put("/rotinas/{routine_id}", dependencies=[Depends(require_token)])
     def update_routine(routine_id: str, body: RoutineBody) -> dict:
         try:
-            routines.get(routine_id)
-            routine = routines.save(body.model_dump(), routine_id)
-        except RoutineError as exc:
+            routine_flows.get(routine_id)
+            if routine_flows.is_flow(routine_id):
+                routine = routine_flows.save(body.model_dump(), routine_id)
+            else:  # rotina antiga que não migrou (arquivo que não abria): segue no .md
+                routine = routines.save(body.model_dump(), routine_id)
+        except (RoutineError, AutomationError) as exc:
             raise fail(exc, 404) from exc
         routines_changed()
         return routine_view(routine, datetime.now().astimezone())
@@ -2529,17 +2694,20 @@ def create_app(
     @app.delete("/rotinas/{routine_id}", dependencies=[Depends(require_token)], status_code=204)
     def delete_routine(routine_id: str) -> None:
         try:
-            routines.delete(routine_id)
-        except RoutineError as exc:
+            routine_flows.get(routine_id)
+            routine_flows.delete(routine_id)
+        except (RoutineError, AutomationError) as exc:
             raise fail(exc, 404) from exc
         routines_changed()
 
     @app.post("/rotinas/{routine_id}/rodar", dependencies=[Depends(require_token)])
     async def run_routine_now(routine_id: str) -> dict:
         try:
-            routine = routines.get(routine_id)
+            routine = routine_flows.get(routine_id)
         except RoutineError as exc:
             raise fail(exc, 404) from exc
+        if routine_flows.is_flow(routine_id):
+            return await run_routine_flow(routine_id)
         return await run_routine(routine, None, "manual")
 
     # --- captura rápida, concierge e estudo -------------------------------------------
@@ -2564,6 +2732,7 @@ def create_app(
 
     @app.post("/captura", dependencies=[Depends(require_token)])
     async def capture(body: CaptureBody) -> dict:
+        engine.fire_event("captura", {"texto": body.texto})
         names = [p.name for p in vault.projects()] if vault.available else []
         try:
             item = interpret(body.texto, names)
@@ -2614,9 +2783,9 @@ def create_app(
         """O dia num lugar só: rotinas de hoje, tarefas em andamento, aprovações e lembretes."""
         now = datetime.now().astimezone()
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        runs_today = routines.runs(200, start.timestamp())
+        runs_today = routine_flows.runs(200, start.timestamp())
         slots = []
-        for routine in routines.list():
+        for routine in routine_flows.list():
             slot = slot_on(routine, now) if routine.active else None
             if slot is None:
                 continue
@@ -2769,7 +2938,19 @@ def create_app(
         payload = await _json(request)
         manager.record_hook(session, name, payload if isinstance(payload, dict) else None)
         if name == "Stop":
-            engine.on_stop(session)  # passo de automação que terminou o turno sem devolver a saída
+            data = payload if isinstance(payload, dict) else None
+            live = manager.get(session)
+            waiter = engine.waiters.get(session)
+            ours = engine.owns(session)
+            # Passo de automação: sem saída combinada termina aqui (com a última mensagem); com
+            # saída e sem ter chamado `saida`, a MÊTIS pede de novo.
+            engine.on_stop(session, last_agent_text(live, data) if waiter is not None and not waiter.shape and live is not None else None)
+            # v0.9.8: gatilho agente.terminou (nunca para as sessões das próprias automações: seria um laço).
+            if live is not None and live.kind in ("claude", "codex") and not ours and engine.listens("agente.terminou"):
+                engine.fire_event(
+                    "agente.terminou",
+                    {"sessao": live.id, "titulo": live.title, "cli": live.kind, "cwd": live.cwd, "previa": last_agent_text(live, data)},
+                )
 
     # --- v0.9.8 parte 2: barra lateral, renomear terminal, refs e temas da tela ------------
 

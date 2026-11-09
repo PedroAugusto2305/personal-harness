@@ -182,6 +182,8 @@ def _newline(text: str) -> str:
 class Kanban:
     def __init__(self, vault: Vault) -> None:
         self.vault = vault
+        #: v0.9.8: avisado a cada tarefa que muda de coluna (gatilho "tarefa.moveu" das automações).
+        self.on_move = None
 
     # --- projetos -------------------------------------------------------------
 
@@ -258,7 +260,13 @@ class Kanban:
             lines[task.line] = _render(match.group("indent"), body, state, task.done_on if state == "concluida" else "")
             nl = _newline(text)
             write_atomic(note.path, nl.join(lines) + (nl if text.endswith(("\n", "\r\n")) else ""))
-        return next(t for t in self.tasks(name) if t["id"] == task_id)
+        moved = next(t for t in self.tasks(name) if t["id"] == task_id)
+        if task.state != state and self.on_move is not None:
+            try:
+                self.on_move({"projeto": name, "id": task_id, "texto": moved.get("texto") or moved["text"], "de": task.state, "para": state})
+            except Exception:  # noqa: BLE001 - o gatilho nunca atrapalha mover a tarefa
+                pass
+        return moved
 
     def add(self, name: str, text: str, state: str = "pendente", labels: list[str] | None = None, subtasks: list[str] | None = None) -> dict:
         body = " ".join(text.split()).strip()

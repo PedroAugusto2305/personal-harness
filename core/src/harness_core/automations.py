@@ -18,6 +18,16 @@ Formato (as chaves são em português, o Pedro edita à mão se quiser):
     notas: [{id: n1, titulo: Por quê, texto: "…", x: 0, y: 200, w: 220}]
 
 Expressões: {{Nome do passo.campo}} (ou {{id.campo}}), {{hoje}}, {{agora}}, {{entrada}}.
+
+v0.9.8 (parte 4):
+- passo `codigo`: {tipo: codigo, linguagem: python|javascript, codigo: "...", descricao, tempo_limite_s};
+  o código recebe `entrada` e `passos` (título → saída) e devolve em `saida`.
+- gatilho `evento`: {tipo: evento, evento: brain.nota|tarefa.moveu|agente.terminou|agente.errou|
+  worktree.criada|captura, filtro: {campo: valor}}; os campos do evento entram na saída do gatilho.
+- gatilho `sondagem`: {tipo: sondagem, ferramenta, argumentos, cada_min, chave, caminho}; itens
+  novos na lista que a ferramenta devolve disparam uma execução com {novos: [...]}.
+- gatilho agendado ganha `aviso` (DM no Slack quando começa); passo agente ganha `troca_cota`
+  (padrão sim) e `ferramentas: ["*"]` (todas as da central, como numa sessão comum).
 """
 
 from __future__ import annotations
@@ -38,8 +48,12 @@ from typing import Any
 import yaml
 
 TRIGGER_ID = "gatilho"
-STEP_TYPES = ("ferramenta", "agente", "condicao", "aprovacao", "brain", "esperar")
-TRIGGER_TYPES = ("manual", "agendado")
+STEP_TYPES = ("ferramenta", "agente", "condicao", "aprovacao", "brain", "esperar", "codigo")
+TRIGGER_TYPES = ("manual", "agendado", "evento", "sondagem")
+#: v0.9.8: o que pode disparar uma automação de dentro da MÊTIS (gatilho "evento").
+EVENTS = ("brain.nota", "tarefa.moveu", "agente.terminou", "agente.errou", "worktree.criada", "captura")
+CODE_LANGUAGES = ("python", "javascript")
+ALL_TOOLS = "*"
 BRAIN_ACTIONS = ("buscar", "ler", "precedentes", "tarefas", "diario")
 OUTPUT_TYPES = ("texto", "numero", "lista", "objeto", "sim/nao")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
@@ -86,7 +100,7 @@ def validate(flow: Any, strict: bool = False) -> dict:
         raise AutomationError("a automação precisa de um nome")
     trigger = dict(flow.get("gatilho") or {"tipo": "manual"})
     if trigger.get("tipo") not in TRIGGER_TYPES:
-        raise AutomationError(f"gatilho desconhecido: {trigger.get('tipo')} (use manual ou agendado)")
+        raise AutomationError(f"gatilho desconhecido: {trigger.get('tipo')} (use manual, agendado, evento ou sondagem)")
     if trigger["tipo"] == "agendado":
         if not re.fullmatch(r"\d{1,2}:\d{2}", str(trigger.get("hora") or "")):
             raise AutomationError("o gatilho agendado precisa da hora no formato 07:30")
@@ -94,6 +108,30 @@ def validate(flow: Any, strict: bool = False) -> dict:
         if not isinstance(days, list) or not days or not all(isinstance(d, int) and 0 <= d <= 6 for d in days):
             raise AutomationError("o gatilho agendado precisa dos dias (0 = segunda … 6 = domingo)")
         trigger["recupera_min"] = int(trigger.get("recupera_min") or 60)
+        trigger["aviso"] = bool(trigger.get("aviso", False))
+    elif trigger["tipo"] == "evento":
+        if trigger.get("evento") not in EVENTS:
+            raise AutomationError(f"o gatilho de evento precisa do evento ({', '.join(EVENTS)})")
+        rule = trigger.get("filtro") or {}
+        if not isinstance(rule, dict) or not all(isinstance(v, (str, int, float, bool)) for v in rule.values()):
+            raise AutomationError("o filtro do evento é campo → valor (texto, número ou sim/não)")
+        trigger["filtro"] = {str(k): v for k, v in rule.items() if str(k).strip()}
+    elif trigger["tipo"] == "sondagem":
+        tool = str(trigger.get("ferramenta") or "").strip()
+        if strict and not tool:
+            raise AutomationError("o gatilho de sondagem precisa da ferramenta que ele consulta")
+        trigger["ferramenta"] = tool
+        args = trigger.get("argumentos") or {}
+        if not isinstance(args, dict):
+            raise AutomationError("os argumentos da sondagem precisam ser um objeto")
+        trigger["argumentos"] = args
+        try:
+            every = int(trigger.get("cada_min") or 15)
+        except (TypeError, ValueError) as exc:
+            raise AutomationError("cada_min da sondagem é um número de minutos") from exc
+        trigger["cada_min"] = max(5, min(every, 1440))
+        trigger["chave"] = str(trigger.get("chave") if trigger.get("chave") is not None else "id").strip()
+        trigger["caminho"] = str(trigger.get("caminho") or "").strip()
     steps = flow.get("passos") or []
     if not isinstance(steps, list):
         raise AutomationError("passos precisa ser uma lista")
@@ -123,12 +161,24 @@ def validate(flow: Any, strict: bool = False) -> dict:
             raise AutomationError(f"o passo {title}: saída é campo → {', '.join(OUTPUT_TYPES)}")
         if kind == "brain" and step.get("acao") not in (None, "", *BRAIN_ACTIONS):
             raise AutomationError(f"o passo {title}: ação do Brain é {', '.join(BRAIN_ACTIONS)}")
+        if kind == "agente" and step.get("ferramentas") is not None and not isinstance(step.get("ferramentas"), list):
+            raise AutomationError(f"o passo {title}: ferramentas é uma lista (ou [\"*\"] para todas)")
+        if kind == "codigo":
+            if step.get("linguagem", "python") not in CODE_LANGUAGES:
+                raise AutomationError(f"o passo {title}: linguagem é python ou javascript")
+            step["linguagem"] = step.get("linguagem") or "python"
+            try:
+                limit = int(step.get("tempo_limite_s") or 30)
+            except (TypeError, ValueError) as exc:
+                raise AutomationError(f"o passo {title}: tempo_limite_s é um número de segundos") from exc
+            step["tempo_limite_s"] = max(1, min(limit, 300))
         if strict:
             missing = {
                 "ferramenta": not str(step.get("ferramenta") or "").strip() and "da ferramenta",
                 "agente": not str(step.get("pedido") or "").strip() and "do pedido ao agente",
                 "condicao": not str(step.get("regra") or "").strip() and "da regra",
                 "brain": step.get("acao") not in BRAIN_ACTIONS and "da ação do Brain",
+                "codigo": not str(step.get("codigo") or "").strip() and "do código",
             }.get(kind)
             if missing:
                 raise AutomationError(f"o passo {title} precisa {missing}")
@@ -214,9 +264,14 @@ def downstream(flow: dict, start: str) -> set[str]:
 def connectors_used(flow: dict) -> list[str]:
     """Contas de conector que a automação usa (o prefixo antes de __ na ferramenta)."""
     used = []
+    trigger = flow.get("gatilho") or {}
+    if trigger.get("tipo") == "sondagem" and "__" in str(trigger.get("ferramenta") or ""):
+        used.append(str(trigger["ferramenta"]).split("__", 1)[0])
     for step in flow["passos"]:
         names = [step.get("ferramenta", "")] if step["tipo"] == "ferramenta" else list(step.get("ferramentas") or [])
         for name in names:
+            if name == ALL_TOOLS:
+                continue
             if "__" in str(name):
                 account = str(name).split("__", 1)[0]
                 if account not in used:
@@ -465,9 +520,12 @@ class AutomationStore:
     def published(self, automation_id: str) -> dict | None:
         return self._read(self.published_path(automation_id))
 
-    def create(self, name: str, flow: dict | None = None) -> str:
+    def create(self, name: str, flow: dict | None = None, automation_id: str | None = None) -> str:
+        """Nova automação. `automation_id` fixa o id (as rotinas viram rotina-<id>)."""
         with self._lock:
-            base = slug(name)
+            base = automation_id or slug(name)
+            if not ID_RE.fullmatch(base):
+                raise AutomationError(f"id de automação inválido: {base}")
             automation_id, n = base, 2
             while self.path(automation_id).exists() or (self.archive_dir / f"{automation_id}.yaml").exists():
                 automation_id, n = f"{base}-{n}"[:60], n + 1
