@@ -6,6 +6,7 @@ import { TYPE_ICON, TYPE_LABEL, renderNote, snippetParts } from "../lib/obsidian
 import type { BrainHit, BrainNote, SemanticStatus, Suggestion } from "../types";
 import { BrainGraph } from "./BrainGraph";
 import { SuggestionCard } from "./SuggestionCard";
+import { NoteEditor } from "./NoteEditor";
 
 /** Pedido vindo de fora da tela (kanban, painel da worktree, ⌘K): abrir uma nota ou buscar. */
 export interface BrainRequest {
@@ -23,6 +24,8 @@ interface Props {
   onOpenTasks: (project: string) => void;
   onError: (message: string) => void;
   suggestionsTick: number;
+  /** v0.9.7: abre a nota para editar numa aba ao lado dos terminais. */
+  onOpenTab: (path: string) => void;
 }
 
 const FILTERS: { key: string; label: string; tipos: string[] }[] = [
@@ -65,7 +68,9 @@ export function HitRow({ hit, active, onOpen }: { hit: BrainHit; active?: boolea
   );
 }
 
-export function BrainView({ client, tick, request, projects, onOpenTasks, onError, suggestionsTick }: Props) {
+export function BrainView({ client, tick, request, projects, onOpenTasks, onError, suggestionsTick, onOpenTab }: Props) {
+  /** v0.9.7: a nota aberta no editor (CodeMirror) em vez do leitor. */
+  const [editing, setEditing] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("tudo");
   const [project, setProject] = useState("");
@@ -316,6 +321,12 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
                     Tarefas no kanban
                   </button>
                 )}
+                <button type="button" className={editing ? "btn primary" : "btn"} aria-pressed={editing} onClick={() => setEditing((v) => !v)}>
+                  {editing ? "Ler" : "Editar"}
+                </button>
+                <button type="button" className="btn" title="Editar numa aba ao lado dos terminais" onClick={() => onOpenTab(note.path)}>
+                  Abrir ao lado
+                </button>
                 <button
                   type="button"
                   className="btn"
@@ -339,7 +350,19 @@ export function BrainView({ client, tick, request, projects, onOpenTasks, onErro
                 {(meta.data || meta.atualizado) && <span className="chip mono">{meta.data || meta.atualizado}</span>}
               </div>
             </header>
-            <div className="markdown brain-markdown" dangerouslySetInnerHTML={{ __html: html }} />
+            {editing && client ? (
+              <NoteEditor
+                client={client}
+                path={note.path}
+                docKey="brain-reader"
+                visible
+                onOpenNote={(title) => void open({ title })}
+                onError={onError}
+                onSaved={() => void client.brainNote({ path: note.path }).then((fresh) => setNote((current) => (current?.path === fresh.path ? fresh : current))).catch(() => undefined)}
+              />
+            ) : (
+              <div className="markdown brain-markdown" dangerouslySetInnerHTML={{ __html: html }} />
+            )}
             {related.length > 0 && (
               <section className="brain-suggestions">
                 <div className="section-title">Sugestões de precedente ({related.length})</div>

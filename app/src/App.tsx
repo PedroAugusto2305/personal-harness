@@ -30,6 +30,10 @@ import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, fold, shortPath } fro
 import type { Notice } from "./lib/inbox";
 import { quotePaths, submit, terminals } from "./lib/terminals";
 import { bindings, comboOf, hintFor, recorder } from "./lib/keymap";
+import { dirtyDocs } from "./lib/editors";
+
+/** Ações da janela que cedem a vez ao editor em foco (os atalhos de edição são dele). */
+const EDITOR_KEYS = new Set(["dividir.direita", "dividir.baixo", "buscar", "barra", "foco.esquerda", "foco.direita", "foco.cima", "foco.baixo", "web.recarregar", "web.voltar", "web.avancar"]);
 import {
   dropZone,
   findLeaf,
@@ -519,6 +523,8 @@ export default function App() {
   const openDiff = (file: { path: string; untracked?: boolean }, options: { mode?: DiffMode; ref?: string } = {}) => {
     if (contextPlace) openDoc({ type: "diff", root: contextPlace.worktree.path, path: file.path, untracked: file.untracked, ...options });
   };
+  /** Nota do Brain para editar numa aba ao lado dos terminais (na tela da worktree em uso). */
+  const openNoteTab = (path: string) => openDoc({ type: "note", root: contextPlace?.worktree.path ?? "", path });
   const openConflict = (path: string) => {
     if (contextPlace) openDoc({ type: "conflict", root: contextPlace.worktree.path, path });
   };
@@ -551,9 +557,18 @@ export default function App() {
     if (start === "about:blank") window.setTimeout(() => setUrlFocusTick((n) => n + 1), 50);
   };
 
+  /** Fechar aba com edição não salva (v0.9.7): o primeiro clique avisa, o segundo (em 5 s) descarta. */
+  const closeArmed = useRef<{ key: string; at: number } | null>(null);
   const closeTab = (key: string) => {
-    if (key.startsWith("doc:")) setDocs((all) => all.filter((d) => d.key !== key));
-    else void harness.close(key);
+    if (key.startsWith("doc:")) {
+      if (dirtyDocs.has(key) && !(closeArmed.current?.key === key && Date.now() - closeArmed.current.at < 5000)) {
+        closeArmed.current = { key, at: Date.now() };
+        setToast("Há mudança não salva nessa aba: ⌘S salva. Feche de novo para descartar.");
+        return;
+      }
+      closeArmed.current = null;
+      setDocs((all) => all.filter((d) => d.key !== key));
+    } else void harness.close(key);
   };
 
   const toggleFloat = async () => {
@@ -1069,7 +1084,10 @@ export default function App() {
     } else {
       const combo = comboOf(event);
       const action = combo ? keyBindings.get(combo) : undefined;
-      if (action) handled = runAction(action);
+      // Com o foco num editor (Monaco, CodeMirror), os atalhos de edição são dele:
+      // ⌘D próxima ocorrência, ⌘F buscar, ⌘L linha, ⌘⌥ e as setas, cursores.
+      const inEditor = !!(event.target as Element | null)?.closest?.(".monaco-editor, .cm-editor");
+      if (action && !(inEditor && EDITOR_KEYS.has(action))) handled = runAction(action);
     }
     if (handled) {
       event.preventDefault();
@@ -1215,7 +1233,7 @@ export default function App() {
     ...docs.map((doc) => ({
       key: doc.key,
       title: docTitle(doc, doc.label ? webInfo[doc.label]?.title : null),
-      glyph: <span className="mono doc-glyph">{doc.type === "diff" ? "±" : doc.type === "web" ? "◍" : doc.type === "conflict" ? "!" : "▤"}</span>,
+      glyph: <span className="mono doc-glyph">{doc.type === "diff" ? "±" : doc.type === "web" ? "◍" : doc.type === "conflict" ? "!" : doc.type === "note" ? "✎" : "▤"}</span>,
       hint: doc.path,
       away: (doc.root ? placeKeyOf(doc.root) : "") !== placeKey,
     })),
@@ -1711,6 +1729,7 @@ export default function App() {
             onOpenTasks={(project) => openTasks(project)}
             onError={setToast}
             suggestionsTick={harness.suggestionsTick}
+            onOpenTab={openNoteTab}
           />
         )}
         {view === "kanban" && (
@@ -1865,6 +1884,7 @@ export default function App() {
                     <DocView
                       key={doc.key}
                       doc={doc}
+                      theme={theme}
                       client={harness.client!}
                       visible={docSlot !== "hidden" && view === "term"}
                       focused={doc.key === focusedKey && tiled}
@@ -1881,6 +1901,7 @@ export default function App() {
                         void wt.refresh();
                       }}
                       onAgent={(prompt) => void askAgent(prompt, doc.root)}
+                      onOpenNote={(title) => openNote({ title })}
                     />
                   );
                 })}

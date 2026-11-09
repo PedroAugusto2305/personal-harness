@@ -6,12 +6,14 @@ import type { CoreClient } from "../lib/core";
 import { parseDiff, type DiffLine } from "../lib/diff";
 import { buildPatch, splitPatch } from "../lib/patch";
 import { baseName, viewerFor } from "../lib/tree";
-import type { ConflictBlock, ConflictChoice, DiffMode, ReviewNote, TextFile } from "../types";
+import type { ConflictBlock, ConflictChoice, DiffMode, ReviewNote, TextFile, ThemeName } from "../types";
+import { CodeEditor } from "./CodeEditor";
+import { NoteEditor } from "./NoteEditor";
 
 /** Aba que não é terminal: o diff de um arquivo ou um arquivo aberto. */
 export interface DocTab {
   key: string;
-  type: "diff" | "file" | "web" | "conflict";
+  type: "diff" | "file" | "web" | "conflict" | "note";
   root: string;
   /** Caminho do arquivo; numa aba de navegador, o endereço inicial. */
   path: string;
@@ -33,6 +35,7 @@ export function docTitle(doc: DocTab, webTitle?: string | null): string {
     return host && doc.path !== "about:blank" ? host : "Nova aba";
   }
   if (doc.type === "conflict") return `Conflito · ${baseName(doc.path)}`;
+  if (doc.type === "note") return baseName(doc.path).replace(/\.md$/, "");
   return doc.type === "diff" ? `Δ ${baseName(doc.path)}${doc.mode === "ref" && doc.ref ? ` · ${doc.ref}` : ""}` : baseName(doc.path);
 }
 
@@ -54,6 +57,10 @@ interface DocProps {
   onGitChanged?: () => void;
   /** Manda um pedido ao agente da worktree (conflito: "resolva este arquivo"). */
   onAgent?: (prompt: string) => void;
+  /** v0.9.7: o tema, para o editor de código seguir as cores da MÊTIS. */
+  theme: ThemeName;
+  /** v0.9.7: [[link]] clicado numa aba de nota abre a nota no Brain. */
+  onOpenNote?: (title: string) => void;
 }
 
 export function DocView(props: DocProps) {
@@ -67,7 +74,28 @@ export function DocView(props: DocProps) {
       onMouseDown={props.onFocus}
       aria-label={docTitle(props.doc)}
     >
-      {props.doc.type === "diff" ? <DiffView {...props} /> : props.doc.type === "conflict" ? <ConflictView {...props} /> : <FileView {...props} />}
+      {props.doc.type === "diff" ? (
+        <DiffView {...props} />
+      ) : props.doc.type === "conflict" ? (
+        <ConflictView {...props} />
+      ) : props.doc.type === "note" ? (
+        <>
+          <div className="doc-head">
+            <Icon d={ICON.note} size={14} />
+            <span className="doc-path mono">{props.doc.path}</span>
+          </div>
+          <NoteEditor
+            client={props.client}
+            path={props.doc.path}
+            docKey={props.doc.key}
+            visible={props.visible}
+            onOpenNote={(title) => props.onOpenNote?.(title)}
+            onError={props.onError}
+          />
+        </>
+      ) : (
+        <FileView {...props} />
+      )}
     </section>
   );
 }
@@ -560,10 +588,11 @@ function ConflictView({ doc, client, visible, onOpenFile, onError, onGitChanged,
   );
 }
 
-function FileView({ doc, client, visible, onError }: DocProps) {
+function FileView({ doc, client, visible, onError, theme }: DocProps) {
   const kind = viewerFor(doc.path);
   const [file, setFile] = useState<TextFile | null>(null);
-  const [rendered, setRendered] = useState(kind === "markdown" || kind === "csv");
+  // v0.9.7: abre editando; a prévia (markdown, CSV, HTML) fica em Visualizar.
+  const [rendered, setRendered] = useState(false);
   const raw = client.rawUrl(doc.root, doc.path);
   const needsText = kind === "text" || kind === "markdown" || kind === "csv" || kind === "html";
 
@@ -607,7 +636,7 @@ function FileView({ doc, client, visible, onError }: DocProps) {
               Visualizar
             </button>
             <button type="button" role="radio" aria-checked={!rendered} onClick={() => setRendered(false)}>
-              Código
+              Editar
             </button>
           </div>
         )}
@@ -655,19 +684,15 @@ function FileView({ doc, client, visible, onError }: DocProps) {
             </table>
           </div>
         )}
-        {needsText && (!rendered || kind === "text") && file && (
-          file.binary ? (
-            <p className="small doc-empty">Arquivo binário ({Math.round(file.size / 1024)} KB).</p>
-          ) : (
-            <pre className="code-view mono">
-              {file.text.split("\n").map((line, i) => (
-                <div key={i} className="code-line">
-                  <span className="ln">{i + 1}</span>
-                  <span className="code">{line || " "}</span>
-                </div>
-              ))}
-            </pre>
-          )
+        {needsText && (!rendered || kind === "text") && file?.binary && (
+          <p className="small doc-empty">Arquivo binário ({Math.round(file.size / 1024)} KB).</p>
+        )}
+        {needsText && file && !file.binary && (
+          // v0.9.7: o Monaco no lugar do texto só para ler (⌘S salva). Fica montado durante a
+          // prévia, para a edição não salva não se perder ao trocar de modo.
+          <div className="editor-wrap" hidden={rendered && kind !== "text"}>
+            <CodeEditor client={client} docKey={doc.key} root={doc.root} path={doc.path} theme={theme} visible={visible && !(rendered && kind !== "text")} onError={onError} />
+          </div>
         )}
         {needsText && !file && <p className="small doc-empty">carregando…</p>}
       </div>

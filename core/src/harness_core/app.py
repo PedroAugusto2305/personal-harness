@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import json
 from datetime import datetime
@@ -43,7 +44,7 @@ from . import ghostty, github, system, updates
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
-from .vault import Vault, VaultError
+from .vault import Vault, VaultError, link_target, split_frontmatter, write_atomic
 from .sprites import SpriteStudio
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
 from .config import Settings, load_settings
@@ -273,6 +274,19 @@ class DraftRequest(BaseModel):
 
 class Decision(BaseModel):
     aprovar: bool
+
+
+class FsWrite(BaseModel):
+    root: str
+    path: str = Field(min_length=1)
+    text: str
+    hash: str = Field(min_length=64, max_length=64)
+
+
+class NoteText(BaseModel):
+    path: str = Field(min_length=4)
+    texto: str
+    hash: str = Field(min_length=64, max_length=64)
 
 
 class TitlesBody(BaseModel):
@@ -1273,6 +1287,18 @@ def create_app(
         except fs.FileError as exc:
             raise fail(exc, 404) from exc
 
+    @app.put("/fs/text", dependencies=[Depends(require_token)])
+    def fs_write(body: FsWrite) -> dict:
+        """Salvar do editor (v0.9.7): só se o arquivo ainda for o que o editor abriu (hash)."""
+        try:
+            return fs.write_text(body.root, body.path, body.text, body.hash)
+        except fs.FileConflict as exc:
+            raise HTTPException(status_code=409, detail={"mensagem": str(exc), "hash": exc.hash}) from exc
+        except fs.TooLarge as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except (fs.FileError, OSError) as exc:
+            raise fail(exc) from exc
+
     @app.get("/fs/raw", dependencies=[Depends(require_token_or_query)])
     def fs_raw(root: str, path: str) -> FileResponse:
         try:
@@ -1333,6 +1359,48 @@ def create_app(
             return brain.note(path or None, title or None)
         except VaultError as exc:
             raise brain_fail(exc) from exc
+
+    # --- v0.9.7: editor de notas ----------------------------------------------------------
+
+    @app.get("/brain/note/texto", dependencies=[Depends(require_token)])
+    def brain_note_text(path: str) -> dict:
+        """A nota inteira, com o frontmatter, e o hash que o editor manda de volta ao salvar."""
+        try:
+            target = vault.resolve(path)
+            data = target.read_bytes()
+        except (VaultError, OSError) as exc:
+            raise brain_fail(exc) from exc
+        return {
+            "path": vault.rel(target),
+            "texto": data.decode("utf-8", "replace"),
+            "hash": hashlib.sha256(data).hexdigest(),
+            "alterado": target.stat().st_mtime,
+        }
+
+    @app.put("/brain/note/texto", dependencies=[Depends(require_token)])
+    def brain_note_save(body: NoteText) -> dict:
+        """Salva a nota só se ela ainda for a que o editor abriu: se o Obsidian gravou depois,
+        recusa (409) com o hash de agora. Nunca grava nota vazia nem cria nota."""
+        if not body.texto.strip():
+            raise HTTPException(status_code=400, detail="o Brain nunca apaga: nota vazia não é gravada")
+        try:
+            target = vault.resolve(body.path)
+            current = hashlib.sha256(target.read_bytes()).hexdigest()
+        except (VaultError, OSError) as exc:
+            raise brain_fail(exc) from exc
+        if current != body.hash:
+            raise HTTPException(status_code=409, detail={"mensagem": "a nota mudou (no Obsidian?) desde que foi aberta", "hash": current})
+        write_atomic(target, body.texto)
+        brain.refresh(max_age=0)  # uma nota mudou: o resto do vault só é conferido pelo mtime
+        meta, _body = split_frontmatter(body.texto)
+        project = target.stem if meta.get("tipo") == "projeto" else link_target(meta.get("projeto", ""))
+        brain_changed(project)
+        return {"hash": hashlib.sha256(body.texto.encode("utf-8")).hexdigest(), "alterado": target.stat().st_mtime}
+
+    @app.get("/brain/titulos", dependencies=[Depends(require_token)])
+    def brain_titles(q: str = "", limite: int = Query(default=20, ge=1, le=50)) -> list[dict]:
+        """Títulos para o autocompletar de [[ no editor de notas."""
+        return brain.titles(q, limite)
 
     @app.post("/brain/known", dependencies=[Depends(require_token)])
     def brain_known(body: TitlesBody) -> list[str]:

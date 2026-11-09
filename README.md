@@ -4,9 +4,15 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.6)
+## O que já faz (v0.9.7)
 
-**Novo na 0.9.6, Git e GitHub (paridade com o Orca):**
+**Novo na 0.9.7, editores dentro da MÊTIS:**
+
+- **Arquivos da worktree abrem num editor de código** (o Monaco, o mesmo do VS Code), numa aba ao lado dos terminais. ⌘S salva, ou ligue "Salvar sozinho". Se o agente mexer no arquivo, a aba recarrega; se você tinha uma edição pendente, aparece o aviso com as duas versões lado a lado, para escolher. Markdown, CSV e HTML continuam com a prévia em "Visualizar".
+- **Notas do Brain editáveis**, com cara de Obsidian (o mesmo motor, CodeMirror): "Editar" no leitor, ou "Abrir ao lado" para editar numa aba junto dos terminais. A marcação some fora da linha do cursor; `[[` sugere títulos do vault, `/` insere título, tarefa, callout, tabela ou código; o frontmatter vira uma caixa de propriedades; tarefas têm caixinha. Salva sozinho, e nunca grava por cima do que o Obsidian salvou depois.
+- Com o foco num editor, ⌘D, ⌘F e ⌘L são do editor (como no VS Code). Fechar uma aba com mudança não salva avisa antes.
+
+**Na 0.9.6, Git e GitHub (paridade com o Orca):**
 
 - **Marcar por trecho e por linha** no diff: em "Não marcado", cada trecho tem marcar e descartar; clique no número da linha para escolher linhas soltas (⇧ + clique pega um intervalo). Em "Marcado", desmarcar do mesmo jeito.
 - **Comparar com outro branch, tag ou commit:** no painel de mudanças ("Comparar com outro branch") ou no modo Comparar do diff. Imagens aparecem antes e agora, lado a lado.

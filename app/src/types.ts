@@ -140,6 +140,9 @@ export interface TextFile {
   truncated: boolean;
   text: string;
   mime: string;
+  /** v0.9.7: sha256 do arquivo inteiro (o editor só grava se ninguém mudou desde que abriu). */
+  hash?: string;
+  mtime?: number;
 }
 
 /** Nota numa linha do diff, que vai em lote para o agente. */
@@ -873,4 +876,20 @@ export interface GitConfig {
   tem_chave: boolean;
   nome: string;
   email: string;
+}
+
+// --- Editores (v0.9.7) ------------------------------------------------------------------
+
+export interface NoteText {
+  path: string;
+  texto: string;
+  hash: string;
+  alterado: number;
+}
+
+export interface NoteTitle {
+  titulo: string;
+  tipo: string;
+  projeto: string;
+  path: string;
 }
