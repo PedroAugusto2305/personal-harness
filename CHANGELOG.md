@@ -2,6 +2,20 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v0.9.8 · o que o MAPA prometeu (em andamento, em cinco partes)
+
+### Parte 1 · agentes e terminal
+
+- **Agente com argumentos e variáveis próprios** (tela de Agentes): argumentos extras no fim da linha de comando e variáveis de ambiente só daquele agente, no Claude e no Codex.
+- **Outra CLI:** um agente pode ser qualquer programa de terminal (opencode, aider, um script), com o comando, os argumentos e as variáveis dele. Roda num terminal comum, sem a central de MCP.
+- **Hibernar agente parado** (Ajustes → Agentes e avisos: nunca, 15, 30 ou 60 min): o Claude ou o Codex que espera você há esse tempo fica pausado e para de gastar memória e CPU; acorda quando você foca o terminal ou escreve para ele. Automações e rotinas não hibernam.
+- **Menu ⋯ do terminal:** copiar o ID da conversa, o caminho do transcript, as últimas mensagens ou a pasta.
+- **Programas no terminal copiam para o Mac** (OSC 52: o `y` do vim e do tmux por SSH vão para a área de transferência).
+- **Temas do terminal do Kitty e do Warp**, além dos do Ghostty; "Colar um tema" descobre o formato sozinho.
+- **Barra de baixo:** `@` sugere notas do Brain e insere o título e o caminho; `/` num Claude ou num Codex lista os comandos do projeto, os seus, as skills e os da CLI, com a descrição.
+- **`metis worktree nova <projeto> <nome>`** e **`metis agente <claude|codex|agente> [pedido]`**: um agente abre outra worktree ou outro agente pelo terminal.
+- **Skill da MÊTIS** (Ajustes → Skills): ensina o Claude e o Codex a usar o comando `metis` e a central de MCP; "Instalar no Claude e no Codex" grava nas pastas de cada conta.
+
 ## v0.9.7 · editores dentro da MÊTIS (paridade com o Orca, bloco D)
 
 - **Editor de código (Monaco, o do VS Code)** nos arquivos da worktree: abrir um arquivo (⌘P, Arquivos, "Abrir arquivo") já é editar. ⌘S salva, ou "Salvar sozinho". Só grava se o arquivo não mudou no disco desde que abriu: sem edição pendente, a aba recarrega sozinha quando o agente mexe no arquivo; com edição pendente, aparece o aviso com as duas versões lado a lado (ficar com a do disco ou gravar a sua por cima). Markdown, CSV e HTML mantêm a prévia em "Visualizar".

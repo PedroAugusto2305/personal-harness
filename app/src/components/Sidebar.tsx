@@ -103,7 +103,8 @@ export function Sidebar(props: Props) {
               {account && <span className="small"> · {account}</span>}
             </span>
             <span className="small mono">
-              <span className="dot" style={{ background: STATUS_COLOR[session.status] }} /> {STATUS_LABEL[session.status]}
+              <span className="dot" style={{ background: session.hibernando ? "var(--fnt)" : STATUS_COLOR[session.status] }} />{" "}
+              {session.hibernando ? "hibernando" : STATUS_LABEL[session.status]}
               {session.ports.length > 0 && ` · :${session.ports.join(" :")}`}
             </span>
           </span>
@@ -516,7 +517,7 @@ function AgentMenu({
           <span className="meta">
             <span className="agent-menu-name">{agent.name}</span>
             <span className="small">
-              {agent.description || (agent.cli === "claude" ? "Claude Code" : "Codex")}
+              {agent.description || (agent.cli === "claude" ? "Claude Code" : agent.cli === "codex" ? "Codex" : agent.command || "outra CLI")}
               {agent.folder ? ` · ${shortPath(agent.folder)}` : " · na worktree escolhida"}
             </span>
           </span>

@@ -174,6 +174,28 @@ export function AgentsPrefsSection({
             ))}
           </div>
         </div>
+        <div className="setting-row">
+          <span className="setting-label">
+            Hibernar agente parado
+            <span className="small">
+              O Claude ou o Codex esperando você há esse tempo fica pausado e para de gastar memória e CPU; acorda quando você foca o terminal ou
+              escreve para ele. Automações e rotinas não hibernam.
+            </span>
+          </span>
+          <div className="segmented" role="radiogroup" aria-label="Hibernar agente parado">
+            {[0, 15, 30, 60].map((minutes) => (
+              <button
+                key={minutes}
+                type="button"
+                role="radio"
+                aria-checked={(prefs.hibernar_min ?? 0) === minutes}
+                onClick={() => void onSave({ hibernar_min: minutes })}
+              >
+                {minutes ? `${minutes} min` : "Nunca"}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <h2 className="sub">Avisos</h2>
@@ -352,6 +374,7 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
         As skills que o Claude Code e o Codex enxergam: as suas (em ~/.claude/skills, ~/.codex/skills e nas pastas de cada conta) e as do
         projeto {cwdLabel ? <b>{cwdLabel}</b> : "em foco"}. Cada uma é uma pasta com um SKILL.md.
       </p>
+      <MetisSkillCard client={client} />
       <div className="skills-bar">
         <input className="skills-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar skill pelo nome ou pelo que ela faz…" spellCheck={false} />
         {skills && (
@@ -552,5 +575,60 @@ export function ResourcesSection({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * A skill da MÊTIS (v0.9.8): ensina o Claude e o Codex a usar o comando `metis` e a central
+ * de MCP (Brain, kanban, lembretes, worktrees, sessões). Instalar grava o SKILL.md na pasta
+ * de skills de cada CLI; instalar de novo atualiza.
+ */
+function MetisSkillCard({ client }: { client: CoreClient | null }) {
+  const [state, setState] = useState<{ texto: string; instalada: { claude: boolean; codex: boolean } } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!client) return;
+    client.metisSkill().then(setState, () => setState(null));
+  }, [client]);
+
+  if (!state) return null;
+  const install = async (destino: "claude" | "codex" | "ambos") => {
+    if (!client) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setState(await client.installMetisSkill(destino));
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const both = state.instalada.claude && state.instalada.codex;
+  return (
+    <div className="card metis-skill">
+      <div className="setting-row">
+        <span className="setting-label">
+          Skill da MÊTIS
+          <span className="small">
+            Ensina o Claude e o Codex a usar o <span className="mono">metis</span> e a central de MCP: Brain, tarefas, lembretes, worktrees e sessões.{" "}
+            {state.instalada.claude || state.instalada.codex
+              ? `Instalada no ${[state.instalada.claude && "Claude", state.instalada.codex && "Codex"].filter(Boolean).join(" e no ")}.`
+              : "Ainda não instalada."}
+          </span>
+        </span>
+        <button type="button" className="pill ghost" onClick={() => setOpen((v) => !v)}>
+          {open ? "Esconder" : "Ver o texto"}
+        </button>
+        <button type="button" className="pill" disabled={busy} onClick={() => void install("ambos")}>
+          {busy ? "Instalando…" : both ? "Atualizar" : "Instalar no Claude e no Codex"}
+        </button>
+      </div>
+      {open && <pre className="metis-skill-text mono">{state.texto}</pre>}
+      {error && <div className="error-box">{error}</div>}
+    </div>
   );
 }

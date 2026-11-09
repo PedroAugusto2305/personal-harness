@@ -438,7 +438,8 @@ export default function App() {
   const launchAgent = (agent: Agent) => {
     setView("term");
     // Agente com pasta própria (os do Brain) abre nela; os de código, na worktree escolhida.
-    void create(agent.cli, { agent: agent.id, cwd: agent.folder ? null : cwdNow() });
+    // Outra CLI (v0.9.8) roda num terminal comum, com o comando do agente.
+    void create(agent.cli === "outra" ? "shell" : agent.cli, { agent: agent.id, cwd: agent.folder ? null : cwdNow() });
   };
 
   const sessionsRef = useRef(harness.sessions);
@@ -1658,6 +1659,10 @@ export default function App() {
             onLaunch={launchAgent}
             onTest={(draft) => {
               setView("term");
+              if (draft.cli === "outra") {
+                setToast("Salve o agente para testar outra CLI: o teste sem salvar é só do Claude e do Codex.");
+                return;
+              }
               void create(draft.cli, {
                 cwd: draft.folder || null,
                 title: `${draft.name} (teste)`,

@@ -67,6 +67,9 @@ import type {
   PullRequest,
   NoteText,
   NoteTitle,
+  BarCommand,
+  SessionContext,
+  ThemeEntry,
 } from "../types";
 
 export interface CoreInfo {
@@ -836,6 +839,42 @@ export class CoreClient {
   /** Abre um terminal que instala a versão (a mais nova, sem versão) e devolve a sessão dele. */
   systemUpdate(versao?: string): Promise<Session> {
     return this.request("POST", "/sistema/atualizar", versao ? { versao } : {});
+  }
+
+  // --- agentes e terminal (v0.9.8)
+
+  sessionBar(id: string): Promise<{ comandos: BarCommand[] }> {
+    return this.request("GET", `/sessions/${encodeURIComponent(id)}/barra`);
+  }
+
+  sessionContext(id: string): Promise<SessionContext> {
+    return this.request("GET", `/sessions/${encodeURIComponent(id)}/contexto`);
+  }
+
+  /** Acorda o agente hibernado (SIGCONT). */
+  wakeSession(id: string): Promise<Session> {
+    return this.request("POST", `/sessions/${encodeURIComponent(id)}/acordar`);
+  }
+
+  themes(): Promise<{ temas: ThemeEntry[] }> {
+    return this.request("GET", "/temas");
+  }
+
+  theme(nome: string, formato: string): Promise<TerminalTheme & { formato: string }> {
+    return this.request("GET", `/temas/tema?${new URLSearchParams({ nome, formato })}`);
+  }
+
+  /** Lê um tema colado (Ghostty, Kitty ou Warp: o formato é detectado). */
+  readTheme(texto: string, nome?: string): Promise<TerminalTheme & { formato: string }> {
+    return this.request("POST", "/temas/ler", nome ? { texto, nome } : { texto });
+  }
+
+  metisSkill(): Promise<{ texto: string; instalada: { claude: boolean; codex: boolean } }> {
+    return this.request("GET", "/skills/metis");
+  }
+
+  installMetisSkill(destino: "claude" | "codex" | "ambos"): Promise<{ texto: string; instalada: { claude: boolean; codex: boolean } }> {
+    return this.request("POST", "/skills/metis", { destino });
   }
 
   async upload(file: Blob, name: string): Promise<string> {

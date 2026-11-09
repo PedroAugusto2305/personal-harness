@@ -23,6 +23,8 @@ export interface Statusline {
 }
 
 export interface Session {
+  /** v0.9.8: processo pausado (SIGSTOP) por estar parado há muito tempo; acorda ao focar ou escrever. */
+  hibernando?: boolean;
   id: string;
   kind: SessionKind;
   title: string;
@@ -106,7 +108,12 @@ export interface Agent {
   id: string;
   name: string;
   description: string;
-  cli: Provider;
+  /** "outra" (v0.9.8): qualquer CLI de agente (opencode, aider…), pelo `command`. */
+  cli: Provider | "outra";
+  /** v0.9.8: argumentos extras (sintaxe de shell), variáveis (CHAVE=valor por linha) e o comando da outra CLI. */
+  args?: string;
+  env?: string;
+  command?: string;
   model: string;
   account: string;
   folder: string;
@@ -131,7 +138,7 @@ export interface SpriteJob {
   finished_at: number | null;
 }
 
-export type AgentDraft = Pick<Agent, "name" | "description" | "pain" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt">;
+export type AgentDraft = Pick<Agent, "name" | "description" | "pain" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt" | "args" | "env" | "command">;
 
 export interface TextFile {
   path: string;
@@ -159,6 +166,7 @@ export type CoreEvent =
   | { type: "hello"; version?: string; sessions: Session[]; usage: Usage; accounts: Accounts; projects: Project[]; agents: Agent[] }
   | { type: "prefs"; prefs: Prefs }
   | { type: "comandos" }
+  | { type: "session.hibernate"; id: string; hibernando: boolean }
   | { type: "atualizacao"; nova: string; versao: string }
   | { type: "atalhos" }
   | { type: "awake"; ativo: boolean }
@@ -692,6 +700,8 @@ export interface Prefs {
   receita_pr?: string;
   agente_git?: "claude" | "codex";
   editor_externo?: string;
+  /** v0.9.8: minutos parado até hibernar o agente (0 = nunca). */
+  hibernar_min?: number;
 }
 
 export interface HistoryItem {
@@ -892,4 +902,27 @@ export interface NoteTitle {
   tipo: string;
   projeto: string;
   path: string;
+}
+
+// --- Agentes e terminal (v0.9.8, parte 1) ------------------------------------------------
+
+/** Comando da barra de baixo (o "/" do Claude ou do Codex). */
+export interface BarCommand {
+  nome: string;
+  descricao: string;
+  origem: "cli" | "usuario" | "projeto" | "skill";
+}
+
+export interface SessionContext {
+  cli: string;
+  id_conversa: string | null;
+  transcript: string | null;
+  cwd: string;
+  texto: string;
+}
+
+export interface ThemeEntry {
+  nome: string;
+  origem: "metis" | "usuario" | "ghostty";
+  formato: "ghostty" | "kitty" | "warp";
 }

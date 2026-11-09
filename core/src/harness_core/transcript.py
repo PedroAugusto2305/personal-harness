@@ -255,7 +255,8 @@ def _finish(parsed: dict, context: dict) -> dict:
     }
 
 
-MESSAGE_LINE = re.compile(r'"type":\s*"(?:user|assistant)"')
+MESSAGE_LINE = re.compile(r'"type":\s*"(?:user|assistant|response_item)"')
+CODEX_NOISE = ("# AGENTS.md", "The following is the Codex agent history")
 
 
 def last_messages(transcript: str, count: int = 2, limit: int = 400) -> list[dict]:
@@ -280,7 +281,16 @@ def last_messages(transcript: str, count: int = 2, limit: int = 400) -> list[dic
         if entry.get("isSidechain") or entry.get("isMeta") or entry.get("isCompactSummary"):
             continue
         content = (entry.get("message") or {}).get("content")
-        if entry.get("type") == "user":
+        if entry.get("type") == "response_item":  # rollout do Codex (v0.9.8)
+            payload = entry.get("payload") or {}
+            if payload.get("type") != "message" or payload.get("role") not in ("user", "assistant"):
+                continue
+            blocks = payload.get("content") or []
+            text = " ".join(str(b.get("text", "")) for b in blocks if isinstance(b, dict) and b.get("type") in ("input_text", "output_text", "text"))
+            role = "voce" if payload["role"] == "user" else "agente"
+            if text.lstrip().startswith(CODEX_NOISE):
+                continue
+        elif entry.get("type") == "user":
             text = content if isinstance(content, str) else " ".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
             role = "voce"
         else:

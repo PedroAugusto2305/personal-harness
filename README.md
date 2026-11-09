@@ -6,7 +6,15 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 
 ## O que já faz (v0.9.7)
 
-**Novo na 0.9.7, editores dentro da MÊTIS:**
+**Chegando na 0.9.8 (parte 1 de 5, agentes e terminal):**
+
+- **Agentes com argumentos e variáveis de ambiente próprios**, e agentes de **outra CLI** (opencode, aider, um script): na tela de Agentes, escolha "Outra CLI" e escreva o comando.
+- **Hibernar agente parado** (Ajustes → Agentes e avisos): o agente que espera você há 15, 30 ou 60 min fica pausado e acorda quando você volta a ele.
+- **Menu ⋯ do terminal:** copiar o ID da conversa, o caminho do transcript, as últimas mensagens ou a pasta. Programas no terminal (vim, tmux) copiam para o Mac.
+- **Barra de baixo:** `@` sugere notas do Brain; `/` lista os comandos e as skills do Claude ou do Codex daquele terminal.
+- **Skill da MÊTIS** (Ajustes → Skills): ensina os agentes a usar o `metis` e a central de MCP.
+
+**Na 0.9.7, editores dentro da MÊTIS:**
 
 - **Arquivos da worktree abrem num editor de código** (o Monaco, o mesmo do VS Code), numa aba ao lado dos terminais. ⌘S salva, ou ligue "Salvar sozinho". Se o agente mexer no arquivo, a aba recarrega; se você tinha uma edição pendente, aparece o aviso com as duas versões lado a lado, para escolher. Markdown, CSV e HTML continuam com a prévia em "Visualizar".
 - **Notas do Brain editáveis**, com cara de Obsidian (o mesmo motor, CodeMirror): "Editar" no leitor, ou "Abrir ao lado" para editar numa aba junto dos terminais. A marcação some fora da linha do cursor; `[[` sugere títulos do vault, `/` insere título, tarefa, callout, tabela ou código; o frontmatter vira uma caixa de propriedades; tarefas têm caixinha. Salva sozinho, e nunca grava por cima do que o Obsidian salvou depois.
@@ -45,7 +53,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 - **Pular para** (⌘J): as abas pelas mais recentes (Enter volta para a anterior), as worktrees e as telas.
 - **Atalhos remapeáveis** (Ajustes → Atalhos): Mudar grava a próxima tecla; um atalho de outra ação passa para esta e a outra fica sem (com aviso); os do macOS são recusados. O que você muda fica em `~/.harness/atalhos.json`, que também dá para editar à mão.
 - **Busca nos Ajustes:** ⌘, já abre com o foco na busca, que entende português, inglês e espanhol ("shortcuts", "tema", "awake"…), abre a seção e acende a linha.
-- **Tema do terminal** (Ajustes → Aparência): os temas do Ghostty (do Ghostty.app, da sua pasta de temas e do seu config) ou um tema colado no formato do Ghostty. O **Ghostty Default Style Dark**, o tema do seu Orca, vem junto.
+- **Tema do terminal** (Ajustes → Aparência): os temas do Ghostty (do Ghostty.app, da sua pasta de temas e do seu config), do Kitty (`~/.config/kitty`) e do Warp (`~/.warp/themes`), ou um tema colado em qualquer um dos três formatos. O **Ghostty Default Style Dark**, o tema do seu Orca, vem junto.
 
 **Na 0.9.2, sessões, agentes e avisos (paridade com o Orca):**
 
@@ -133,7 +141,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 - **Revisão com notas**: o diff de cada arquivo abre numa aba; uma nota por linha, e "Mandar ao agente" junta todas na barra de entrada do agente da worktree.
 - **Commit pelo agente**: "Pedir ao agente" manda o agente da worktree escrever a mensagem e commitar, no terminal dele (se não houver agente aberto, abre um Claude).
 - **Visualizadores**: Markdown, imagem, PDF, CSV, áudio, vídeo, HTML (sem scripts) e código. ⌘P abre qualquer arquivo da worktree.
-- **Agentes em arquivo**: cada agente é um `.md` em `~/.harness/agentes/` (nome, descrição, CLI, modelo, conta, pasta, cor e o papel). A tela de Agentes edita tudo, inclusive a sprite (PNG em pixel art) e os importados do Maestri. O papel vai como `--append-system-prompt` no Claude e `developer_instructions` no Codex.
+- **Agentes em arquivo**: cada agente é um `.md` em `~/.harness/agentes/` (nome, descrição, CLI, modelo, conta, pasta, cor, argumentos extras, variáveis de ambiente e o papel; na outra CLI, o comando). A tela de Agentes edita tudo, inclusive a sprite (PNG em pixel art) e os importados do Maestri. O papel vai como `--append-system-prompt` no Claude e `developer_instructions` no Codex.
 
 **Desde a 0.2:**
 
@@ -175,6 +183,8 @@ metis automacoes                   # as automações, com estado e a última exe
 metis rodar "Briefing da manhã"    # roda a versão publicada agora
 metis tarefas                      # Próximas ações do projeto desta pasta, com o id
 metis tarefa mover 4ea9e8ea em-teste
+metis worktree nova personal-harness corrige-login  # worktree nova (--base, --sem-env)
+metis agente codex "rode os testes" # abre outro agente num terminal (claude, codex ou um agente salvo)
 metis versao                       # a versão em uso e se há uma nova
 metis atualizar                    # instala a versão nova neste terminal (ou: metis atualizar v0.9.4)
 ```

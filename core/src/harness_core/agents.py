@@ -18,6 +18,8 @@ um PNG em ~/.harness/agentes/sprites/<id>.png. Apagar manda o arquivo para .lixe
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import shutil
 import time
 from dataclasses import asdict, dataclass
@@ -25,14 +27,42 @@ from pathlib import Path
 
 from .accounts import slugify
 
-CLIS = ("claude", "codex")
-FIELDS = ("nome", "descricao", "dor", "cli", "modelo", "conta", "pasta", "cor", "origem", "conectores")
+#: "outra" (v0.9.8): qualquer CLI de agente (opencode, aider, gemini…) num terminal comum.
+CLIS = ("claude", "codex", "outra")
+FIELDS = ("nome", "descricao", "dor", "cli", "comando", "modelo", "conta", "pasta", "cor", "origem", "conectores", "args", "env")
+ENV_KEY = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 MAX_SPRITE_BYTES = 2 * 1024 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 class AgentError(ValueError):
     pass
+
+
+def split_args(text: str, what: str = "argumentos") -> list[str]:
+    """Texto do Pedro em sintaxe de shell → lista de argumentos (nunca passa por um shell)."""
+    try:
+        return shlex.split(text or "")
+    except ValueError as exc:
+        raise AgentError(f"{what} com aspas sem fechar") from exc
+
+
+def parse_env(text: str) -> dict[str, str]:
+    """Variáveis do agente, uma por linha (CHAVE=valor); linhas vazias e # são ignoradas.
+    As da MÊTIS (HARNESS_*, METIS_*) e o PATH ficam de fora: são dela, não do agente."""
+    env: dict[str, str] = {}
+    for number, raw in enumerate((text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition("=")
+        key = key.strip()
+        if not sep or not ENV_KEY.match(key):
+            raise AgentError(f"variável inválida na linha {number}: use CHAVE=valor, com a chave em maiúsculas")
+        if key == "PATH" or key.startswith(("HARNESS_", "METIS_")):
+            raise AgentError(f"a variável {key} é da MÊTIS e não pode ser trocada pelo agente")
+        env[key] = value.strip()
+    return env
 
 
 @dataclass
@@ -53,6 +83,11 @@ class Agent:
     prompt: str = ""
     sprite: bool = False
     updated_at: float = 0.0
+    #: v0.9.8: argumentos extras da CLI (sintaxe de shell), variáveis (uma por linha,
+    #: CHAVE=valor) e, quando cli é "outra", a linha de comando da CLI.
+    args: str = ""
+    env: str = ""
+    command: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -112,6 +147,9 @@ class AgentStore:
             description=meta.get("descricao", ""),
             pain=meta.get("dor", ""),
             cli=cli if cli in CLIS else "claude",
+            args=meta.get("args", ""),
+            env=meta.get("env", ""),
+            command=meta.get("comando", ""),
             model=meta.get("modelo", ""),
             account=meta.get("conta", ""),
             folder=meta.get("pasta", ""),
@@ -148,6 +186,16 @@ class AgentStore:
         cli = data.get("cli", "claude")
         if cli not in CLIS:
             raise AgentError(f"CLI desconhecida: {cli}")
+        args = str(data.get("args", "") or "").strip()
+        env = str(data.get("env", "") or "").strip()
+        command = str(data.get("command", "") or "").strip()
+        split_args(args)
+        parse_env(env)
+        if cli == "outra":
+            if not split_args(command, "o comando"):
+                raise AgentError("a CLI \"outra\" precisa da linha de comando (ex.: opencode, aider --model sonnet)")
+        else:
+            command = ""
         if agent_id is None:
             base = slugify(name)
             agent_id, n = base, 2
@@ -166,6 +214,9 @@ class AgentStore:
             "cor": str(data.get("color", "") or "#82a0ff").strip(),
             "origem": previous.get("origem", "") or str(data.get("origin", "")).strip(),
             "conectores": str(data.get("connectors", "") or "").strip(),
+            "args": args,
+            "env": env,
+            "comando": command,
         }
         self.dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -260,7 +311,8 @@ def _maestri_terminals(maestri_home: Path) -> dict[str, dict]:
 
 
 def agent_args(agent: Agent) -> list[str]:
-    """Argumentos extras da CLI para o papel e o modelo do agente."""
+    """Argumentos extras da CLI para o papel e o modelo do agente (Claude e Codex), mais os
+    argumentos próprios do agente no fim. A CLI "outra" monta o comando na sessão."""
     args: list[str] = []
     if agent.cli == "claude":
         if agent.model:
@@ -268,14 +320,14 @@ def agent_args(agent: Agent) -> list[str]:
         args += ["-n", agent.name]
         if agent.prompt:
             args += ["--append-system-prompt", agent.prompt]
-    else:
+    elif agent.cli == "codex":
         if agent.model:
             args += ["-m", agent.model]
         if agent.prompt:
             # O -c do Codex lê o valor como TOML; string JSON sem DEL é string TOML válida.
             text = json.dumps(agent.prompt.replace("\x7f", ""), ensure_ascii=False)
             args += ["-c", f"developer_instructions={text}"]
-    return args
+    return args + split_args(agent.args)
 
 
 def allowed_connectors(agent: Agent | None) -> set[str] | None:

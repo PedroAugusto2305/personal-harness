@@ -6863,3 +6863,117 @@ body.capture-body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- v0.9.8 parte 1: agentes e terminal ------------------------------------------------ */
+
+.pane-status.hibernating {
+  color: var(--fnt);
+}
+
+.pane-status.hibernating .dot {
+  background: var(--fnt);
+  opacity: 0.6;
+}
+
+.session-menu {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-menu-done {
+  color: var(--run);
+  white-space: nowrap;
+  font-size: 10.5px;
+}
+
+.session-menu-pop {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--side);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+}
+
+.session-menu-pop button {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx);
+  text-align: left;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.session-menu-pop button:hover {
+  background: var(--sel);
+}
+
+/* Sugestões da barra de baixo: @ nota do Brain, / comando da CLI. Fica fora do .composer
+   (que corta o que passa da borda), ancorado no .dock, logo acima da caixa. */
+.dock-suggest {
+  position: absolute;
+  left: 22px;
+  bottom: calc(100% - 4px);
+  z-index: 40;
+  width: min(520px, calc(100% - 44px));
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--side);
+  box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.35);
+}
+
+.dock-suggest button {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx);
+  text-align: left;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.dock-suggest button[aria-selected="true"] {
+  background: var(--sel);
+}
+
+.dock-suggest .small {
+  color: var(--fnt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metis-skill {
+  margin-bottom: 12px;
+}
+
+.metis-skill-text {
+  margin: 0 14px 12px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--term);
+  white-space: pre-wrap;
+  font-size: 11.5px;
+  user-select: text;
+}

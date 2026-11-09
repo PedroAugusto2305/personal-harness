@@ -3,7 +3,7 @@ import type { CoreClient } from "../lib/core";
 import { ACTIONS, FIXED, comboOf, comboProblem, compact, effective, formatCombo, recorder, type Overrides } from "../lib/keymap";
 import { shortPath } from "../lib/format";
 import { ICON, Icon } from "../icons";
-import type { GhosttyInfo, Project, SavedCommand, TerminalColors, TerminalTheme } from "../types";
+import type { GhosttyInfo, Project, SavedCommand, TerminalColors, TerminalTheme, ThemeEntry } from "../types";
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
@@ -395,6 +395,8 @@ export function TerminalThemeCard({
   onChange: (theme: TerminalTheme | null) => void;
 }) {
   const [info, setInfo] = useState<GhosttyInfo | null>(null);
+  /** v0.9.8: os temas do Ghostty, do Kitty e do Warp achados no Mac. */
+  const [themes, setThemes] = useState<ThemeEntry[]>([]);
   const [pick, setPick] = useState("");
   const [pasting, setPasting] = useState(false);
   const [text, setText] = useState("");
@@ -410,9 +412,13 @@ export function TerminalThemeCard({
       .then((answer) => {
         if (!alive) return;
         setInfo(answer);
-        setPick((current) => current || answer.config?.tema || answer.temas[0]?.nome || "");
+        setPick((current) => current || `ghostty::${answer.config?.tema || answer.temas[0]?.nome || ""}`);
       })
       .catch((cause) => alive && setError(errorText(cause)));
+    client
+      .themes()
+      .then((answer) => alive && setThemes(answer.temas))
+      .catch(() => undefined); // núcleo de antes da v0.9.8: só os do Ghostty
     return () => {
       alive = false;
     };
@@ -456,21 +462,30 @@ export function TerminalThemeCard({
       </div>
       <div className="setting-row">
         <span className="setting-label">
-          Importar do Ghostty
+          Importar do Ghostty, Kitty ou Warp
           <span className="small">
             {info?.config
               ? `Seu config: ${shortPath(info.config.arquivo)}${info.config.tema ? `, com o tema ${info.config.tema}` : ""}.`
               : "O Ghostty não está neste Mac; a MÊTIS traz o Ghostty Default Style Dark, o tema do seu Orca."}
           </span>
         </span>
-        <select value={pick} disabled={!info?.temas.length} onChange={(event) => setPick(event.target.value)} aria-label="Tema do Ghostty">
-          {(info?.temas ?? []).map((t) => (
-            <option key={t.nome} value={t.nome}>
-              {t.nome} · {ORIGIN_LABEL[t.origem]}
+        <select value={pick} disabled={!themes.length && !info?.temas.length} onChange={(event) => setPick(event.target.value)} aria-label="Tema importado">
+          {(themes.length ? themes : (info?.temas ?? []).map((t) => ({ ...t, formato: "ghostty" as const }))).map((t) => (
+            <option key={`${t.formato}::${t.nome}`} value={`${t.formato}::${t.nome}`}>
+              {t.nome} · {t.formato === "ghostty" ? ORIGIN_LABEL[t.origem] : t.formato === "kitty" ? "do Kitty" : "do Warp"}
             </option>
           ))}
         </select>
-        <button type="button" className="pill" disabled={!client || !pick || busy} onClick={() => void use(() => client!.ghosttyTheme(pick))}>
+        <button
+          type="button"
+          className="pill"
+          disabled={!client || !pick || busy}
+          onClick={() => {
+            const [formato, ...rest] = pick.split("::");
+            const nome = rest.join("::");
+            void use(() => (themes.length ? client!.theme(nome, formato) : client!.ghosttyTheme(nome)));
+          }}
+        >
           Usar
         </button>
       </div>
@@ -478,8 +493,8 @@ export function TerminalThemeCard({
         <span className="setting-label">
           Colar um tema
           <span className="small">
-            No formato do Ghostty (<span className="mono">palette = 0=#1d1f21</span>, <span className="mono">background = …</span>): de um arquivo
-            de tema ou do site de temas.
+            Do Ghostty (<span className="mono">palette = 0=#1d1f21</span>), do Kitty (<span className="mono">color0 #1d1f21</span>) ou do Warp
+            (YAML com <span className="mono">terminal_colors</span>): o formato é reconhecido sozinho.
           </span>
         </span>
         <button type="button" className="pill" onClick={() => setPasting((v) => !v)}>
@@ -491,7 +506,8 @@ export function TerminalThemeCard({
           className="term-theme-paste"
           onSubmit={(event) => {
             event.preventDefault();
-            if (text.trim() && client) void use(() => client.readGhosttyTheme(text, name.trim() || undefined));
+            if (text.trim() && client)
+              void use(() => client.readTheme(text, name.trim() || undefined).catch(() => client.readGhosttyTheme(text, name.trim() || undefined)));
           }}
         >
           <input value={name} maxLength={60} placeholder="Nome (opcional)" onChange={(event) => setName(event.target.value)} />

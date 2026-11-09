@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
-import { KIND_LABEL, shortPath } from "../lib/format";
+import { shortPath } from "../lib/format";
 import type { Accounts, Agent, AgentDraft, ConnectorAccount } from "../types";
 import { AgentSprite, GreekBust } from "./AgentSprite";
 import { SpriteChat } from "./SpriteChat";
 
 const SWATCHES = ["#82a0ff", "#007AFF", "#5AC8FA", "#8be9fd", "#bd93f9", "#AF52DE", "#FF2D55", "#FF3B30", "#d97757", "#a9aec9"];
-const EMPTY: AgentDraft = { name: "", description: "", pain: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "" };
+const EMPTY: AgentDraft = { name: "", description: "", pain: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "", args: "", env: "", command: "" };
+const CLI_LABEL: Record<Agent["cli"], string> = { claude: "Claude Code", codex: "Codex", outra: "Outra CLI" };
 const SPRITE_MAX = 256;
 
 interface Props {
@@ -32,6 +33,9 @@ const toDraft = (agent: Agent): AgentDraft => ({
   connectors: agent.connectors ?? "",
   color: agent.color,
   prompt: agent.prompt,
+  args: agent.args ?? "",
+  env: agent.env ?? "",
+  command: agent.command ?? "",
 });
 
 /** Qualquer imagem vira PNG de até 256 px, para servir de sprite. */
@@ -101,7 +105,7 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
     if (result) setNotice(result.imported.length ? `Importados: ${result.imported.join(", ")}.` : "Nada novo para importar do Maestri.");
   };
 
-  const accountOptions = accounts[draft.cli].accounts;
+  const accountOptions = draft.cli === "outra" ? [] : accounts[draft.cli].accounts;
 
   return (
     <div className="agents-screen">
@@ -131,7 +135,7 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
               <AgentSprite agent={agent} client={client} size={36} />
               <span className="meta">
                 <span className="agent-card-name">{agent.name}</span>
-                <span className="small">{agent.description || KIND_LABEL[agent.cli]}</span>
+                <span className="small">{agent.description || CLI_LABEL[agent.cli]}</span>
               </span>
               <span className="chip">{agent.cli}</span>
             </button>
@@ -279,17 +283,28 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
               <div>
                 <span className="setting-label">CLI</span>
                 <div className="segmented" role="radiogroup" aria-label="CLI do agente">
-                  {(["claude", "codex"] as const).map((cli) => (
+                  {(["claude", "codex", "outra"] as const).map((cli) => (
                     <button key={cli} type="button" role="radio" aria-checked={draft.cli === cli} onClick={() => setDraft((d) => ({ ...d, cli, account: "" }))}>
-                      {KIND_LABEL[cli]}
+                      {CLI_LABEL[cli]}
                     </button>
                   ))}
                 </div>
               </div>
+              {draft.cli === "outra" ? (
+                <label className="wide">
+                  <span className="setting-label">
+                    Comando
+                    <span className="small">A CLI e os argumentos de sempre, como você digitaria no terminal (ex.: opencode, aider --model sonnet). Roda num terminal comum, sem a central de MCP.</span>
+                  </span>
+                  <input className="mono" value={draft.command ?? ""} onChange={(e) => set("command", e.target.value)} placeholder="opencode" spellCheck={false} required />
+                </label>
+              ) : (
               <label>
                 <span className="setting-label">Modelo</span>
                 <input value={draft.model} onChange={(e) => set("model", e.target.value)} placeholder="padrão da CLI (ex.: sonnet, opus, gpt-5)" />
               </label>
+              )}
+              {draft.cli !== "outra" && (
               <label>
                 <span className="setting-label">Conta</span>
                 <select value={draft.account} onChange={(e) => set("account", e.target.value)}>
@@ -301,10 +316,12 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
                   ))}
                 </select>
               </label>
+              )}
               <label>
                 <span className="setting-label">Pasta</span>
                 <input value={draft.folder} onChange={(e) => set("folder", e.target.value)} placeholder="vazio = abre na worktree escolhida" spellCheck={false} />
               </label>
+              {draft.cli !== "outra" && (
               <div className="wide">
                 <span className="setting-label">
                   Conectores
@@ -342,6 +359,7 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
                   {!connectors.length && <span className="small">Nenhuma conta conectada ainda (tela Conectores).</span>}
                 </div>
               </div>
+              )}
               <div className="wide">
                 <span className="setting-label">Cor</span>
                 <div className="swatches">
@@ -361,6 +379,21 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
               </div>
               <label className="wide">
                 <span className="setting-label">
+                  Argumentos extras
+                  <span className="small">Vão no fim da linha de comando, em sintaxe de shell (ex.: --verbose --max-turns 30).</span>
+                </span>
+                <input className="mono" value={draft.args ?? ""} onChange={(e) => set("args", e.target.value)} placeholder="nenhum" spellCheck={false} />
+              </label>
+              <label className="wide">
+                <span className="setting-label">
+                  Variáveis de ambiente
+                  <span className="small">Uma por linha, CHAVE=valor. Só deste agente (as da MÊTIS e o PATH não mudam).</span>
+                </span>
+                <textarea className="mono" rows={3} value={draft.env ?? ""} onChange={(e) => set("env", e.target.value)} placeholder="ANTHROPIC_MODEL=claude-opus-5-5" spellCheck={false} />
+              </label>
+              {draft.cli !== "outra" && (
+              <label className="wide">
+                <span className="setting-label">
                   Papel
                   <span className="small">
                     Vai junto como instrução de sistema: {draft.cli === "claude" ? "--append-system-prompt" : "developer_instructions"}.
@@ -368,6 +401,7 @@ export function Agents({ client, agents, accounts, run, onLaunch, onTest, connec
                 </span>
                 <textarea className="prompt mono" value={draft.prompt} onChange={(e) => set("prompt", e.target.value)} rows={14} spellCheck={false} />
               </label>
+              )}
             </div>
 
             <div className="form-buttons">

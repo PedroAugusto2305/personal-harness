@@ -40,7 +40,7 @@ from .history import codex_rollout_for
 from .history import list_sessions as history_sessions
 from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
 from .prefs import PrefsError
-from . import ghostty, github, system, updates
+from . import barra, ghostty, github, system, themes, updates
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
@@ -56,6 +56,7 @@ from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
 from .relay import install_cli_shim, install_relay
 from .routines import DAYS, Routine, RoutineError, RoutineStore, decide, next_slot, slot_on
+from .sessions import CommandError as LaunchError
 from .sessions import ExecutableNotFound, SessionManager, UnknownKind
 from .statusline import render_statusline
 from .voice import AudioFormatError, Transcriber
@@ -83,16 +84,23 @@ class NewSession(BaseModel):
     tag: str | None = Field(default=None, pattern="^[a-z]{1,20}$")
     agent: str | None = None
     draft: DraftAgent | None = None
+    #: v0.9.8: modelo e esforço só desta sessão e o pedido que já entra no agente.
+    model: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:/-]{1,80}$")
+    effort: str | None = Field(default=None, pattern="^(low|medium|high|xhigh)$")
+    prompt: str | None = Field(default=None, max_length=8000)
 
 
 class DraftAgent(BaseModel):
     """Agente ainda não salvo, para "testar antes de salvar"."""
 
     name: str = Field(min_length=1, max_length=60)
-    cli: str = Field(default="claude", pattern="^(claude|codex)$")
+    cli: str = Field(default="claude", pattern="^(claude|codex|outra)$")
     model: str = ""
     folder: str = ""
     prompt: str = ""
+    args: str = Field(default="", max_length=2000)
+    env: str = Field(default="", max_length=8000)
+    command: str = Field(default="", max_length=2000)
 
 
 class NewAccount(BaseModel):
@@ -176,13 +184,18 @@ class AgentBody(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     description: str = ""
     pain: str = ""
-    cli: str = Field(default="claude", pattern="^(claude|codex)$")
+    cli: str = Field(default="claude", pattern="^(claude|codex|outra)$")
     model: str = ""
     account: str = ""
     folder: str = ""
     color: str = "#82a0ff"
     connectors: str = ""
     prompt: str = ""
+    #: v0.9.8: argumentos extras (como no terminal), variáveis (CHAVE=valor por linha) e a
+    #: linha de comando de uma CLI "outra".
+    args: str = Field(default="", max_length=2000)
+    env: str = Field(default="", max_length=8000)
+    command: str = Field(default="", max_length=2000)
 
 
 class SpriteRequest(BaseModel):
@@ -361,6 +374,16 @@ class RerunBody(BaseModel):
 
 class EmbedBody(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=64)
+
+
+class ThemeText(BaseModel):
+    texto: str = Field(max_length=ghostty.MAX_BYTES)
+    nome: str | None = Field(default=None, max_length=120)
+    formato: str | None = Field(default=None, pattern="^(ghostty|kitty|warp)$")
+
+
+class SkillInstall(BaseModel):
+    destino: str = Field(pattern="^(claude|codex|ambos)$")
 
 
 class GhosttyText(BaseModel):
@@ -553,7 +576,7 @@ def create_app(
                 await engine.tick(now)
             except Exception as exc:  # o agendador das rotinas nunca para por causa de uma automação
                 manager.events.publish({"type": "automation.error", "automation": "", "error": str(exc)})
-            working = sum(1 for s in manager.sessions.values() if s.status == "working")
+            working = sum(1 for s in manager.sessions.values() if s.status == "working" and not s.hibernando)
             if awake.apply(wants_awake(manager.prefs.get()["manter_acordado"], working, len(engine.runs))):
                 manager.events.publish({"type": "awake", "ativo": awake.active})
             await asyncio.sleep(20)
@@ -569,6 +592,16 @@ def create_app(
                 manager.events.publish({"type": "brain.error", "error": str(exc)})
             embedder.tick()
             await asyncio.sleep(120)
+
+    async def hibernate_watch() -> None:
+        """A cada 30 s: agente parado esperando há mais que o combinado em Ajustes é pausado
+        (SIGSTOP); qualquer tecla, o Acordar ou fechar a sessão o acorda (v0.9.8)."""
+        while True:
+            await asyncio.sleep(30)
+            try:
+                manager.hibernate_idle()
+            except Exception as exc:  # noqa: BLE001 - hibernar nunca derruba o núcleo
+                manager.events.publish({"type": "session.error", "error": f"hibernar: {exc}"})
 
     update_state: dict = {"info": None, "avisada": None}
 
@@ -602,6 +635,7 @@ def create_app(
             pollers.append(asyncio.create_task(scheduler()))
             pollers.append(asyncio.create_task(brain_worker()))
             pollers.append(asyncio.create_task(update_watch()))
+            pollers.append(asyncio.create_task(hibernate_watch()))
         yield
         for poller in pollers:
             poller.cancel()
@@ -703,9 +737,13 @@ def create_app(
             agent = agents.get(body.agent) if body.agent else None
             if body.draft is not None:
                 d = body.draft
-                agent = Agent(id="rascunho", name=d.name, cli=d.cli, model=d.model, folder=d.folder, prompt=d.prompt)
+                agent = Agent(id="rascunho", name=d.name, cli=d.cli, model=d.model, folder=d.folder, prompt=d.prompt,
+                              args=d.args, env=d.env, command=d.command)  # fmt: skip
             session = manager.create(body.kind, body.cwd, body.cols, body.rows, body.title, body.account, body.tag, agent,
-                                     resume=body.resume, permission=body.permissao)  # fmt: skip
+                                     resume=body.resume, permission=body.permissao, prompt=body.prompt or None,
+                                     model=body.model, effort=body.effort)  # fmt: skip
+        except LaunchError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except AgentError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except UnknownKind as exc:
@@ -821,6 +859,47 @@ def create_app(
                     dirs.append(Path(account["dir"]).expanduser() / "skills")
         return list_skills(dirs, cwd or None)
 
+    def cli_home(provider: str, account_id: str | None = None) -> Path:
+        """A pasta da CLI de uma conta (CLAUDE_CONFIG_DIR/CODEX_HOME dela) ou a padrão."""
+        if account_id:
+            try:
+                account = manager.accounts.get(provider, account_id)
+            except UnknownAccount:
+                account = None
+            if account is not None and account.dir:
+                return Path(account.dir).expanduser()
+        defaults = app.state.cli_homes or {}
+        if provider in defaults:
+            return Path(defaults[provider])
+        if provider == "codex" and os.environ.get("CODEX_HOME"):
+            return Path(os.environ["CODEX_HOME"]).expanduser()
+        return Path.home() / f".{provider}"
+
+    def skill_homes() -> dict[str, list[Path]]:
+        """Para cada CLI: a pasta padrão e as das contas com pasta própria."""
+        homes: dict[str, list[Path]] = {}
+        listed = manager.accounts.list()
+        for provider in ("claude", "codex"):
+            found = [cli_home(provider)]
+            for account in (listed.get(provider) or {}).get("accounts", []):
+                folder = account.get("dir")
+                if folder and Path(folder).expanduser() not in found:
+                    found.append(Path(folder).expanduser())
+            homes[provider] = found
+        return homes
+
+    @app.get("/skills/metis", dependencies=[Depends(require_token)])
+    def metis_skill() -> dict:
+        """A skill que ensina o agente a usar a MÊTIS e se ela já está instalada (v0.9.8)."""
+        return barra.skill_state(skill_homes())
+
+    @app.post("/skills/metis", dependencies=[Depends(require_token)])
+    def install_metis_skill(body: SkillInstall) -> dict:
+        try:
+            return barra.install_skill(skill_homes(), body.destino)
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"não consegui gravar a skill: {exc}") from exc
+
     @app.get("/projects/{project_id}/scripts", dependencies=[Depends(require_token)])
     def project_scripts(project_id: str) -> dict:
         try:
@@ -923,6 +1002,30 @@ def create_app(
         except ghostty.GhosttyError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"nome": (body.nome or "").strip() or "Tema colado", "cores": colors}
+
+    # --- temas de outros terminais (v0.9.8): Ghostty, Kitty e Warp ----------------------
+
+    @app.get("/temas", dependencies=[Depends(require_token)])
+    def terminal_themes() -> dict:
+        return {"temas": themes.list_all()}
+
+    @app.get("/temas/tema", dependencies=[Depends(require_token)])
+    def terminal_theme(nome: str, formato: str = Query(default="ghostty", pattern="^(ghostty|kitty|warp)$")) -> dict:
+        try:
+            return {"nome": nome, "formato": formato, "cores": themes.load(nome, formato)}
+        except ghostty.ThemeNotFound as exc:
+            raise HTTPException(status_code=404, detail=f"tema não encontrado: {nome}") from exc
+        except ghostty.GhosttyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/temas/ler", dependencies=[Depends(require_token)])
+    def terminal_theme_read(body: ThemeText) -> dict:
+        """Tema colado de qualquer dos três: o formato é descoberto pelo texto."""
+        try:
+            fmt, colors = themes.parse(body.texto, body.formato)
+        except ghostty.GhosttyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"nome": (body.nome or "").strip() or "Tema colado", "formato": fmt, "cores": colors}
 
     @app.delete("/sessions/{session_id}", dependencies=[Depends(require_token)], status_code=204)
     async def close_session(session_id: str) -> None:
@@ -1536,16 +1639,19 @@ def create_app(
         return {"project": note.name if note else None, "nodes": nodes[:40], "edges": brain.edges_among([n["path"] for n in nodes[:40]])}
 
     @app.get("/sessions/{session_id}/contexto", dependencies=[Depends(require_token)])
-    def session_context_window(session_id: str) -> dict:
-        """Janela de contexto do Claude: o que ocupa o contexto da sessão, lido do transcript."""
+    async def session_context_window(session_id: str) -> dict:
+        """Janela de contexto do Claude (o que ocupa o contexto, lido do transcript) e, desde a
+        v0.9.8, a conversa da sessão: cli, id_conversa, transcript, cwd e texto (Claude e Codex)."""
         session = manager.get(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="sessão não encontrada")
+        conversation = await conversation_of(session)
         line = session.statusline or {}
         transcript = line.get("transcript")
         if not transcript:
-            return {"available": False, "reason": "o Claude ainda não mandou a statusline desta sessão"}
-        return context_breakdown(transcript, line.get("context") or {})
+            return {"available": False, "reason": "o Claude ainda não mandou a statusline desta sessão", **conversation}
+        window = await asyncio.to_thread(context_breakdown, transcript, line.get("context") or {})
+        return {**window, **conversation}
 
     @app.get("/brain/projects", dependencies=[Depends(require_token)])
     def brain_projects() -> list[dict]:
@@ -1776,6 +1882,39 @@ def create_app(
             "ultimas": recent,
             "linhas": [] if recent else manager.tail_lines(session_id, 8),
         }
+
+    @app.post("/sessions/{session_id}/acordar", dependencies=[Depends(require_token)])
+    def wake_session(session_id: str) -> dict:
+        """Acorda o agente que hibernava (SIGCONT); se não hibernava, só devolve a sessão."""
+        session = manager.wake(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        return session.to_dict()
+
+    @app.get("/sessions/{session_id}/barra", dependencies=[Depends(require_token)])
+    def session_slash_commands(session_id: str) -> dict:
+        """O que oferecer ao digitar "/" na barra de baixo desta sessão (v0.9.8)."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        if session.kind not in ("claude", "codex"):
+            return {"comandos": []}
+        home = cli_home(session.kind, session.account)
+        return {"comandos": barra.slash_commands(session.kind, home, session.cwd)}
+
+    async def conversation_of(session) -> dict:
+        """A conversa da sessão para levar a outro lugar (v0.9.8): id, transcript e as últimas 20 mensagens."""
+        conversation, transcript = None, None
+        if session.kind == "claude":
+            line = session.statusline or {}
+            conversation, transcript = line.get("session_id"), line.get("transcript")
+        elif session.kind == "codex":
+            found = await asyncio.to_thread(codex_rollout_for, manager.accounts.list(), session.cwd, session.created_at - 5, app.state.cli_homes)
+            if found:
+                conversation, transcript = found["id"] or None, found["arquivo"]
+        recent = await asyncio.to_thread(last_messages, transcript, 20, 2000) if transcript else []
+        text = "\n\n".join(f"{'você' if m['role'] == 'voce' else 'agente'}: {m['text']}" for m in recent)
+        return {"cli": session.kind, "id_conversa": conversation, "transcript": transcript, "cwd": session.cwd, "texto": text}
 
     @app.post("/sessions/{session_id}/mensagem", dependencies=[Depends(require_token)], status_code=204)
     def session_message(session_id: str, body: SessionMessage) -> None:
@@ -2122,9 +2261,12 @@ def create_app(
     def update_agent(agent_id: str, body: AgentBody) -> dict:
         try:
             agents.get(agent_id)
-            agent = agents.save(body.model_dump(), agent_id)
         except AgentError as exc:
             raise fail(exc, 404) from exc
+        try:
+            agent = agents.save(body.model_dump(), agent_id)
+        except AgentError as exc:
+            raise fail(exc) from exc
         agents_changed()
         return agent.to_dict()
 
