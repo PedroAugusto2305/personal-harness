@@ -65,6 +65,14 @@ import type {
   RefCommit,
   SidebarState,
   WorktreeMode,
+  AgentEvent,
+  AgentPanelItem,
+  ClickupBoard,
+  ClickupList,
+  ClickupTask,
+  CliMcp,
+  ConnectionTest,
+  RegistryServer,
   ChangedFile,
   ConflictBlock,
   ConflictChoice,
@@ -721,6 +729,19 @@ export class CoreClient {
     return this.request("POST", `/brain/projects/${encodeURIComponent(project)}/tasks`, { text, state });
   }
 
+  /** v0.9.8: rótulos e subtarefas (caminhos conferidos com o núcleo). */
+  setTaskLabels(project: string, id: string, rotulos: string[]): Promise<KanbanTask> {
+    return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}/rotulos`, { rotulos });
+  }
+
+  addSubtask(project: string, id: string, texto: string): Promise<KanbanTask> {
+    return this.request("POST", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}/subtarefas`, { texto });
+  }
+
+  setSubtask(project: string, id: string, indice: number, feita: boolean): Promise<KanbanTask> {
+    return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}/subtarefas/${indice}`, { feita });
+  }
+
   moveTask(project: string, id: string, state: TaskState): Promise<KanbanTask> {
     return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}`, { state });
   }
@@ -965,6 +986,90 @@ export class CoreClient {
 
   importAppTheme(id: string): Promise<AppTheme> {
     return this.request("POST", "/temas-app/importar", { id });
+  }
+
+  // --- conectores, kanban, painel e Atividade (v0.9.8, parte 3) ---
+
+  connectGithub(nome: string, token = ""): Promise<ConnectorAccount> {
+    return this.request("POST", "/conectores/github", { nome, token: token || null });
+  }
+
+  googleClient(): Promise<{ configurado: boolean; client_id_fim: string }> {
+    return this.request("GET", "/conectores/google/cliente");
+  }
+
+  saveGoogleClient(client_id: string, client_secret: string): Promise<{ configurado: boolean; client_id_fim: string }> {
+    return this.request("PUT", "/conectores/google/cliente", { client_id, client_secret });
+  }
+
+  startGoogle(nome: string): Promise<{ url: string }> {
+    return this.request("POST", "/conectores/google/iniciar", { nome });
+  }
+
+  /** MCP próprio: http (nenhuma, token ou oauth → {url}) ou stdio. */
+  addMcp(body: {
+    nome: string;
+    transporte: "http" | "stdio";
+    url?: string;
+    auth?: "nenhuma" | "token" | "oauth";
+    token?: string;
+    comando?: string;
+    env?: string;
+    pasta?: string;
+  }): Promise<ConnectorAccount | { url: string }> {
+    return this.request("POST", "/conectores/mcp", body);
+  }
+
+  mcpRegistry(q: string): Promise<{ servidores: RegistryServer[] }> {
+    return this.request("GET", `/conectores/catalogo-mcp?q=${encodeURIComponent(q)}`);
+  }
+
+  checkConnector(id: string): Promise<ConnectionTest> {
+    return this.request("POST", `/conectores/${encodeURIComponent(id)}/testar`);
+  }
+
+  cliMcps(): Promise<{ claude: CliMcp[]; codex: CliMcp[] }> {
+    return this.request("GET", "/mcps-cli");
+  }
+
+  copyCliMcp(de: "claude" | "codex", para: "claude" | "codex", nome: string): Promise<{ claude: CliMcp[]; codex: CliMcp[]; avisos?: string[] }> {
+    return this.request("POST", "/mcps-cli/copiar", { de, para, nome });
+  }
+
+  clickupLists(conta: string): Promise<{ listas: ClickupList[] }> {
+    return this.request("GET", `/clickup/${encodeURIComponent(conta)}/listas`);
+  }
+
+  clickupApiToken(conta: string): Promise<{ tem: boolean }> {
+    return this.request("GET", `/clickup/${encodeURIComponent(conta)}/token-api`);
+  }
+
+  saveClickupApiToken(conta: string, token: string): Promise<{ tem: boolean } | void> {
+    return this.request("PUT", `/clickup/${encodeURIComponent(conta)}/token-api`, { token });
+  }
+
+  clickupBoard(projeto: string): Promise<ClickupBoard> {
+    return this.request("GET", `/kanban/${encodeURIComponent(projeto)}/clickup`);
+  }
+
+  linkClickup(projeto: string, conta: string, lista: string, nome: string): Promise<unknown> {
+    return this.request("PUT", `/kanban/${encodeURIComponent(projeto)}/clickup`, { conta, lista, nome });
+  }
+
+  unlinkClickup(projeto: string): Promise<void> {
+    return this.request("DELETE", `/kanban/${encodeURIComponent(projeto)}/clickup`);
+  }
+
+  setClickupStatus(conta: string, id: string, status: string): Promise<ClickupTask> {
+    return this.request("PATCH", `/clickup/${encodeURIComponent(conta)}/tarefas/${encodeURIComponent(id)}`, { status });
+  }
+
+  agentsPanel(): Promise<{ agentes: AgentPanelItem[] }> {
+    return this.request("GET", "/agentes/painel");
+  }
+
+  agentEvents(limite = 100, sessao = ""): Promise<{ eventos: AgentEvent[] }> {
+    return this.request("GET", `/atividade/eventos?limite=${limite}&sessao=${encodeURIComponent(sessao)}`);
   }
 
   async upload(file: Blob, name: string): Promise<string> {

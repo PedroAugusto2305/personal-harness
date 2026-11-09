@@ -32,6 +32,7 @@ from .browser_bridge import BridgeError, BrowserBridge, normalize_url
 from .connectors import ConnectorError, ConnectorStore
 from .kanban import Kanban
 from .mcp_client import McpError
+from .google import GoogleError
 from .slack import SlackError
 from .vault import Vault, VaultError
 from .when import WhenError, parse_when
@@ -110,6 +111,23 @@ def _schema(properties: dict, required: list[str]) -> dict:
 
 def _text(value: str) -> dict:
     return {"content": [{"type": "text", "text": value}]}
+
+
+_READ_VERBS = ("get", "list", "search", "read", "fetch", "query", "find", "view", "describe", "lookup")
+
+
+def _is_read(item: dict) -> bool:
+    """Ferramenta de MCP de fora que só lê (não pede aprovação). A anotação manda; sem ela,
+    o nome: get/list/search/read/fetch/query… é leitura, o resto é escrita (v0.9.8)."""
+    annotations = item.get("annotations") or {}
+    if "readOnlyHint" in annotations:
+        return bool(annotations.get("readOnlyHint"))
+    words = [w for w in str(item.get("name", "")).lower().replace("-", "_").replace(".", "_").split("_") if w]
+    # "notion-search", "get_issue", "list_pull_requests"; "search_and_update" já não é só leitura.
+    if not words:
+        return False
+    head = words[0]
+    return head in _READ_VERBS or (len(words) > 1 and words[1] in _READ_VERBS and head in ("notion", "github", "clickup"))
 
 
 class Hub:
@@ -232,7 +250,13 @@ class Hub:
             items = [t for t in self.kanban.tasks(project) if args.get("todas") or t["state"] != "concluida"]
             if not items:
                 return f"Nenhuma tarefa aberta em {project}."
-            return f"Próximas ações de {project}:\n" + "\n".join(f"- [{t['state']}] {t['id']}: {t['text']}" for t in items)
+            def line(t: dict) -> str:
+                labels = " ".join(f"#{label}" for label in t.get("rotulos") or [])
+                head = f"- [{t['state']}] {t['id']}: {t.get('texto') or t['text']}" + (f" ({labels})" if labels else "")
+                subs = [f"    {s['indice']}. [{'x' if s['feita'] else ' '}] {s['texto']}" for s in t.get("subtarefas") or []]
+                return "\n".join([head, *subs])
+
+            return f"Próximas ações de {project}:\n" + "\n".join(line(t) for t in items)
 
         def mover(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
@@ -242,9 +266,37 @@ class Hub:
 
         def nova(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
-            task = self.kanban.add(project, str(args["texto"]), str(args.get("estado") or "pendente"))
+            task = self.kanban.add(
+                project,
+                str(args["texto"]),
+                str(args.get("estado") or "pendente"),
+                labels=[str(x) for x in args.get("rotulos") or []],
+                subtasks=[str(x) for x in args.get("subtarefas") or []],
+            )
             self.on_brain_change(project)
-            return f"Tarefa {task['id']} criada em {project} ({task['state']})."
+            extra = f"; rótulos: {', '.join(task['rotulos'])}" if task.get("rotulos") else ""
+            extra += f"; {task['subtasks_total']} subtarefa(s)" if task.get("subtasks_total") else ""
+            return f"Tarefa {task['id']} criada em {project} ({task['state']}{extra})."
+
+        def rotulos(args: dict, ctx: Context) -> str:
+            project = self._project(ctx, args)
+            task = self.kanban.set_labels(project, str(args["id"]), [str(x) for x in args.get("rotulos") or []])
+            self.on_brain_change(project)
+            labels = ", ".join(task["rotulos"]) or "nenhum"
+            return f"Rótulos de {task['texto']}: {labels}. O id agora é {task['id']}."
+
+        def subtarefa(args: dict, ctx: Context) -> str:
+            project = self._project(ctx, args)
+            if args.get("texto"):
+                task = self.kanban.add_subtask(project, str(args["id"]), str(args["texto"]))
+                verb = "criada"
+            elif args.get("indice") is not None:
+                task = self.kanban.mark_subtask(project, str(args["id"]), int(args["indice"]), bool(args.get("feita", True)))
+                verb = "marcada" if args.get("feita", True) else "desmarcada"
+            else:
+                raise ToolError("diga texto (para criar) ou indice (para marcar)")
+            self.on_brain_change(project)
+            return f"Subtarefa {verb} em {task['texto']}: {task['subtasks_done']}/{task['subtasks_total']} feitas."
 
         def lembrete(args: dict, ctx: Context) -> str:
             account = str(args.get("conta") or "") or next((a.id for a in self.connectors.list() if a.reminders), "")
@@ -269,8 +321,15 @@ class Hub:
                  _schema({"projeto": projeto, "todas": {"type": "boolean", "description": "inclui as concluídas"}}, []), tarefas),
             Tool("tarefa_mover", "Move uma tarefa do kanban: pendente, em-andamento, em-teste ou concluida. Mova a sua tarefa para em-teste quando terminar.",
                  _schema({"id": {"type": "string"}, "estado": estado, "projeto": projeto}, ["id", "estado"]), mover),
-            Tool("tarefa_nova", "Acrescenta uma tarefa às Próximas ações do projeto.",
-                 _schema({"texto": {"type": "string"}, "estado": estado, "projeto": projeto}, ["texto"]), nova),
+            Tool("tarefa_nova", "Acrescenta uma tarefa às Próximas ações do projeto, com rótulos e subtarefas se quiser.",
+                 _schema({"texto": {"type": "string"}, "estado": estado, "projeto": projeto,
+                          "rotulos": {"type": "array", "items": {"type": "string"}, "description": "rótulos sem o #, ex.: [\"urgente\", \"front\"]"},
+                          "subtarefas": {"type": "array", "items": {"type": "string"}, "description": "passos da tarefa, na ordem"}}, ["texto"]), nova),
+            Tool("tarefa_rotulos", "Troca os rótulos de uma tarefa do kanban (a lista inteira; vazia tira todos). O id da tarefa muda: use o que voltar.",
+                 _schema({"id": {"type": "string"}, "rotulos": {"type": "array", "items": {"type": "string"}}, "projeto": projeto}, ["id", "rotulos"]), rotulos),
+            Tool("tarefa_subtarefa", "Subtarefa de uma tarefa do kanban: com texto cria uma nova; com indice (0, 1…) marca ou desmarca (feita).",
+                 _schema({"id": {"type": "string"}, "texto": {"type": "string"}, "indice": {"type": "integer", "minimum": 0},
+                          "feita": {"type": "boolean", "description": "padrão: true"}, "projeto": projeto}, ["id"]), subtarefa),
             Tool("lembrete", "Agenda um lembrete para o Pedro: o bot da MÊTIS manda a mensagem na DM do Slack na hora marcada, e o iPhone toca mesmo com o Mac dormindo.",
                  _schema({"texto": {"type": "string"}, "quando": {"type": "string", "description": "ISO 8601 com fuso, ou em português: 'sexta 9h', 'amanhã 14:30', 'em 20 min'"}, "conta": {"type": "string", "description": "id da conta do Slack; vazio = a conta de lembretes"}}, ["texto", "quando"]), lembrete),
         ]
@@ -498,6 +557,72 @@ class Hub:
                  summary=lambda a: f"mandar em {a.get('canal')}: “{str(a.get('texto', ''))[:300]}”"),
         ]
 
+    def _google_tools(self, account) -> list[Tool]:
+        """Gmail, Agenda e Drive de uma conta Google (v0.9.8). Rascunho e evento pedem aprovação."""
+
+        def api():
+            return self.connectors.google(account.id)
+
+        def pretty(value: Any) -> str:
+            return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+        def number(args: dict, key: str, default: int) -> int:
+            try:
+                return int(args.get(key) or default)
+            except (TypeError, ValueError):
+                return default
+
+        def gmail_buscar(args: dict, _ctx: Context) -> str:
+            found = api().gmail_search(str(args.get("consulta") or ""), number(args, "max", 10))
+            return pretty(found) if found else "Nenhum e-mail com essa busca."
+
+        def gmail_ler(args: dict, _ctx: Context) -> str:
+            return api().gmail_read(str(args["id"]))
+
+        def gmail_rascunho(args: dict, _ctx: Context) -> str:
+            draft = api().gmail_draft(str(args["para"]), str(args["assunto"]), str(args["corpo"]))
+            return f"Rascunho criado no Gmail de {account.name} (id {draft.get('id', '?')}); ele não foi enviado."
+
+        def agenda_eventos(args: dict, _ctx: Context) -> str:
+            found = api().events(args.get("de") or None, args.get("ate") or None, number(args, "max", 20), str(args.get("calendario") or "primary"))
+            return pretty(found) if found else "Nenhum evento nesse período."
+
+        def agenda_criar(args: dict, _ctx: Context) -> str:
+            guests = args.get("convidados") or []
+            event = api().create_event(
+                str(args["titulo"]), str(args["inicio"]), str(args["fim"]), str(args.get("descricao") or ""), [str(g) for g in guests] if isinstance(guests, list) else []
+            )
+            return f"Evento criado: {event.get('summary', args['titulo'])} ({event.get('htmlLink', '')})"
+
+        def drive_buscar(args: dict, _ctx: Context) -> str:
+            found = api().drive_search(str(args.get("consulta") or ""), number(args, "max", 10))
+            return pretty(found) if found else "Nenhum arquivo com essa busca."
+
+        def drive_ler(args: dict, _ctx: Context) -> str:
+            return api().drive_read(str(args["id"]))
+
+        prefix = f"[{account.name}] "
+        text = {"type": "string"}
+        return [
+            Tool(f"{account.id}__gmail_buscar", prefix + "Busca e-mails no Gmail com a sintaxe do Gmail (ex.: from:ana is:unread newer_than:7d). Devolve de, assunto, data, trecho e id.",
+                 _schema({"consulta": text, "max": {"type": "integer", "description": "até 50; padrão 10"}}, ["consulta"]), gmail_buscar, account.id),
+            Tool(f"{account.id}__gmail_ler", prefix + "Lê um e-mail pelo id (de gmail_buscar): cabeçalho e texto puro do corpo.",
+                 _schema({"id": text}, ["id"]), gmail_ler, account.id),
+            Tool(f"{account.id}__gmail_rascunho", prefix + "Cria um rascunho no Gmail (não envia). Pede aprovação do Pedro.",
+                 _schema({"para": text, "assunto": text, "corpo": text}, ["para", "assunto", "corpo"]), gmail_rascunho, account.id, write=True,
+                 summary=lambda a: f"rascunho para {a.get('para')}: “{str(a.get('assunto', ''))[:120]}”"),
+            Tool(f"{account.id}__agenda_eventos", prefix + "Eventos da Agenda do Google num período (padrão: de hoje até 7 dias). Datas em ISO (AAAA-MM-DD ou com hora).",
+                 _schema({"de": text, "ate": text, "max": {"type": "integer"}, "calendario": {"type": "string", "description": "padrão primary"}}, []), agenda_eventos, account.id),
+            Tool(f"{account.id}__agenda_criar", prefix + "Cria um evento na Agenda (com convidados, se houver). Pede aprovação do Pedro.",
+                 _schema({"titulo": text, "inicio": text, "fim": text, "descricao": text, "convidados": {"type": "array", "items": text}}, ["titulo", "inicio", "fim"]),
+                 agenda_criar, account.id, write=True,
+                 summary=lambda a: f"evento “{a.get('titulo')}” de {a.get('inicio')} a {a.get('fim')}" + (f" com {', '.join(a.get('convidados') or [])}" if a.get("convidados") else "")),
+            Tool(f"{account.id}__drive_buscar", prefix + "Busca arquivos no Google Drive pelo nome e pelo conteúdo. Devolve id, nome, tipo e link.",
+                 _schema({"consulta": text, "max": {"type": "integer"}}, ["consulta"]), drive_buscar, account.id),
+            Tool(f"{account.id}__drive_ler", prefix + "Lê um arquivo do Drive pelo id: documento vira texto, planilha vira CSV da primeira aba; outros tipos, só os dados e o link.",
+                 _schema({"id": text}, ["id"]), drive_ler, account.id),
+        ]
+
     def _upstream_tools(self, account) -> list[Tool]:
         cached = self._upstream.get(account.id)
         if cached and time.time() - cached[0] < UPSTREAM_TTL:
@@ -513,7 +638,7 @@ class Hub:
         for item in remote:
             upstream = item.get("name", "")
             name = f"{account.id}__{upstream}"[:MAX_NAME]
-            read_only = bool((item.get("annotations") or {}).get("readOnlyHint"))
+            read_only = _is_read(item)
 
             def run(args: dict, _ctx: Context, upstream: str = upstream) -> dict:
                 return self.connectors.mcp(account.id).call(upstream, args)
@@ -542,7 +667,12 @@ class Hub:
         for account in self.connectors.list():
             if ctx.allowed is not None and account.id not in ctx.allowed:
                 continue
-            tools += self._slack_tools(account) if account.kind == "slack" else self._upstream_tools(account)
+            if account.kind == "slack":
+                tools += self._slack_tools(account)
+            elif account.kind == "google":
+                tools += self._google_tools(account)
+            else:
+                tools += self._upstream_tools(account)
         allowed = self.session_tools.get(ctx.session)
         if allowed is not None:
             tools = [t for t in tools if t.name in allowed] + [self._output_tool()]
@@ -615,7 +745,7 @@ class Hub:
             payload = result if isinstance(result, dict) and "content" in result else _text(str(result))
             if payload.get("isError"):
                 status = "erro"
-        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, KeyError, ValueError) as exc:
+        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, GoogleError, KeyError, ValueError) as exc:
             status, detail = "erro", str(exc)
             payload = {**_text(f"Erro: {exc}"), "isError": True}
         texts = [c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict)]

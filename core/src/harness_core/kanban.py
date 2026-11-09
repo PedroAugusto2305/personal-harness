@@ -5,6 +5,8 @@
   etiqueta no fim da linha (`#em-andamento`, `#em-teste`), assim a tarefa continua aberta
   para o Obsidian e para o `brain.py`; concluir marca `[x]` com a data (`✅ AAAA-MM-DD`,
   o formato do plugin Tasks que o vault já usa). Decisão de 2026-11-08 no Brain.
+- Rótulos (v0.9.8): as outras etiquetas `#assim` do texto (com pelo menos uma letra, então
+  `#123` continua sendo texto). Subtarefas: as linhas `- [ ]` recuadas logo abaixo.
 
 Toda escrita relê a nota, acha a linha pelo id (hash do texto sem etiquetas) e troca só
 ela, para não atropelar o que o Obsidian ou outro agente gravou no meio tempo.
@@ -14,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -29,6 +31,8 @@ _HEADING = re.compile(r"^(#{1,6})\s")
 _TASK = re.compile(r"^(?P<indent>[ \t]*)- \[(?P<mark>.)\] ?(?P<text>.*)$")
 _STATE_TAG = re.compile(r"\s*#(em-andamento|em-teste)\b")
 _DONE_DATE = re.compile(r"\s*✅\s*\d{4}-\d{2}-\d{2}")
+_LABEL = re.compile(r"(?<!\S)#([\w\-/]+)")
+_STATE_NAMES = {"em-andamento", "em-teste"}
 
 
 class KanbanError(VaultError):
@@ -45,9 +49,50 @@ class Task:
     subtasks_total: int = 0
     cancelled: bool = False
     done_on: str = ""
+    #: v0.9.8: rótulos (sem o #), o texto sem eles e as subtarefas.
+    rotulos: list[str] = field(default_factory=list)
+    texto: str = ""
+    subtarefas: list[dict] = field(default_factory=list)
+    #: Linha de cada subtarefa na nota (fica fora do to_dict).
+    sub_lines: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        data.pop("sub_lines", None)
+        return data
+
+
+def labels_of(text: str) -> list[str]:
+    """Os rótulos do texto, na ordem, sem repetir (etiqueta só de número não conta)."""
+    out: list[str] = []
+    for match in _LABEL.finditer(text):
+        name = match.group(1)
+        if name.lower() in _STATE_NAMES or not any(ch.isalpha() for ch in name):
+            continue
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def strip_labels(text: str) -> str:
+    def drop(match: re.Match) -> str:
+        name = match.group(1)
+        return match.group(0) if name.lower() in _STATE_NAMES or not any(ch.isalpha() for ch in name) else ""
+
+    return " ".join(_LABEL.sub(drop, text).split())
+
+
+def normalize_labels(labels: list[str]) -> list[str]:
+    """Minúsculas, sem o #, espaço vira hífen; só letras, números, hífen, sublinhado e barra."""
+    out: list[str] = []
+    for raw in labels:
+        name = "-".join(str(raw).strip().lstrip("#").lower().split())
+        name = re.sub(r"[^\w\-/]", "", name)
+        if not name or name in _STATE_NAMES or not any(ch.isalpha() for ch in name):
+            continue
+        if name not in out:
+            out.append(name)
+    return out
 
 
 def _clean(text: str) -> str:
@@ -92,8 +137,13 @@ def parse_tasks(text: str) -> list[Task]:
             continue
         if match.group("indent"):
             if parent is not None:
+                done_mark = match.group("mark").lower() == "x"
                 parent.subtasks_total += 1
-                parent.subtasks_done += match.group("mark").lower() == "x"
+                parent.subtasks_done += done_mark
+                parent.subtarefas.append(
+                    {"indice": len(parent.subtarefas), "texto": _DONE_DATE.sub("", match.group("text")).strip(), "feita": done_mark}
+                )
+                parent.sub_lines.append(i)
             continue
         raw = match.group("text")
         clean = _clean(raw)
@@ -108,6 +158,8 @@ def parse_tasks(text: str) -> list[Task]:
             line=i,
             cancelled=clean.startswith("~~") or match.group("mark") == "-",
             done_on=done.group(0).replace("✅", "").strip() if done else "",
+            rotulos=labels_of(clean),
+            texto=strip_labels(clean),
         )
         tasks.append(parent)
     return tasks
@@ -208,9 +260,11 @@ class Kanban:
             write_atomic(note.path, nl.join(lines) + (nl if text.endswith(("\n", "\r\n")) else ""))
         return next(t for t in self.tasks(name) if t["id"] == task_id)
 
-    def add(self, name: str, text: str, state: str = "pendente") -> dict:
+    def add(self, name: str, text: str, state: str = "pendente", labels: list[str] | None = None, subtasks: list[str] | None = None) -> dict:
         body = " ".join(text.split()).strip()
         body = re.sub(r"^- \[.\]\s*", "", body)
+        if labels:
+            body = " ".join([strip_labels(body), *(f"#{label}" for label in normalize_labels(labels))]).strip()
         if not body:
             raise KanbanError("a tarefa está vazia")
         if state not in STATES:
@@ -244,4 +298,78 @@ class Kanban:
         write_atomic(note.path, nl.join(lines) + nl)
         added = parse_tasks(nl.join(lines))
         digest = hashlib.sha1(_clean(body).lower().encode("utf-8")).hexdigest()[:8]
-        return next(t.to_dict() for t in reversed(added) if t.id.split("-")[0] == digest)
+        task = next(t for t in reversed(added) if t.id.split("-")[0] == digest)
+        result = task.to_dict()
+        for sub in subtasks or []:
+            if str(sub).strip():
+                result = self.add_subtask(name, task.id, str(sub))
+        return result
+
+    # --- rótulos e subtarefas (v0.9.8) -----------------------------------------------
+
+    def _write(self, path: Path, text: str, lines: list[str]) -> None:
+        nl = _newline(text)
+        write_atomic(path, nl.join(lines) + (nl if text.endswith(("\n", "\r\n")) else ""))
+
+    def set_labels(self, name: str, task_id: str, labels: list[str]) -> dict:
+        """Troca os rótulos da tarefa: ficam no fim do texto, antes da etiqueta de estado.
+        O id é o hash do texto com os rótulos, então a tarefa volta com o id novo."""
+        note = self.vault.project(name)
+        text, lines, task = self._find(note.path, task_id)
+        match = _TASK.match(lines[task.line])
+        assert match is not None
+        base = strip_labels(_clean(match.group("text")))
+        wanted = normalize_labels(labels)
+        body = " ".join([base, *(f"#{label}" for label in wanted)]).strip()
+        lines[task.line] = _render(match.group("indent"), body, task.state, task.done_on)
+        self._write(note.path, text, lines)
+        digest = hashlib.sha1(_clean(body).lower().encode("utf-8")).hexdigest()[:8]
+        found = [t for t in parse_tasks("\n".join(lines)) if t.line == task.line]
+        if found:
+            return found[0].to_dict()
+        raise KanbanError(f"tarefa sumiu depois de gravar os rótulos: {digest}")
+
+    def add_subtask(self, name: str, task_id: str, text: str) -> dict:
+        body = " ".join(str(text).split()).strip()
+        body = re.sub(r"^- \[.\]\s*", "", body)
+        if not body:
+            raise KanbanError("a subtarefa está vazia")
+        note = self.vault.project(name)
+        raw, lines, task = self._find(note.path, task_id)
+        if task.sub_lines:
+            last = task.sub_lines[-1]
+            indent = _TASK.match(lines[task.sub_lines[0]]).group("indent")  # type: ignore[union-attr]
+            at = last + 1
+        else:
+            indent = "  "
+            at = task.line + 1
+        lines.insert(at, f"{indent}- [ ] {body}")
+        self._write(note.path, raw, lines)
+        return self._task_at(note.path, task.line)
+
+    def mark_subtask(self, name: str, task_id: str, index: int, done: bool) -> dict:
+        note = self.vault.project(name)
+        raw, lines, task = self._find(note.path, task_id)
+        if not 0 <= index < len(task.sub_lines):
+            raise KanbanError(f"subtarefa {index} não existe (a tarefa tem {len(task.sub_lines)})")
+        at = task.sub_lines[index]
+        match = _TASK.match(lines[at])
+        assert match is not None
+        body = _DONE_DATE.sub("", match.group("text")).strip()
+        lines[at] = f"{match.group('indent')}- [{'x' if done else ' '}] {body}" + (f" ✅ {date.today().isoformat()}" if done else "")
+        self._write(note.path, raw, lines)
+        return self._task_at(note.path, task.line)
+
+    def _task_at(self, path: Path, line: int) -> dict:
+        for task in parse_tasks(path.read_text(encoding="utf-8")):
+            if task.line == line:
+                return task.to_dict()
+        raise KanbanError("a tarefa mudou de lugar na nota; recarregue")
+
+    def labels(self, name: str) -> list[dict]:
+        """Os rótulos usados nas tarefas do projeto, com quantas tarefas têm cada um."""
+        counts: dict[str, int] = {}
+        for task in parse_tasks(self.vault.project(name).path.read_text(encoding="utf-8")):
+            for label in task.rotulos:
+                counts[label] = counts.get(label, 0) + 1
+        return [{"nome": n, "quantas": c} for n, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]

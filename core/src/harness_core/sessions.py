@@ -53,6 +53,16 @@ HOOK_STATUS = {
     "Notification": "waiting",
 }
 
+# Hook → atenção (v0.9.8, painel de agentes): o que o agente espera de você.
+HOOK_ATTENTION = {
+    "Stop": "terminou",
+    "Notification": "pergunta",
+    "UserPromptSubmit": None,
+    "SessionStart": None,
+}
+#: O "estou esperando sua resposta" que o Claude manda depois de um minuto parado não é pergunta.
+IDLE_NOTICE = "claude is waiting for your input"
+
 KINDS = ("claude", "codex", "shell")
 CODEX_POLL_SECONDS = 180
 PORTS_POLL_SECONDS = 4
@@ -132,6 +142,9 @@ class Session:
     exit_code: int | None = None
     #: v0.9.8: parada (SIGSTOP) depois de muito tempo esperando; qualquer escrita acorda.
     hibernando: bool = False
+    #: v0.9.8: "pergunta" (Notification), "terminou" (Stop) ou None; e desde quando está assim.
+    atencao: str | None = None
+    status_desde: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -149,6 +162,8 @@ class Session:
             "exit_code": self.exit_code,
             "pid": self.pty.pid,
             "hibernando": self.hibernando,
+            "atencao": self.atencao,
+            "status_desde": self.status_desde,
         }
 
 
@@ -243,6 +258,8 @@ class SessionManager:
         # Mudança de estado de uma sessão (antes, depois) e hook recebido (nome, mensagem).
         self.on_status: Callable[[Session, str, str], None] | None = None
         self.on_hook: Callable[[Session, str, str | None], None] | None = None
+        #: v0.9.8: a Atividade dos agentes ("inicio", "hook", "saiu", "hibernou", "acordou").
+        self.on_activity: Callable[[Session, str, dict], None] | None = None
 
     # --- sessões -----------------------------------------------------------
 
@@ -363,7 +380,16 @@ class SessionManager:
         self.sessions[session_id] = session
         pty.start()
         self.events.publish({"type": "session.created", "session": session.to_dict()})
+        self._activity(session, "inicio")
         return session
+
+    def _activity(self, session: Session, kind: str, data: dict | None = None) -> None:
+        if self.on_activity is None:
+            return
+        try:
+            self.on_activity(session, kind, data or {})
+        except Exception:  # a Atividade nunca derruba a sessão
+            pass
 
     def _trusted(self, folder: str) -> bool:
         """Pasta de um projeto da MÊTIS ou de uma worktree dele: entra como confiável na CLI."""
@@ -466,6 +492,7 @@ class SessionManager:
             ):
                 session.hibernando = True
                 self.events.publish({"type": "session.hibernate", "id": session.id, "hibernando": True})
+                self._activity(session, "hibernou")
                 stopped.append(session.id)
         return stopped
 
@@ -485,17 +512,23 @@ class SessionManager:
             return
         session.hibernando = False
         self.events.publish({"type": "session.hibernate", "id": session_id, "hibernando": False})
+        self._activity(session, "acordou")
 
     def _set_status(self, session: Session, status: str) -> None:
         if session.status == status:
             return
         before, session.status = session.status, status
-        event: dict[str, Any] = {"type": "session.status", "id": session.id, "status": status}
+        session.status_desde = time.time()
+        if status == "working":
+            session.atencao = None  # voltou a trabalhar: não espera mais nada de você
+        event: dict[str, Any] = {"type": "session.status", "id": session.id, "status": status, "atencao": session.atencao, "status_desde": session.status_desde}
         if status == "exited":
             event["exit_code"] = session.exit_code  # a faixa do agente que saiu mostra o código
         self.events.publish(event)
         if self.on_status is not None:
             self.on_status(session, before, status)
+        if status == "exited":
+            self._activity(session, "saiu")
 
     def _on_exit(self, session_id: str, code: int | None) -> None:
         session = self.sessions.get(session_id)
@@ -532,11 +565,22 @@ class SessionManager:
         session = self.sessions.get(session_id)
         if session is None:
             return False
-        status = HOOK_STATUS.get(name)
-        if status:
-            self._set_status(session, status)
         message = (payload or {}).get("message") if isinstance((payload or {}).get("message"), str) else None
-        self.events.publish({"type": "session.hook", "id": session_id, "name": name, "message": message})
+        changed = False
+        idle = name == "Notification" and (message or "").lower().startswith(IDLE_NOTICE)
+        if name in HOOK_ATTENTION and not idle and session.atencao != HOOK_ATTENTION[name]:
+            session.atencao = HOOK_ATTENTION[name]
+            changed = True
+        status = HOOK_STATUS.get(name)
+        if status and status != session.status:
+            self._set_status(session, status)  # o evento já leva a atenção nova
+        elif changed:
+            session.status_desde = time.time()
+            self.events.publish(
+                {"type": "session.status", "id": session.id, "status": session.status, "atencao": session.atencao, "status_desde": session.status_desde}
+            )
+        self.events.publish({"type": "session.hook", "id": session_id, "name": name, "message": message, "atencao": session.atencao})
+        self._activity(session, "hook", {"name": name, "message": message, "payload": payload or {}, "idle": idle})
         if self.on_hook is not None:
             self.on_hook(session, name, message)
         return True

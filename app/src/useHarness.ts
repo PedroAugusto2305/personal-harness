@@ -3,6 +3,7 @@ import { CoreClient, getCoreInfo, type NewSessionOptions } from "./lib/core";
 import { useInbox, type NoticeInput } from "./lib/inbox";
 import type {
   Accounts,
+  AgentEvent,
   BrowserCommand,
   SidebarState,
   ActivityItem,
@@ -78,6 +79,8 @@ export function useHarness() {
   const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
   /** v0.9.8 (parte 2): quem atende os pedidos do agente ao navegador (o App registra). */
   const browserHandler = useRef<((command: BrowserCommand) => void) | null>(null);
+  /** v0.9.8 (parte 3): o que os agentes fizeram (terminou, perguntou, saiu), mais novo primeiro. */
+  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
   /** Sobe quando os perfis do navegador ou os temas da tela mudam no núcleo. */
   const [profilesTick, setProfilesTick] = useState(0);
   const [appThemesTick, setAppThemesTick] = useState(0);
@@ -150,7 +153,16 @@ export function useHarness() {
           if (before) seen.current[event.id] = { ...before, status: event.status };
           setSessions((all) =>
             all[event.id]
-              ? { ...all, [event.id]: { ...all[event.id], status: event.status, ...(event.exit_code !== undefined ? { exit_code: event.exit_code } : {}) } }
+              ? {
+                  ...all,
+                  [event.id]: {
+                    ...all[event.id],
+                    status: event.status,
+                    ...(event.exit_code !== undefined ? { exit_code: event.exit_code } : {}),
+                    ...(event.atencao !== undefined ? { atencao: event.atencao } : {}),
+                    ...(event.status_desde !== undefined ? { status_desde: event.status_desde } : {}),
+                  },
+                }
               : all,
           );
           break;
@@ -261,6 +273,9 @@ export function useHarness() {
           break;
         case "temas-app":
           setAppThemesTick((n) => n + 1);
+          break;
+        case "activity.event":
+          setAgentEvents((list) => [event.item, ...list.filter((e) => e.id !== event.item.id)].slice(0, 300));
           break;
         case "barra":
           setSidebar(event.barra);
@@ -477,6 +492,8 @@ export function useHarness() {
     automationEvent,
     webRequest,
     browserHandler,
+    agentEvents,
+    setAgentEvents,
     profilesTick,
     appThemesTick,
     sidebar,

@@ -45,6 +45,7 @@ from . import app_themes, barra_lateral
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
+from .clickup_rest import ClickupBoard, ClickupError
 from .vault import Vault, VaultError, link_target, split_frontmatter, write_atomic
 from .sprites import SpriteStudio
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
@@ -54,6 +55,7 @@ from .keychain import Keychain
 from .keychain import Vault as SecretVault
 from .mcp_hub import Context, Hub, ToolError
 from . import chrome_cookies
+from . import mcp_configs, mcp_registry  # v0.9.8 parte 3: conectores
 from .browser_bridge import BrowserAnswer, BrowserBridge, BrowserHistory, BrowserProfiles, HistoryVisit, ImportBody, ProfileBody, ProfileError
 from .slack import MANIFEST, SlackError
 from .projects import ProjectError, ProjectStore
@@ -232,6 +234,35 @@ class StageBody(BaseModel):
 class TaskBody(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     state: str = Field(default="pendente", pattern="^(pendente|em-andamento|em-teste|concluida)$")
+    #: v0.9.8: rótulos e subtarefas já na criação (opcionais).
+    rotulos: list[str] = Field(default_factory=list, max_length=20)
+    subtarefas: list[str] = Field(default_factory=list, max_length=50)
+
+
+class TaskLabels(BaseModel):
+    rotulos: list[str] = Field(default_factory=list, max_length=20)
+
+
+class NewSubtask(BaseModel):
+    texto: str = Field(min_length=1, max_length=1000)
+
+
+class MarkSubtask(BaseModel):
+    feita: bool = True
+
+
+class ClickupToken(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+
+
+class ClickupLink(BaseModel):
+    conta: str = Field(min_length=1, max_length=80)
+    lista: str = Field(min_length=1, max_length=40)
+    nome: str = Field(default="", max_length=200)
+
+
+class ClickupStatus(BaseModel):
+    status: str = Field(min_length=1, max_length=100)
 
 
 class TaskMove(BaseModel):
@@ -256,6 +287,34 @@ class ConnectorPatch(BaseModel):
     name: str | None = Field(default=None, max_length=40)
     approve_writes: bool | None = None
     reminders: bool | None = None
+
+
+# v0.9.8 parte 3: corpos das rotas novas de conectores
+class GithubConnect(BaseModel):
+    nome: str = Field(default="", max_length=40)
+    token: str = Field(default="", max_length=400)
+
+class GoogleClient(BaseModel):
+    client_id: str = Field(max_length=300)
+    client_secret: str = Field(max_length=300)
+
+class GoogleStart(BaseModel):
+    nome: str = Field(default="", max_length=40)
+
+class McpConnect(BaseModel):
+    nome: str = Field(default="", max_length=40)
+    transporte: str = "http"
+    url: str = Field(default="", max_length=2000)
+    auth: str = "nenhuma"
+    token: str = Field(default="", max_length=4000)
+    comando: str = Field(default="", max_length=2000)
+    env: str = Field(default="", max_length=20000)
+    pasta: str = Field(default="", max_length=1000)
+
+class McpCopy(BaseModel):
+    de: str
+    para: str
+    nome: str = Field(max_length=200)
 
 
 class ReminderBody(BaseModel):
@@ -650,6 +709,7 @@ def create_app(
             with suppress(asyncio.CancelledError):
                 await poller
         await manager.close_all()
+        connectors.close()  # os MCPs por stdio não ficam órfãos
         awake.stop()
 
     app = FastAPI(title="Harness core", version=__version__, lifespan=lifespan)
@@ -1749,7 +1809,7 @@ def create_app(
     @app.post("/brain/projects/{name}/tasks", dependencies=[Depends(require_token)], status_code=201)
     def brain_add_task(name: str, body: TaskBody) -> dict:
         try:
-            task = kanban.add(name, body.text, body.state)
+            task = kanban.add(name, body.text, body.state, labels=body.rotulos, subtasks=body.subtarefas)
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)
@@ -1763,6 +1823,191 @@ def create_app(
             raise brain_fail(exc) from exc
         brain_changed(name)
         return task
+
+    # --- v0.9.8 parte 3: rótulos, subtarefas, ClickUp no kanban, painel e eventos dos agentes ---
+
+    @app.put("/brain/projects/{name}/tasks/{task_id}/rotulos", dependencies=[Depends(require_token)])
+    def brain_task_labels(name: str, task_id: str, body: TaskLabels) -> dict:
+        try:
+            task = kanban.set_labels(name, task_id, body.rotulos)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    @app.post("/brain/projects/{name}/tasks/{task_id}/subtarefas", dependencies=[Depends(require_token)], status_code=201)
+    def brain_add_subtask(name: str, task_id: str, body: NewSubtask) -> dict:
+        try:
+            task = kanban.add_subtask(name, task_id, body.texto)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    @app.put("/brain/projects/{name}/tasks/{task_id}/subtarefas/{index}", dependencies=[Depends(require_token)])
+    def brain_mark_subtask(name: str, task_id: str, index: int, body: MarkSubtask) -> dict:
+        try:
+            task = kanban.mark_subtask(name, task_id, index, body.feita)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    @app.get("/brain/projects/{name}/rotulos", dependencies=[Depends(require_token)])
+    def brain_labels(name: str) -> dict:
+        try:
+            return {"rotulos": kanban.labels(name)}
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+
+    clickup = ClickupBoard(settings.home, connectors)
+
+    def clickup_fail(exc: Exception) -> HTTPException:
+        if isinstance(exc, ClickupError):
+            return HTTPException(status_code=exc.status, detail=str(exc))
+        return HTTPException(status_code=404 if "desconhecida" in str(exc) else 400, detail=str(exc))
+
+    @app.get("/clickup/{conta}/token-api", dependencies=[Depends(require_token)])
+    def clickup_token_state(conta: str) -> dict:
+        try:
+            return {"tem": clickup.has_personal(conta)}
+        except (ClickupError, ConnectorError) as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.put("/clickup/{conta}/token-api", dependencies=[Depends(require_token)], status_code=204)
+    async def clickup_token_set(conta: str, body: ClickupToken) -> None:
+        try:
+            await asyncio.to_thread(clickup.set_personal, conta, body.token)
+        except ClickupError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ConnectorError as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.delete("/clickup/{conta}/token-api", dependencies=[Depends(require_token)], status_code=204)
+    def clickup_token_drop(conta: str) -> None:
+        try:
+            clickup.drop_personal(conta)
+        except (ClickupError, ConnectorError) as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.get("/clickup/{conta}/listas", dependencies=[Depends(require_token)])
+    async def clickup_lists(conta: str) -> dict:
+        try:
+            return {"listas": await asyncio.to_thread(clickup.lists, conta)}
+        except (ClickupError, ConnectorError) as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.patch("/clickup/{conta}/tarefas/{task_id}", dependencies=[Depends(require_token)])
+    async def clickup_task_status(conta: str, task_id: str, body: ClickupStatus) -> dict:
+        try:
+            return await asyncio.to_thread(clickup.set_status, conta, task_id, body.status)
+        except (ClickupError, ConnectorError) as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.get("/kanban/{projeto}/clickup", dependencies=[Depends(require_token)])
+    async def kanban_clickup(projeto: str) -> dict:
+        try:
+            return await asyncio.to_thread(clickup.board, projeto)
+        except (ClickupError, ConnectorError) as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.put("/kanban/{projeto}/clickup", dependencies=[Depends(require_token)])
+    def kanban_clickup_link(projeto: str, body: ClickupLink) -> dict:
+        try:
+            return clickup.set_link(projeto, body.conta, body.lista, body.nome)
+        except (ClickupError, ConnectorError) as exc:
+            raise clickup_fail(exc) from exc
+
+    @app.delete("/kanban/{projeto}/clickup", dependencies=[Depends(require_token)], status_code=204)
+    def kanban_clickup_unlink(projeto: str) -> None:
+        clickup.drop_link(projeto)
+
+    def last_agent_text(session, payload: dict | None = None) -> str:
+        """A última mensagem do agente, até 280 caracteres (prévia do painel e da Atividade)."""
+        payload = payload or {}
+        for key in ("last_assistant_message", "last-assistant-message"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return " ".join(value.split())[:280]
+        transcript = payload.get("transcript_path") if isinstance(payload.get("transcript_path"), str) else None
+        try:
+            if not transcript and session.kind == "claude":
+                transcript = (session.statusline or {}).get("transcript")
+            if not transcript and session.kind == "codex":
+                found = codex_rollout_for(manager.accounts.list(), session.cwd, session.created_at - 5, app.state.cli_homes)
+                transcript = found["arquivo"] if found else None
+            if not transcript:
+                return ""
+            for message in reversed(last_messages(transcript, 6, 600)):
+                if message["role"] == "agente":
+                    return message["text"][:280]
+        except Exception:  # transcript ilegível: sem prévia
+            return ""
+        return ""
+
+    EVENT_TITLE = {"inicio": "começou", "terminou": "terminou o turno", "pergunta": "precisa de você", "hibernou": "hibernou", "acordou": "acordou"}
+
+    def on_activity(session, kind: str, data: dict) -> None:
+        """O que acontece com cada agente vira evento da Atividade (e aparece na hora na tela)."""
+        if session.kind not in ("claude", "codex"):
+            return
+        preview = ""
+        if kind == "hook":
+            name = data.get("name")
+            if name == "Stop":
+                kind, preview = "terminou", last_agent_text(session, data.get("payload"))
+            elif name == "Notification" and not data.get("idle"):
+                kind, preview = "pergunta", data.get("message") or ""
+            else:
+                return
+        title = EVENT_TITLE.get(kind, kind)
+        if kind == "saiu":
+            title = f"saiu com o código {session.exit_code}" if session.exit_code is not None else "saiu"
+        item = activity.event(session.id, session.title, kind, title, preview)
+        manager.events.publish({"type": "activity.event", "item": item})
+
+    manager.on_activity = on_activity
+
+    @app.get("/atividade/eventos", dependencies=[Depends(require_token)])
+    def activity_events(limite: int = Query(default=100, ge=1, le=1000), sessao: str = "") -> dict:
+        return {"eventos": activity.events(limite, sessao)}
+
+    def board_column(session) -> str:
+        if session.status == "exited" or session.hibernando:
+            return "parado"
+        if session.atencao == "pergunta":
+            return "precisa"
+        if session.status == "working":
+            return "trabalhando"
+        if session.atencao == "terminou":
+            return "feito"
+        return "parado"
+
+    @app.get("/agentes/painel", dependencies=[Depends(require_token)])
+    async def agents_board() -> dict:
+        """Painel de agentes (v0.9.8): cada Claude e Codex aberto, na coluna do que espera de você."""
+        now = time.time()
+        out = []
+        for session in list(manager.sessions.values()):
+            if session.kind not in ("claude", "codex"):
+                continue
+            line = session.statusline or {}
+            out.append(
+                {
+                    "id": session.id,
+                    "titulo": session.title,
+                    "cli": session.kind,
+                    "agente": session.agent,
+                    "cwd": session.cwd,
+                    "coluna": board_column(session),
+                    "desde": session.status_desde,
+                    "previa": await asyncio.to_thread(last_agent_text, session),
+                    "custo_usd": line.get("cost_usd") if session.kind == "claude" else None,
+                    "duracao_s": round(now - session.created_at),
+                    "tag": session.tag,
+                }
+            )
+        return {"agentes": out}
 
     # --- central de MCP (uma por sessão de agente, pelo token dela) ------------------
 
@@ -1857,6 +2102,89 @@ def create_app(
             return {"message": f"{account.name} respondeu com {len(tools)} ferramentas."}
         except (ConnectorError, SlackError, RuntimeError, OSError) as exc:
             raise fail(exc) from exc
+
+    # --- conectores da v0.9.8 (parte 3): GitHub, Google, MCP próprio, catálogo, testar, CLIs ---
+
+    registry = mcp_registry.McpRegistry(connectors.http)
+    app.state.connectors = connectors
+    app.state.mcp_cli_runner = None  # None = as CLIs de verdade; os testes trocam
+
+    @app.post("/conectores/github", dependencies=[Depends(require_token)], status_code=201)
+    def connect_github(body: GithubConnect) -> dict:
+        try:
+            account = connectors.add_github(body.nome, body.token)
+        except ConnectorError as exc:
+            raise fail(exc) from exc
+        connectors_changed()
+        return account.to_dict()
+
+    @app.get("/conectores/google/cliente", dependencies=[Depends(require_token)])
+    def google_client() -> dict:
+        return connectors.google_client_status()
+
+    @app.put("/conectores/google/cliente", dependencies=[Depends(require_token)])
+    def set_google_client(body: GoogleClient) -> dict:
+        try:
+            return connectors.set_google_client(body.client_id, body.client_secret)
+        except ConnectorError as exc:
+            raise fail(exc) from exc
+
+    @app.post("/conectores/google/iniciar", dependencies=[Depends(require_token)])
+    def start_google(body: GoogleStart) -> dict:
+        try:
+            return {"url": connectors.start_google(body.nome, f"{settings.url}/conectores/oauth/retorno")}
+        except ConnectorError as exc:
+            raise fail(exc) from exc
+
+    @app.post("/conectores/mcp", dependencies=[Depends(require_token)])
+    def connect_mcp(body: McpConnect) -> JSONResponse:
+        """MCP próprio: por endereço (sem login, token ou OAuth) ou por comando (stdio)."""
+        try:
+            if body.transporte == "stdio":
+                created = connectors.add_mcp_stdio(body.nome, body.comando, body.env, body.pasta)
+            elif body.transporte == "http":
+                created = connectors.add_mcp_http(body.nome, body.url, body.auth, body.token, f"{settings.url}/conectores/oauth/retorno")
+            else:
+                raise ConnectorError("transporte: http ou stdio")
+        except ConnectorError as exc:
+            raise fail(exc) from exc
+        if isinstance(created, str):  # OAuth: a página de login abre no navegador
+            return JSONResponse({"url": created})
+        connectors_changed()
+        return JSONResponse(created.to_dict(), status_code=201)
+
+    @app.get("/conectores/catalogo-mcp", dependencies=[Depends(require_token)])
+    def mcp_catalog(q: str = Query(default="", max_length=200)) -> dict:
+        try:
+            return {"servidores": registry.search(q)}
+        except mcp_registry.RegistryError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/conectores/{account_id}/testar", dependencies=[Depends(require_token)])
+    def try_connector(account_id: str) -> dict:
+        return connectors.test(account_id)
+
+    def cli_places() -> mcp_configs.Places:
+        claude = manager.accounts.active("claude")
+        codex = manager.accounts.active("codex")
+        claude_json = Path(claude.dir).expanduser() / ".claude.json" if claude.dir else settings.claude_json
+        return mcp_configs.Places(
+            claude_json=claude_json,
+            codex_config=cli_home("codex", codex.id) / "config.toml",
+            claude_env={"CLAUDE_CONFIG_DIR": str(Path(claude.dir).expanduser())} if claude.dir else {},
+            codex_env={"CODEX_HOME": str(cli_home("codex", codex.id))} if codex.dir or app.state.cli_homes else {},
+        )
+
+    @app.get("/mcps-cli", dependencies=[Depends(require_token)])
+    def cli_mcps() -> dict:
+        return mcp_configs.listing(cli_places())
+
+    @app.post("/mcps-cli/copiar", dependencies=[Depends(require_token)])
+    def copy_cli_mcp(body: McpCopy) -> dict:
+        try:
+            return mcp_configs.copy(cli_places(), body.de, body.para, body.nome, app.state.mcp_cli_runner)
+        except mcp_configs.McpConfigError as exc:
+            raise HTTPException(status_code=exc.code, detail=str(exc)) from exc
 
     @app.post("/lembretes", dependencies=[Depends(require_token)], status_code=201)
     def create_reminder(body: ReminderBody) -> dict:

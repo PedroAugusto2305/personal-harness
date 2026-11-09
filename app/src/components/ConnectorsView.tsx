@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { CoreClient } from "../lib/core";
 import { openExternal } from "../lib/browser";
-import type { ActivityItem, Approval, ConnectorAccount } from "../types";
+import type { ActivityItem, AgentEvent, Approval, ConnectionTest, ConnectorAccount } from "../types";
+import { AgentFeed, CliMcpCopy, GithubSetup, GoogleSetup, McpSetup, TestResult } from "./ConnectorsExtra";
 
 interface Props {
   client: CoreClient | null;
@@ -11,6 +12,10 @@ interface Props {
   onActivity: (items: ActivityItem[]) => void;
   onDecide: (id: string, approve: boolean) => void;
   onToast: (message: string) => void;
+  /** v0.9.8: feed dos agentes e ir ao terminal deles. */
+  events: AgentEvent[];
+  onEvents: (events: AgentEvent[]) => void;
+  onOpenSession: (id: string) => void;
 }
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -185,12 +190,20 @@ function OAuthSetup({ client, kind, label, onToast }: { client: CoreClient; kind
 
 function AccountRow({ client, account, onToast }: { client: CoreClient; account: ConnectorAccount; onToast: (m: string) => void }) {
   const [confirm, setConfirm] = useState(false);
+  const [test, setTest] = useState<ConnectionTest | "testando" | null>(null);
   const patch = (changes: { approve_writes?: boolean; reminders?: boolean }) =>
     void client.patchConnector(account.id, changes).catch((cause) => onToast(message(cause)));
+  const tools = account.meta.ferramentas ?? account.meta.tools;
   const where =
     account.kind === "slack"
       ? `${account.meta.team} · DM com ${account.meta.user_name || account.meta.email}`
-      : `${account.meta.tools ?? "?"} ferramentas`;
+      : account.kind === "google"
+        ? `${account.meta.email ?? ""} · Gmail, Agenda e Drive`
+        : account.kind === "github"
+          ? `${account.meta.login ? `@${account.meta.login} · ` : ""}${tools ?? "?"} ferramentas`
+          : account.kind === "mcp"
+            ? `${account.meta.transporte ?? ""} · ${account.meta.url ?? account.meta.comando ?? ""} · ${tools ?? "?"} ferramentas`
+            : `${tools ?? "?"} ferramentas`;
   return (
     <div className="conn-account">
       <div className="conn-account-main">
@@ -214,14 +227,16 @@ function AccountRow({ client, account, onToast }: { client: CoreClient; account:
       <button
         type="button"
         className="link-btn"
-        onClick={() =>
+        disabled={test === "testando"}
+        onClick={() => {
+          setTest("testando");
           void client
-            .testConnector(account.id)
-            .then((r) => onToast(r.message))
-            .catch((cause) => onToast(message(cause)))
-        }
+            .checkConnector(account.id)
+            .then(setTest)
+            .catch((cause) => (setTest(null), onToast(message(cause))));
+        }}
       >
-        testar
+        {test === "testando" ? "testando…" : "testar"}
       </button>
       {confirm ? (
         <span className="conn-confirm small">
@@ -247,6 +262,7 @@ function AccountRow({ client, account, onToast }: { client: CoreClient; account:
           remover
         </button>
       )}
+      {test && test !== "testando" && <TestResult result={test} />}
     </div>
   );
 }
@@ -284,7 +300,7 @@ export function ReminderTry({ client, onToast }: { client: CoreClient; onToast: 
   );
 }
 
-export function ConnectorsView({ client, accounts, approvals, activity, onActivity, onDecide, onToast }: Props) {
+export function ConnectorsView({ client, accounts, approvals, activity, onActivity, onDecide, onToast, events, onEvents, onOpenSession }: Props) {
   const [tab, setTab] = useState<"contas" | "atividade">("contas");
   const [setup, setSetup] = useState<string | null>(null);
 
@@ -298,7 +314,11 @@ export function ConnectorsView({ client, accounts, approvals, activity, onActivi
   const list = accounts ?? [];
   const services: { kind: string; label: string; description: string }[] = [
     { kind: "slack", label: "Slack", description: "Bot da MÊTIS no workspace: avisos e lembretes na sua DM, que tocam no iPhone." },
-    { kind: "clickup", label: "ClickUp", description: "Tarefas, documentos e chat pelo MCP oficial do ClickUp." },
+    { kind: "clickup", label: "ClickUp", description: "Tarefas, documentos e chat pelo MCP oficial do ClickUp. A lista de um projeto aparece no kanban." },
+    { kind: "notion", label: "Notion", description: "Páginas e bancos de dados pelo MCP oficial do Notion." },
+    { kind: "github", label: "GitHub", description: "Issues, PRs, código e Actions pelo MCP oficial do GitHub, com o login do gh." },
+    { kind: "google", label: "Google", description: "Gmail, Agenda e Drive: buscar e ler, rascunho de e-mail e evento novo (com a sua aprovação)." },
+    { kind: "mcp", label: "MCP próprio", description: "Qualquer servidor MCP, por endereço ou por comando, ou um do catálogo oficial." },
   ];
 
   return (
@@ -338,6 +358,12 @@ export function ConnectorsView({ client, accounts, approvals, activity, onActivi
                 {setup === service.kind &&
                   (service.kind === "slack" ? (
                     <SlackSetup client={client} onDone={() => setSetup(null)} onToast={onToast} />
+                  ) : service.kind === "github" ? (
+                    <GithubSetup client={client} onDone={() => setSetup(null)} onToast={onToast} />
+                  ) : service.kind === "google" ? (
+                    <GoogleSetup client={client} onToast={onToast} />
+                  ) : service.kind === "mcp" ? (
+                    <McpSetup client={client} onDone={() => setSetup(null)} onToast={onToast} />
                   ) : (
                     <OAuthSetup client={client} kind={service.kind} label={service.label} onToast={onToast} />
                   ))}
@@ -345,13 +371,15 @@ export function ConnectorsView({ client, accounts, approvals, activity, onActivi
             );
           })}
           {list.some((a) => a.kind === "slack") && <ReminderTry client={client} onToast={onToast} />}
-          <p className="small conn-note conn-later">Notion, GitHub, Google e "Adicionar MCP" chegam numa 0.6.x.</p>
+          <CliMcpCopy client={client} onToast={onToast} />
         </div>
       ) : (
         <div className="conn-body">
           {approvals.map((approval) => (
             <ApprovalCard key={approval.id} approval={approval} onDecide={onDecide} />
           ))}
+          <AgentFeed client={client} events={events} onEvents={onEvents} onOpenSession={onOpenSession} />
+          <div className="section-title">Central de MCP</div>
           <table className="activity">
             <thead>
               <tr>

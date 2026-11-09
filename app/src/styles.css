@@ -7308,3 +7308,332 @@ html[data-density="confortavel"] body {
 .setting-row.inline-form input {
   flex: 1;
 }
+
+/* --- v0.9.8, parte 3: conectores, kanban, painel de agentes, Atividade e cota --------- */
+
+.today-quota {
+  margin-bottom: 18px;
+}
+.quota-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: var(--side);
+}
+.quota-row[data-active="true"] {
+  border-color: var(--line2);
+}
+.quota-name {
+  font-size: 12.5px;
+}
+.quota-meters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.quota-empty {
+  color: var(--fnt);
+}
+
+/* Kanban: rótulos, subtarefas, ClickUp. */
+.kb-label {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid hsl(var(--hue) 55% 60% / 0.45);
+  border-radius: 9px;
+  background: hsl(var(--hue) 55% 60% / 0.14);
+  color: hsl(var(--hue) 65% 72%);
+  font-size: 10.5px;
+  line-height: 1;
+}
+html[data-theme="claro"] .kb-label {
+  color: hsl(var(--hue) 60% 32%);
+}
+button.kb-label {
+  cursor: pointer;
+}
+.kb-label[aria-pressed="true"] {
+  background: hsl(var(--hue) 55% 60% / 0.38);
+  border-color: hsl(var(--hue) 55% 60%);
+}
+.kb-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 420px;
+}
+.kb-inline input {
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--tx);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.kb-inline input:focus {
+  border-color: var(--acc);
+}
+.kb-sub-toggle {
+  font: inherit;
+  padding: 0 0 0 4px;
+}
+.kb-subtasks {
+  margin: 4px 0 2px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.kb-subtasks label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  cursor: pointer;
+}
+.kb-subtasks input[type="checkbox"] {
+  margin-top: 2px;
+}
+.kb-clickup .kb-link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 0 10px 8px;
+}
+.kb-clickup .kb-link select,
+.kb-clickup .kb-link input {
+  max-width: 100%;
+  min-height: 26px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--tx);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.kb-status {
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--status);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--status) 18%, transparent);
+  color: var(--tx);
+  font-size: 10.5px;
+  text-transform: lowercase;
+}
+.kb-error {
+  padding: 0 10px;
+  color: var(--err);
+}
+
+/* Painel de agentes. */
+.agent-card {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.agent-preview {
+  margin: 4px 0;
+  color: var(--mut);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Conectores: teste, catálogo, MCPs das CLIs, feed dos agentes. */
+.conn-test {
+  flex-basis: 100%;
+  color: var(--run);
+}
+.conn-test[data-ok="false"] {
+  color: var(--err);
+}
+.conn-registry {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.conn-registry input {
+  flex: 1;
+}
+.registry-list {
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0 0 10px;
+  padding: 2px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.registry-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx);
+  text-align: left;
+}
+.registry-list button:hover {
+  background: var(--sel);
+}
+.registry-list .small {
+  color: var(--fnt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cli-mcp-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 0 14px 14px;
+}
+.cli-mcp {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+.cli-mcp-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cli-mcp-name .small {
+  color: var(--fnt);
+}
+.agent-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.activity tr.clickable {
+  cursor: pointer;
+}
+.activity tr.clickable:hover {
+  background: var(--sel);
+}
+.event-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.event-list li + li {
+  border-top: 1px solid var(--line);
+}
+.event-list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 70px 120px 1fr;
+  gap: 2px 10px;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--tx);
+  text-align: left;
+}
+.event-list button:hover {
+  background: var(--sel);
+}
+.event-time {
+  color: var(--fnt);
+}
+.event-kind {
+  font-size: 11.5px;
+}
+.event-kind[data-tone="ok"] {
+  color: var(--acc);
+}
+.event-kind[data-tone="warn"] {
+  color: var(--warn);
+}
+.event-kind[data-tone="run"] {
+  color: var(--run);
+}
+.event-kind[data-tone="off"] {
+  color: var(--fnt);
+}
+.event-preview {
+  grid-column: 3;
+  color: var(--mut);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.conn-registry input,
+.conn-form textarea {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--tx);
+  font: inherit;
+  outline: none;
+}
+.conn-registry input:focus,
+.conn-form textarea:focus {
+  border-color: var(--acc);
+}
+.conn-setup.conn-setup-one {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.conn-wide {
+  grid-column: 1 / -1;
+}
+.conn-account {
+  flex-wrap: wrap;
+}
+.conn-account-main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.conn-account-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-feed .activity td.mono {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.agent-card .kb-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

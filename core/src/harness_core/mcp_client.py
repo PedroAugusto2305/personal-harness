@@ -52,11 +52,12 @@ class McpClient:
 
     def _headers(self) -> dict[str, str]:
         headers = {
-            "Authorization": f"Bearer {self.token}",
             "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
             "MCP-Protocol-Version": PROTOCOL,
         }
+        if self.token:  # MCP próprio sem autenticação não manda o cabeçalho
+            headers["Authorization"] = f"Bearer {self.token}"
         if self.session:
             headers["Mcp-Session-Id"] = self.session
         return headers
