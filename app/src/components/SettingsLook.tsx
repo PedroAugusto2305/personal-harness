@@ -386,13 +386,20 @@ export function BrowserSection(props: BrowserProps) {
         .map((d) => d.trim())
         .filter(Boolean);
       const answer = await client.readCookies(source, list);
+      // Os de localhost ficam de fora (a não ser que você peça): o Chrome junta cookies de
+      // todo projeto local, e o servidor de dev responde 431 com o cabeçalho grande demais.
+      const local = (domain: string) => ["localhost", "127.0.0.1", "[::1]"].includes(domain.replace(/^\./, ""));
+      const wantsLocal = list.some(local);
+      const cookies = answer.cookies.filter((c) => wantsLocal || !local(c.dominio));
+      const skipped = answer.cookies.length - cookies.length;
       const profile = profiles.find((p) => p.id === target);
       if (!browser.available()) throw new Error("importar cookies só funciona no app");
-      const count = await browser.importCookies(profile?.identificador ?? null, answer.cookies);
+      const count = await browser.importCookies(profile?.identificador ?? null, cookies);
       const from = sources?.find((s) => s.id === source);
       setDone(
         `${count} cookie(s) do ${from?.navegador ?? "Chrome"} (${from?.perfil ?? source}) no perfil ${profile?.nome ?? "Padrão"}` +
           (answer.ignorados ? `; ${answer.ignorados} não decifraram` : "") +
+          (skipped ? `; ${skipped} de localhost ficaram de fora` : "") +
           ". Recarregue as abas desse perfil.",
       );
     } catch (cause) {
