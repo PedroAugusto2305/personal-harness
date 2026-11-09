@@ -111,6 +111,9 @@ class BrainIndex:
         self.encode = encode  # texto → vetores; None = só por palavra
         self._lock = threading.Lock()
         self._checked = 0.0
+        #: v0.9.8: avisado a cada nota nova ou mudada ({caminho, titulo, projeto, tipo}), depois da 1ª leitura.
+        self.on_note = None
+        self._warm = False
 
     # --- infraestrutura -----------------------------------------------------------
 
@@ -156,12 +159,14 @@ class BrainIndex:
                 known = {row["path"]: (row["id"], row["mtime"]) for row in con.execute("select id, path, mtime from notes")}
                 if known.keys() == on_disk.keys() and all(known[rel][1] == m for rel, (_p, m) in on_disk.items()):
                     self._checked = time.monotonic()
+                    self._warm = True
                     return {"indexed": 0, "removed": 0, "total": len(known)}
                 # Trava de escrita e releitura: outro processo (o MCP de fora, o hook) pode ter
                 # acabado de reindexar o mesmo arquivo.
                 con.execute("begin immediate")
                 known = {row["path"]: (row["id"], row["mtime"]) for row in con.execute("select id, path, mtime from notes")}
                 changed = 0
+                touched: list[dict] = []
                 for rel, (path, mtime) in on_disk.items():
                     if rel in known and known[rel][1] == mtime:
                         continue
@@ -169,7 +174,7 @@ class BrainIndex:
                         text = path.read_text(encoding="utf-8", errors="replace")
                     except OSError:
                         continue
-                    self._store(con, rel, path.stem, text, mtime, known.get(rel, (None,))[0])
+                    touched.append(self._store(con, rel, path.stem, text, mtime, known.get(rel, (None,))[0]))
                     changed += 1
                 gone = [known[rel][0] for rel in known.keys() - on_disk.keys()]
                 for note_id in gone:
@@ -186,9 +191,18 @@ class BrainIndex:
             finally:
                 con.close()
             self._checked = time.monotonic()
+            # v0.9.8: nota nova ou mudada vira o evento brain.nota das automações. A primeira
+            # leitura depois de subir não conta (seria o vault inteiro, ou o que mudou com o núcleo fora).
+            if self._warm and self.on_note is not None:
+                for info in touched[:20]:
+                    try:
+                        self.on_note(info)
+                    except Exception:  # noqa: BLE001 - o gatilho nunca atrapalha o índice
+                        pass
+            self._warm = True
             return {"indexed": changed, "removed": len(gone), "total": total}
 
-    def _store(self, con: sqlite3.Connection, rel: str, title: str, text: str, mtime: float, note_id: int | None) -> None:
+    def _store(self, con: sqlite3.Connection, rel: str, title: str, text: str, mtime: float, note_id: int | None) -> dict:
         meta, body = split_frontmatter(text)
         tipo = meta.get("tipo", "")
         projeto = title if tipo == "projeto" else link_target(meta.get("projeto", ""))
@@ -207,6 +221,7 @@ class BrainIndex:
         con.execute("insert into fts(rowid, title, resumo, body) values (?, ?, ?, ?)", (note_id, title, row[7], body[:MAX_BODY]))
         targets = {fold(t) for t in wikilinks(text)}
         con.executemany("insert into links(src, dst) values (?, ?)", [(note_id, t) for t in targets])
+        return {"caminho": rel, "titulo": title, "projeto": projeto, "tipo": tipo}
 
     @staticmethod
     def _row(row: sqlite3.Row) -> dict:

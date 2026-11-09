@@ -54,10 +54,11 @@ export const KIND: Record<Kind, { label: string; color: string; icon: string | n
   aprovacao: { label: "Aprovação", color: "var(--warn)", icon: P.shield, hint: "pausa até você aprovar no cartão da MÊTIS" },
   brain: { label: "Brain", color: "var(--g-brain)", icon: ICON.graph, hint: "buscar, ler, precedentes, tarefas ou linha no diário" },
   esperar: { label: "Esperar", color: "var(--fnt)", icon: P.hourglass, hint: "um tempo antes de seguir (no teste, 3 s)" },
+  codigo: { label: "Código", color: "var(--mut)", icon: P.code, hint: "Python ou JavaScript local; o Claude escreve a partir da descrição" },
 };
 
-/** Lógica e dados, na ordem da gaveta. Código chega depois. */
-export const LOGIC: AutoStepType[] = ["condicao", "aprovacao", "esperar", "brain"];
+/** Lógica e dados, na ordem da gaveta. */
+export const LOGIC: AutoStepType[] = ["condicao", "aprovacao", "esperar", "codigo", "brain"];
 
 export const STEP_LABEL: Record<AutoStepStatus, string> = {
   rodando: "rodando",
@@ -113,9 +114,21 @@ export function triggerTitle(t: AutoTrigger): string {
   return t.tipo === "agendado" ? capital(`${daysLabel(t.dias)}, ${t.hora || "--:--"}`) : "Na mão";
 }
 
+export const EVENT_LABEL: Record<string, string> = {
+  "brain.nota": "nota nova no Brain",
+  "tarefa.moveu": "tarefa mudou de coluna",
+  "agente.terminou": "agente terminou",
+  "agente.errou": "agente saiu com erro",
+  "worktree.criada": "worktree criada",
+  captura: "captura rápida",
+};
+
 export function triggerWhen(t: AutoTrigger | undefined): string {
   if (!t) return "";
-  return t.tipo === "agendado" ? `${daysLabel(t.dias)} · ${t.hora || "--:--"}` : "na mão";
+  if (t.tipo === "agendado") return `${daysLabel(t.dias)} · ${t.hora || "--:--"}`;
+  if (t.tipo === "evento") return t.evento ? EVENT_LABEL[t.evento] ?? t.evento : "evento";
+  if (t.tipo === "sondagem") return `a cada ${t.cada_min ?? 15} min`;
+  return "na mão";
 }
 
 // --- conectores como "elementos" -------------------------------------------------------------
@@ -260,6 +273,8 @@ export function stepSub(step: AutoStep): string {
       return step.acao ? BRAIN_LABEL[step.acao] : "escolha a ação";
     case "esperar":
       return `${step.minutos ?? 1} min`;
+    case "codigo":
+      return `${step.linguagem === "javascript" ? "JavaScript" : "Python"}${step.codigo?.trim() ? "" : " · sem código ainda"}`;
   }
 }
 

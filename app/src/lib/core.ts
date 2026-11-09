@@ -65,6 +65,8 @@ import type {
   RefCommit,
   SidebarState,
   WorktreeMode,
+  AutoProposal,
+  AutoStrategy,
   AgentEvent,
   AgentPanelItem,
   ClickupBoard,
@@ -624,6 +626,31 @@ export class CoreClient {
 
   createAutomation(nome: string, desenho?: AutoFlow): Promise<AutoSummary> {
     return this.request("POST", "/automacoes", { nome, desenho: desenho ?? null });
+  }
+
+  /** v0.9.8: o Claude monta (ou ajusta) a automação a partir de uma frase; nada é salvo. */
+  proposeAutomation(descricao: string, atual?: AutoFlow): Promise<AutoProposal> {
+    return this.request("POST", "/automacoes/proposta", { descricao, atual: atual ?? null });
+  }
+
+  writeCode(descricao: string, linguagem: "python" | "javascript", entrada_exemplo?: unknown): Promise<{ codigo: string }> {
+    return this.request("POST", "/automacoes/codigo/escrever", { descricao, linguagem, entrada_exemplo: entrada_exemplo ?? null });
+  }
+
+  importN8n(body: { fluxo: unknown } | { conta: string; workflow_id: string }): Promise<AutoProposal> {
+    return this.request("POST", "/automacoes/importar-n8n", body);
+  }
+
+  n8nFlows(conta: string): Promise<{ fluxos: { id: string; nome: string; ativo: boolean }[] }> {
+    return this.request("GET", `/automacoes/n8n/fluxos?conta=${encodeURIComponent(conta)}`);
+  }
+
+  strategies(): Promise<{ estrategias: AutoStrategy[] }> {
+    return this.request("GET", "/automacoes/estrategias");
+  }
+
+  createFromStrategy(id: string, parametros: Record<string, string | number>): Promise<{ id: string }> {
+    return this.request("POST", `/automacoes/estrategias/${encodeURIComponent(id)}`, { parametros });
   }
 
   saveAutomation(id: string, desenho: AutoFlow): Promise<AutoSummary> {

@@ -29,6 +29,7 @@ import {
   triggerTitle,
   uniqueTitle,
   upstream,
+  EVENT_LABEL,
 } from "./model";
 import { type DataMode, DataView, ElemMark, Expr, Field, Glyph, Segment, hasExpr } from "./parts";
 
@@ -233,6 +234,16 @@ function ToolSelect({ catalog, value, exclude, placeholder, onChange }: { catalo
   );
 }
 
+/** O que cada evento traz em {{entrada}} (e dá para filtrar). */
+const EVENT_FIELDS: Record<string, string> = {
+  "brain.nota": "campos: caminho, titulo, projeto, tipo",
+  "tarefa.moveu": "campos: projeto, id, texto, de, para",
+  "agente.terminou": "campos: sessao, titulo, cli, cwd, previa",
+  "agente.errou": "campos: sessao, titulo, cli, cwd, codigo",
+  "worktree.criada": "campos: projeto, caminho, branch",
+  captura: "campo: texto",
+};
+
 export function StepPanel(props: Props) {
   const { flow, nodeId, editing, catalog, agents, client, run, view, onView, onEdit } = props;
   const isTrigger = nodeId === TRIGGER;
@@ -241,6 +252,9 @@ export function StepPanel(props: Props) {
   const [tab, setTab] = useState<"parametros" | "ajustes">("parametros");
   const [title, setTitle] = useState(step?.titulo ?? "");
   const [titleError, setTitleError] = useState<string | null>(null);
+  /** v0.9.8: o Claude escrevendo o código do passo. */
+  const [writing, setWriting] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [rows, setRows] = useState<{ k: string; t: AutoOutputType }[]>(() => Object.entries(step?.saida ?? {}).map(([k, t]) => ({ k, t })));
 
   useEffect(() => {
@@ -315,13 +329,80 @@ export function StepPanel(props: Props) {
             options={[
               ["manual", "Na mão"],
               ["agendado", "Agendado"],
+              ["evento", "Evento"],
+              ["sondagem", "Novidade"],
             ]}
             onChange={(tipo) =>
-              patchTrigger(tipo === "agendado" ? { tipo, dias: t.dias?.length ? t.dias : [0, 1, 2, 3, 4], hora: t.hora || "08:00", recupera_min: t.recupera_min ?? 60 } : { tipo })
+              patchTrigger(
+                tipo === "agendado"
+                  ? { tipo, dias: t.dias?.length ? t.dias : [0, 1, 2, 3, 4], hora: t.hora || "08:00", recupera_min: t.recupera_min ?? 60 }
+                  : tipo === "evento"
+                    ? { tipo, evento: t.evento ?? "agente.terminou" }
+                    : tipo === "sondagem"
+                      ? { tipo, ferramenta: t.ferramenta ?? "", argumentos: t.argumentos ?? {}, cada_min: t.cada_min ?? 15, chave: t.chave ?? "id" }
+                      : { tipo },
+              )
             }
           />
         </Field>
-        {t.tipo === "agendado" ? (
+        {t.tipo === "evento" ? (
+          <>
+            <Field label="Qual evento">
+              <select value={t.evento ?? "agente.terminou"} disabled={!editing} onChange={(event) => patchTrigger({ evento: event.target.value as AutoTrigger["evento"] })}>
+                {Object.entries(EVENT_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Só quando (opcional)" hint={EVENT_FIELDS[t.evento ?? "agente.terminou"]}>
+              <textarea
+                className="af-input mono"
+                rows={3}
+                disabled={!editing}
+                value={Object.entries(t.filtro ?? {})
+                  .map(([k, v]) => `${k}=${v}`)
+                  .join("\n")}
+                placeholder="projeto=Personal Harness"
+                onChange={(event) => {
+                  const filtro: Record<string, string> = {};
+                  for (const line of event.target.value.split("\n")) {
+                    const at = line.indexOf("=");
+                    if (at > 0) filtro[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+                  }
+                  patchTrigger({ filtro: Object.keys(filtro).length ? filtro : undefined });
+                }}
+              />
+            </Field>
+            <p className="af-note">
+              O que veio no evento chega em <Expr text="{{entrada}}" /> (ex.: <Expr text="{{entrada.previa}}" />). A mesma automação não dispara de novo para o mesmo evento em 30 s.
+            </p>
+          </>
+        ) : t.tipo === "sondagem" ? (
+          <>
+            <Field label="Ferramenta que lista as novidades" hint="só ferramentas de leitura">
+              <ToolSelect catalog={catalog} value={t.ferramenta ?? ""} exclude={(catalog?.ferramentas ?? []).filter((x) => x.pessoas).map((x) => x.nome)} placeholder="escolha a ferramenta" onChange={(name) => patchTrigger({ ferramenta: name })} />
+            </Field>
+            <Field label="Argumentos">
+              <JsonEditor value={t.argumentos ?? {}} object rows={4} onChange={(value) => patchTrigger({ argumentos: (value as Record<string, unknown>) ?? {} })} />
+            </Field>
+            <div className="af-row2">
+              <Field label="A cada (min)">
+                <input className="af-input mono" inputMode="numeric" value={t.cada_min ?? ""} placeholder="15" onChange={(event) => patchTrigger({ cada_min: num(event.target.value) })} />
+              </Field>
+              <Field label="Campo que identifica" hint="vazio = o item inteiro">
+                <input className="af-input mono" value={t.chave ?? ""} placeholder="id" onChange={(event) => patchTrigger({ chave: event.target.value })} />
+              </Field>
+            </div>
+            <Field label="Onde está a lista" hint="vazio = a primeira lista da resposta">
+              <input className="af-input mono" value={t.caminho ?? ""} placeholder="tasks" onChange={(event) => patchTrigger({ caminho: event.target.value })} />
+            </Field>
+            <p className="af-note">
+              A primeira pergunta só anota o que já existe. Depois, cada item novo entra em <Expr text="{{entrada.novos}}" />, numa execução por vez.
+            </p>
+          </>
+        ) : t.tipo === "agendado" ? (
           <>
             <Field label="Dias" group>
               <div className="af-days">
@@ -348,6 +429,10 @@ export function StepPanel(props: Props) {
                 <input className="af-input mono" inputMode="numeric" value={t.recupera_min ?? ""} placeholder="60" onChange={(event) => patchTrigger({ recupera_min: num(event.target.value) })} />
               </Field>
             </div>
+            <label className="af-check">
+              <input type="checkbox" checked={!!t.aviso} disabled={!editing} onChange={(event) => patchTrigger({ aviso: event.target.checked || undefined })} />
+              Avisar no Slack quando começa e quando dá erro
+            </label>
           </>
         ) : (
           <p className="af-note">Roda quando você manda: «Rodar a publicada agora», o ⌘K ou metis rodar no terminal.</p>
@@ -498,7 +583,74 @@ export function StepPanel(props: Props) {
             <input className="af-input mono" inputMode="numeric" value={s.tempo_limite_min ?? ""} placeholder="20" onChange={(event) => patch({ tempo_limite_min: num(event.target.value) })} />
           </Field>
         </div>
+        <label className="af-check">
+          <input type="checkbox" checked={s.troca_cota !== false} disabled={!editing} onChange={(event) => patch({ troca_cota: event.target.checked ? undefined : false })} />
+          Rodar no {(s.cli ?? "claude") === "codex" ? "Claude" : "Codex"} quando a janela de 5 h do {(s.cli ?? "claude") === "codex" ? "Codex" : "Claude"} passar de 80%
+        </label>
         <p className="af-note">Roda interativo, como se você digitasse {s.cli ?? "claude"}, pelo seu plano, numa aba do grupo Automações.</p>
+      </>
+    );
+  };
+
+  const codeForm = (s: AutoStep) => {
+    const lang = s.linguagem ?? "python";
+    const write = async () => {
+      if (!client || !s.descricao?.trim()) return;
+      setWriting(true);
+      setCodeError(null);
+      try {
+        const answer = await client.writeCode(s.descricao.trim(), lang, run?.steps[nodeId]?.entrada);
+        patch({ codigo: answer.codigo });
+      } catch (cause) {
+        setCodeError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setWriting(false);
+      }
+    };
+    return (
+      <>
+        <Field label="Linguagem" group>
+          <Segment
+            value={lang}
+            disabled={!editing}
+            options={[
+              ["python", "Python"],
+              ["javascript", "JavaScript"],
+            ]}
+            onChange={(linguagem) => patch({ linguagem })}
+          />
+        </Field>
+        <Field label="O que o código faz" hint="o Claude escreve a partir daqui (pelo seu plano)">
+          <textarea
+            className="af-input"
+            rows={3}
+            disabled={!editing}
+            value={s.descricao ?? ""}
+            placeholder="Somar o valor de cada pedido de {{Pedidos}} e devolver o total e a média"
+            onChange={(event) => patch({ descricao: event.target.value })}
+          />
+          {editing && (
+            <button type="button" className="btn af-add" disabled={writing || !s.descricao?.trim()} onClick={() => void write()}>
+              {writing ? "Escrevendo…" : s.codigo?.trim() ? "Reescrever com o Claude" : "Escrever com o Claude"}
+            </button>
+          )}
+          {codeError && <p className="af-error small">{codeError}</p>}
+        </Field>
+        <Field label="Código" hint={<>recebe <code>entrada</code> e <code>passos</code>; devolve em <code>saida</code></>}>
+          <textarea
+            className="af-input mono af-code"
+            rows={12}
+            spellCheck={false}
+            disabled={!editing}
+            value={s.codigo ?? ""}
+            placeholder={lang === "python" ? "saida = {'total': len(entrada or [])}" : "saida = { total: (entrada || []).length }"}
+            onChange={(event) => patch({ codigo: event.target.value })}
+          />
+        </Field>
+        <Field label="Tempo limite (s)">
+          <input className="af-input mono" inputMode="numeric" value={s.tempo_limite_s ?? ""} placeholder="30" onChange={(event) => patch({ tempo_limite_s: num(event.target.value) })} />
+        </Field>
+        <p className="af-note">Roda neste Mac ({lang === "python" ? "python3" : "node"}), numa pasta temporária, sem gastar cota. O que o código imprime vira o log do passo.</p>
       </>
     );
   };
@@ -594,6 +746,7 @@ export function StepPanel(props: Props) {
     if (s.tipo === "condicao") return conditionForm(s);
     if (s.tipo === "aprovacao") return approvalForm(s);
     if (s.tipo === "brain") return brainForm(s);
+    if (s.tipo === "codigo") return codeForm(s);
     return waitForm(s);
   };
 

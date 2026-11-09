@@ -94,6 +94,12 @@ class EventBus:
 
     def __init__(self) -> None:
         self._subscribers: dict[asyncio.Queue[dict], asyncio.AbstractEventLoop | None] = {}
+        #: v0.9.8: quem dentro do núcleo quer saber de cada evento (gatilhos das automações).
+        self._listeners: list[Callable[[dict], None]] = []
+
+    def listen(self, fn: Callable[[dict], None]) -> None:
+        """Chama fn(evento) a cada publish, na thread de quem publica. fn não pode travar."""
+        self._listeners.append(fn)
 
     def subscribe(self) -> asyncio.Queue[dict]:
         queue: asyncio.Queue[dict] = asyncio.Queue()
@@ -123,6 +129,11 @@ class EventBus:
                     loop.call_soon_threadsafe(queue.put_nowait, event)
             else:
                 queue.put_nowait(event)
+        for listener in list(self._listeners):
+            try:
+                listener(event)
+            except Exception:  # noqa: BLE001 - quem escuta nunca derruba quem publica
+                pass
 
 
 @dataclass

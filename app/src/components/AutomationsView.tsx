@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { shortPath } from "../lib/format";
-import type { Agent, AutoCatalog, AutoDetail, AutoEdge, AutoFlow, AutoRun, AutoRunStatus, AutoRunSummary, AutoSummary, AutoTrigger, CoreEvent } from "../types";
+import type { Agent, AutoCatalog, AutoDetail, AutoEdge, AutoFlow, AutoProposal, AutoRun, AutoRunStatus, AutoRunSummary, AutoSummary, AutoTrigger, ConnectorAccount, CoreEvent } from "../types";
 import "./automations.css";
 import { Canvas, type CanvasApi } from "./automations/Canvas";
 import { Drawer, type StepDraft } from "./automations/Drawer";
@@ -37,6 +37,7 @@ import {
 } from "./automations/model";
 import { type DataMode, ElemMark } from "./automations/parts";
 import { StepPanel } from "./automations/StepPanel";
+import { CreateDialog, ProposalBanner, type CreateWay } from "./automations/Proposal";
 
 type AutomationEvent = Extract<CoreEvent, { type: `automation.${string}` }>;
 
@@ -47,6 +48,8 @@ interface Props {
   event: AutomationEvent | null;
   onOpenSession: (id: string) => void;
   onToast: (message: string) => void;
+  /** v0.9.8: contas de MCP próprio (um n8n ligado serve para importar). */
+  mcpAccounts?: ConnectorAccount[];
 }
 
 type SaveState = "salvo" | "pendente" | "salvando" | "erro";
@@ -81,7 +84,7 @@ const stateOf = (a: AutoSummary) => (a.erro ? "erro" : a.ativa ? "ativa" : a.pub
 /** Primeiro ramo livre de uma condição (sim, depois não). */
 const freeBranch = (flow: AutoFlow, id: string): Ramo => (flow.ligacoes.some((e) => e.de === id && e.ramo === "sim") ? "não" : "sim");
 
-export function AutomationsView({ client, agents, tick, event, onOpenSession, onToast }: Props) {
+export function AutomationsView({ client, agents, tick, event, onOpenSession, onToast, mcpAccounts }: Props) {
   const [list, setList] = useState<AutoSummary[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [currentId, setCurrentId] = useState<string | null>(null);
@@ -345,6 +348,12 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
   };
 
   /** Toda mudança no canvas ou no painel passa por aqui: muda na tela já e salva ~600 ms depois. */
+  // v0.9.8: os jeitos novos de criar e a proposta da IA (tracejada até aplicar).
+  const [createWay, setCreateWay] = useState<CreateWay | null>(null);
+  const [proposal, setProposal] = useState<{ for: string; data: AutoProposal } | null>(null);
+  const [tweak, setTweak] = useState<string | null>(null);
+  const [proposing, setProposing] = useState(false);
+
   const edit = (change: Change) => {
     const base = draftRef.current;
     const id = currentRef.current;
@@ -415,6 +424,47 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
     } finally {
       setBusy(null);
     }
+  };
+
+  /** Proposta pronta (frase ou n8n): nasce a automação vazia e a proposta aparece por cima. */
+  const createWithProposal = async (nome: string, data: AutoProposal) => {
+    if (!client) return;
+    const summary = await client.createAutomation(nome);
+    setList((all) => [...(all ?? []), summary]);
+    setCreateWay(null);
+    setCreating(null);
+    await choose(summary.id);
+    setProposal({ for: summary.id, data });
+  };
+
+  const createdFromStrategy = async (id: string) => {
+    setCreateWay(null);
+    setCreating(null);
+    await loadList();
+    await choose(id);
+  };
+
+  const askTweak = async () => {
+    const text = tweak?.trim();
+    if (!client || !flow || !currentId || !text) return;
+    setProposing(true);
+    try {
+      const data = await client.proposeAutomation(text, flow);
+      setProposal({ for: currentId, data });
+      setTweak(null);
+    } catch (cause) {
+      onToast(message(cause));
+    } finally {
+      setProposing(false);
+    }
+  };
+
+  const applyProposal = () => {
+    if (!proposal) return;
+    const next = normalize(proposal.data.proposta);
+    edit((f) => ({ ...next, nome: f.nome }));
+    setProposal(null);
+    onToast("Proposta aplicada ao rascunho. Teste antes de publicar.");
   };
 
   const act = async (label: string, job: () => Promise<void>) => {
@@ -634,7 +684,14 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
       const t = f.gatilho;
       return {
         ...f,
-        gatilho: tipo === "agendado" ? { ...t, tipo, dias: t.dias?.length ? t.dias : [0, 1, 2, 3, 4], hora: t.hora || "08:00", recupera_min: t.recupera_min ?? 60 } : { ...t, tipo },
+        gatilho:
+          tipo === "agendado"
+            ? { ...t, tipo, dias: t.dias?.length ? t.dias : [0, 1, 2, 3, 4], hora: t.hora || "08:00", recupera_min: t.recupera_min ?? 60 }
+            : tipo === "evento"
+              ? { ...t, tipo, evento: t.evento ?? "agente.terminou" }
+              : tipo === "sondagem"
+                ? { ...t, tipo, ferramenta: t.ferramenta ?? "", argumentos: t.argumentos ?? {}, cada_min: t.cada_min ?? 15, chave: t.chave ?? "id" }
+                : { ...t, tipo },
       };
     });
     setDrawer(null);
@@ -704,6 +761,8 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
   const shownRun = editing ? liveRun : pickedRun;
   const panelRun = editing ? (liveRun ?? (latestId !== null ? (runCache[latestId] ?? null) : null)) : pickedRun;
   const flow = editing ? draft : (pickedRun?.flow ?? draft);
+  /** A proposta da IA desta automação aparece tracejada no lugar do rascunho até aplicar. */
+  const proposalHere = !!proposal && proposal.for === currentId && editing;
   const current = list?.find((a) => a.id === currentId) ?? null;
   const dirty = save.state !== "salvo";
   const published = detail?.publicada ?? null;
@@ -712,7 +771,7 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
   const waiting = liveRun ? Object.entries(liveRun.steps).find(([, st]) => st.status === "esperando") : undefined;
   const failedStep = (run: AutoRun) => Object.entries(run.steps).find(([, st]) => st.status === "erro")?.[0];
   const titleOf = (f: AutoFlow | null, id: string) => (id === TRIGGER ? "gatilho" : (f?.passos.find((s) => s.id === id)?.titulo ?? id));
-  const fitKey = editing ? `draft:${currentId}:${loads}` : `runs:${currentId}:${pickedRun ? "run" : "draft"}`;
+  const fitKey = editing ? `draft:${currentId}:${loads}:${proposalHere ? "proposta" : ""}` : `runs:${currentId}:${pickedRun ? "run" : "draft"}`;
   const runLabel = (run: AutoRun | null) =>
     !run ? "" : run.id === liveId ? "do teste de agora" : `da execução #${run.id} (${when(run.started)})`;
 
@@ -746,6 +805,20 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
         </button>
         <button type="button" className="btn" onClick={() => setCreating(null)}>
           Cancelar
+        </button>
+      </div>
+      <div className="af-ways small">
+        ou{" "}
+        <button type="button" className="link-btn" onClick={() => setCreateWay("frase")}>
+          descrever numa frase
+        </button>
+        ,{" "}
+        <button type="button" className="link-btn" onClick={() => setCreateWay("n8n")}>
+          importar do n8n
+        </button>
+        ,{" "}
+        <button type="button" className="link-btn" onClick={() => setCreateWay("estrategia")}>
+          estratégia de agentes
         </button>
       </div>
     </form>
@@ -988,6 +1061,31 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
               </button>
             </span>
           )}
+          {tweak === null ? (
+            <button type="button" className="af-go" data-secondary="true" onClick={() => setTweak("")} title="O Claude muda o desenho a partir de uma frase; você vê antes de aplicar">
+              Ajustar por frase
+            </button>
+          ) : (
+            <form
+              className="af-tweak"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void askTweak();
+              }}
+            >
+              <input
+                autoFocus
+                value={tweak}
+                onChange={(event) => setTweak(event.target.value)}
+                onKeyDown={(event) => event.key === "Escape" && setTweak(null)}
+                placeholder="ex.: antes de mandar no Slack, pedir minha aprovação"
+                disabled={proposing}
+              />
+              <button type="submit" className="btn" disabled={proposing || !tweak.trim()}>
+                {proposing ? "Pensando…" : "Propor"}
+              </button>
+            </form>
+          )}
           <span className="af-spacer" />
           {published !== null && (
             <button type="button" className="af-go" data-secondary="true" disabled={busy === "rodar"} onClick={() => void runPublished()} title="Roda a versão publicada de verdade, agora">
@@ -1048,9 +1146,22 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
     </div>
   );
 
+  const dialog = createWay && client && (
+    <CreateDialog
+      client={client}
+      way={createWay}
+      mcpAccounts={mcpAccounts ?? []}
+      onWay={setCreateWay}
+      onClose={() => setCreateWay(null)}
+      onProposal={createWithProposal}
+      onCreated={createdFromStrategy}
+    />
+  );
+
   return (
     <div className="af-screen">
       {renderList()}
+      {dialog}
 
       <section className="af-main">
         <header className="af-bar">
@@ -1187,7 +1298,7 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
             </aside>
           )}
 
-          <div className="af-stage">
+          <div className="af-stage" data-proposta={proposalHere ? "true" : undefined}>
             {detailError ? (
               <div className="af-blank">
                 <p className="af-error">Esta automação não abre: {detailError}</p>
@@ -1202,8 +1313,8 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
               <p className="af-blank">{currentId ? "Abrindo…" : "Escolha uma automação na lista."}</p>
             ) : (
               <Canvas
-                flow={flow}
-                editing={editing}
+                flow={proposalHere ? normalize(proposal!.data.proposta) : flow}
+                editing={editing && !proposalHere}
                 steps={shownRun?.steps ?? {}}
                 catalog={catalog}
                 agents={agents}
@@ -1220,7 +1331,7 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
                 onToggleOff={toggleOff}
                 onRemove={removeStep}
               >
-                {editing && stepCount === 0 && (
+                {editing && stepCount === 0 && !proposalHere && (
                   <div className="af-empty af-overlay" onPointerDown={(event) => event.stopPropagation()}>
                     <button type="button" className="af-first" onClick={() => openDrawer({ after: TRIGGER })}>
                       <span>
@@ -1236,7 +1347,11 @@ export function AutomationsView({ client, agents, tick, event, onOpenSession, on
                     </p>
                   </div>
                 )}
-                {banner}
+                {proposalHere ? (
+                  <ProposalBanner proposal={proposal!.data} busy={save.state === "salvando"} onApply={applyProposal} onDiscard={() => setProposal(null)} />
+                ) : (
+                  banner
+                )}
                 {!editing && !pickedRun && runs.length === 0 && (
                   <div className="af-runbanner af-overlay" onPointerDown={(event) => event.stopPropagation()}>
                     <div className="af-runbanner-row small">Sem execuções. Este é o rascunho, só para ver.</div>

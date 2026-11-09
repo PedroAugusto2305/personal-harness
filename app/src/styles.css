@@ -7637,3 +7637,14 @@ button.kb-label {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Sugestão de troca por cota no cabeçalho do terminal (v0.9.8). */
+.quota-hint {
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+  font-size: 11px;
+  white-space: nowrap;
+}

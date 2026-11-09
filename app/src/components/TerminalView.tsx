@@ -165,6 +165,8 @@ interface Props {
   onRestart?: (continuar: boolean) => Promise<void>;
   /** Passa o trabalho para a outra CLI (Claude ↔ Codex); esta sessão continua aberta. */
   onHandOff?: (nota: string) => Promise<void>;
+  /** v0.9.8: a conta deste terminal passou de 80% na janela de 5 h e a outra CLI tem folga. */
+  quotaHint?: string | null;
   /** Fecha a sessão (o mesmo × da aba). */
   onClose?: () => void;
   /** Abre "Retomar uma conversa" (quando a conversa desta não é achada). */
@@ -197,6 +199,7 @@ export function TerminalView({
   onFocusInput,
   onRestart,
   onHandOff,
+  quotaHint,
   onClose,
   onHistory,
 }: Props) {
@@ -453,7 +456,7 @@ export function TerminalView({
           </span>
         )}
         <SessionMenu client={client} session={session} />
-        {agentKind && onHandOff && <HandOffButton other={other} onHandOff={onHandOff} />}
+        {agentKind && onHandOff && <HandOffButton other={other} onHandOff={onHandOff} hint={quotaHint ?? null} />}
         <button
           type="button"
           className="icon-btn"
@@ -590,7 +593,7 @@ function ExitStrip({
  * "Passar para o Codex/Claude": abre um campo pequeno para um recado opcional e cria a
  * sessão na outra CLI, com o registro da conversa e as últimas mensagens desta.
  */
-function HandOffButton({ other, onHandOff }: { other: "claude" | "codex"; onHandOff: (nota: string) => Promise<void> }) {
+function HandOffButton({ other, onHandOff, hint }: { other: "claude" | "codex"; onHandOff: (nota: string) => Promise<void>; hint: string | null }) {
   const [open, setOpen] = useState(false);
   const [nota, setNota] = useState("");
   const [busy, setBusy] = useState(false);
@@ -635,6 +638,7 @@ function HandOffButton({ other, onHandOff }: { other: "claude" | "codex"; onHand
       >
         <Icon d={ICON.handoff} size={12} strokeWidth={2} />
         <span style={{ color: KIND_COLOR[other] }}>{KIND_GLYPH[other]}</span>
+        {hint && <span className="quota-hint">{hint} · passar para o {KIND_LABEL[other]}</span>}
       </button>
       {open && (
         <form

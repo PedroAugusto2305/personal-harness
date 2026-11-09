@@ -6,7 +6,14 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 
 ## O que já faz (v0.9.7)
 
-**Chegando na 0.9.8, parte 3 de 5 (conectores e kanban):**
+**Chegando na 0.9.8, parte 4 de 5 (automações):**
+
+- **Passo Código** (Python ou JavaScript, escrito pelo Claude), **gatilhos por evento** da MÊTIS e **por novidade** num conector.
+- **Criar e ajustar por frase**, **importar do n8n** e **estratégias de agentes** (melhor de N, portão de revisão…).
+- **Troca por cota:** o agente roda no outro provedor acima de 80% da janela de 5 h; os terminais sugerem a troca.
+- **Rotinas viraram automações** (a tela Hoje continua igual).
+
+**Parte 3 de 5 (conectores e kanban):**
 
 - **Conectores:** Notion, GitHub (com o login do `gh`), Google (Gmail, Agenda e Drive) e **MCP próprio** (por endereço, por comando ou do catálogo oficial de MCP); testar conexão; copiar um MCP entre o Claude e o Codex.
 - **Kanban:** rótulos com filtro, subtarefas no cartão, a lista do ClickUp do projeto e o **painel de agentes** (⌘K → Painel de agentes).

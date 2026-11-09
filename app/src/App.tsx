@@ -172,6 +172,18 @@ export default function App() {
   /** ⌘ + clique num link do terminal: na MÊTIS ou no navegador do Mac (⇧ troca). */
   /** Nome da worktree na tela: o apelido da barra lateral (v0.9.8) ou o branch. */
   const wtName = (worktree: Parameters<typeof worktreeLabel>[0]) => harness.sidebar.nomes[worktree.path] || worktreeLabel(worktree);
+  /** v0.9.8: "Claude a 86%" quando a conta do terminal passou de 80% na janela de 5 h e a outra CLI tem folga. */
+  const quotaHint = (session: Session): string | null => {
+    if (session.kind !== "claude" && session.kind !== "codex") return null;
+    const used = (provider: "claude" | "codex", account?: string | null) =>
+      harness.usage[provider]?.[account || harness.accounts[provider].active]?.five_hour?.used_pct ?? null;
+    const mine = used(session.kind, session.account);
+    if (mine == null || mine < 80) return null;
+    const other = session.kind === "claude" ? "codex" : "claude";
+    const theirs = used(other);
+    if (theirs != null && theirs >= 80) return null;
+    return `${session.kind === "claude" ? "Claude" : "Codex"} a ${Math.round(mine)}%`;
+  };
   const [linkTarget, setLinkTarget] = useState<LinkTarget>(() => stored<LinkTarget>("harness.web.links", "metis"));
   const [language, setLanguage] = useState<string>(() => stored("harness.voice.language", "pt"));
   /** v0.9.3: a divisão da tela de cada worktree ("" = fora dos projetos), salva entre aberturas. */
@@ -1977,6 +1989,7 @@ export default function App() {
             event={harness.automationEvent}
             onOpenSession={select}
             onToast={setToast}
+            mcpAccounts={(harness.connectors ?? []).filter((a) => a.kind === "mcp")}
           />
         )}
         {view === "boards" && (
@@ -2132,6 +2145,7 @@ export default function App() {
                       }
                       onRestart={session.kind !== "shell" ? (continuar) => restartAgent(session, continuar) : undefined}
                       onHandOff={session.kind !== "shell" ? (nota) => handOffAgent(session, nota) : undefined}
+                      quotaHint={quotaHint(session)}
                       onClose={() => closeTab(session.id)}
                       onHistory={() => setHistoryOpen(true)}
                     />
