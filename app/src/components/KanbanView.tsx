@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { CoreClient } from "../lib/core";
 import { renderInline } from "../lib/obsidian";
-import type { BoardProject, GithubIssue, GithubPr, KanbanTask, Stage, TaskState } from "../types";
+import type { BoardProject, ClickupTask, ConnectorAccount, GithubIssue, GithubPr, KanbanTask, Stage, TaskState } from "../types";
+import { AgentsBoard } from "./AgentsBoard";
+import { ClickupColumn, LabelChip, TaskCard } from "./KanbanParts";
 
 export interface KanbanRequest {
   id: number;
   project?: string;
+  /** v0.9.8: abrir direto no painel de agentes. */
+  agents?: boolean;
 }
 
 interface Props {
@@ -19,6 +23,9 @@ interface Props {
   onRunIssue: (project: BoardProject, issue: GithubIssue) => void;
   onOpenUrl: (url: string) => void;
   onError: (message: string) => void;
+  /** v0.9.8: painel de agentes e o ClickUp do projeto. */
+  onOpenSession: (id: string) => void;
+  clickupAccounts: ConnectorAccount[];
 }
 
 const STAGES: { key: Stage; label: string; dot: string; hint: string }[] = [
@@ -136,9 +143,11 @@ function Column(props: {
   );
 }
 
-export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, onRunTask, onRunIssue, onOpenUrl, onError }: Props) {
+export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, onRunTask, onRunIssue, onOpenUrl, onError, onOpenSession, clickupAccounts }: Props) {
   const [projects, setProjects] = useState<BoardProject[]>([]);
-  const [mode, setMode] = useState<"projects" | "tasks">("projects");
+  const [mode, setMode] = useState<"projects" | "tasks" | "agents">("projects");
+  /** v0.9.8: só as tarefas com estes rótulos. */
+  const [labelFilter, setLabelFilter] = useState<string[]>([]);
   const [current, setCurrent] = useState<string>("");
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [allDone, setAllDone] = useState(false);
@@ -189,7 +198,9 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
 
   useEffect(() => {
     if (!request) return;
-    if (request.project) {
+    if (request.agents) {
+      setMode("agents");
+    } else if (request.project) {
       setCurrent(request.project);
       setMode("tasks");
       setAllDone(false);
@@ -202,7 +213,36 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
     setCurrent(name);
     setMode("tasks");
     setAllDone(false);
+    setLabelFilter([]);
   };
+
+  // Rótulos e subtarefas gravam na nota e a lista volta inteira (a nota pode ter mudado fora).
+  const taskChange = async (run: () => Promise<unknown>) => {
+    if (!client || !current) return;
+    try {
+      await run();
+      setTasks(await client.tasks(current));
+    } catch (cause) {
+      onError(message(cause));
+    }
+  };
+  const projectLabels = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const t of tasks) for (const label of t.rotulos ?? []) counts.set(label, (counts.get(label) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
+  }, [tasks]);
+  const toggleLabel = (label: string) => setLabelFilter((current) => (current.includes(label) ? current.filter((l) => l !== label) : [...current, label]));
+  const visibleTasks = labelFilter.length ? tasks.filter((t) => labelFilter.every((l) => (t.rotulos ?? []).includes(l))) : tasks;
+  const clickupTask = (task: ClickupTask): KanbanTask => ({
+    id: `clickup-${task.id}`,
+    text: `${task.nome} (tarefa do ClickUp: ${task.url})`,
+    state: "pendente",
+    line: 0,
+    subtasks_done: 0,
+    subtasks_total: 0,
+    cancelled: false,
+    done_on: "",
+  });
 
   const moveProject = async (name: string, stage: Stage) => {
     const before = projects;
@@ -270,6 +310,9 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
           <button type="button" role="tab" aria-selected={mode === "tasks"} onClick={() => (current ? setMode("tasks") : projects[0] && showTasks(projects[0].name))}>
             Tarefas
           </button>
+          <button type="button" role="tab" aria-selected={mode === "agents"} onClick={() => setMode("agents")}>
+            Agentes
+          </button>
         </div>
         {mode === "tasks" && (
           <select value={current} onChange={(event) => showTasks(event.target.value)} aria-label="Projeto">
@@ -292,14 +335,25 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
             )}
           </>
         )}
+        {mode === "tasks" && projectLabels.length > 0 && (
+          <div className="kb-filter" aria-label="Filtrar por rótulo">
+            {projectLabels.slice(0, 10).map((label) => (
+              <LabelChip key={label} label={label} active={labelFilter.includes(label)} onClick={() => toggleLabel(label)} />
+            ))}
+          </div>
+        )}
         <span className="kb-summary small mono">
-          {mode === "projects"
+          {mode === "agents"
+            ? "os Claude e Codex abertos, pelo estado"
+            : mode === "projects"
             ? `${projects.length} projetos · ${open} ações abertas`
             : `${tasks.filter((t) => t.state !== "concluida").length} abertas · ${tasks.filter((t) => t.state === "concluida").length} concluídas`}
         </span>
       </header>
 
-      {mode === "projects" ? (
+      {mode === "agents" && client ? (
+        <AgentsBoard client={client} onOpenSession={onOpenSession} onError={onError} />
+      ) : mode === "projects" ? (
         <div className="kb-board" onClickCapture={onLinkCapture}>
           {STAGES.filter((s) => s.key !== "" || (byStage.get("")?.length ?? 0) > 0).map((stage) => {
             const list = byStage.get(stage.key) ?? [];
@@ -370,7 +424,7 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
       ) : (
         <div className="kb-board" onClickCapture={onLinkCapture}>
           {STATES.map((state) => {
-            const list = tasks.filter((t) => t.state === state.key);
+            const list = visibleTasks.filter((t) => t.state === state.key);
             const done = state.key === "concluida";
             const shown = done && !allDone ? list.slice(-DONE_SHOWN).reverse() : done ? [...list].reverse() : list;
             return (
@@ -400,35 +454,36 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
                 }
               >
                 {shown.map((task) => (
-                  <article
+                  <TaskCard
                     key={task.id}
-                    className="kb-card kb-task"
-                    data-cancelled={task.cancelled ? "true" : undefined}
-                    data-dragging={cardDrag.drag?.id === task.id ? "true" : undefined}
-                    onPointerDown={(event) => cardDrag.start(event, task.id, task.text.replace(/[*_`[\]]/g, "").slice(0, 70))}
+                    task={task}
+                    done={done}
+                    dragging={cardDrag.drag?.id === task.id}
+                    canRun={!!project?.directory}
+                    onPointerDown={(event) => cardDrag.start(event, task.id, (task.texto ?? task.text).replace(/[*_`[\]]/g, "").slice(0, 70))}
                     onClick={() => cardDrag.consumeClick()}
-                  >
-                    <div className="kb-task-text" dangerouslySetInnerHTML={{ __html: renderInline(task.text) }} />
-                    <div className="kb-meta small mono">
-                      <span title="id para metis tarefa mover">{task.id}</span>
-                      {task.subtasks_total > 0 && (
-                        <span>
-                          {" "}
-                          · {task.subtasks_done}/{task.subtasks_total} subtarefas
-                        </span>
-                      )}
-                      {task.done_on && <span> · {task.done_on}</span>}
-                    </div>
-                    {!done && project?.directory && (
-                      <button type="button" className="link-btn kb-run" onClick={() => project && onRunTask(project, task)}>
-                        ▶ Executar com agente
-                      </button>
-                    )}
-                  </article>
+                    onRun={() => project && onRunTask(project, task)}
+                    onLabels={(labels) => taskChange(() => client!.setTaskLabels(current, task.id, labels))}
+                    onAddSubtask={(text) => taskChange(() => client!.addSubtask(current, task.id, text))}
+                    onToggleSubtask={(index, value) => taskChange(() => client!.setSubtask(current, task.id, index, value))}
+                    onLabelClick={toggleLabel}
+                  />
                 ))}
               </Column>
             );
           })}
+          {client && project && clickupAccounts.length > 0 && (
+            <ClickupColumn
+              client={client}
+              project={project}
+              accounts={clickupAccounts}
+              tick={tick}
+              onOpenUrl={onOpenUrl}
+              onRun={(task) => onRunTask(project, clickupTask(task))}
+              onBring={(task) => void taskChange(() => client.addTask(current, `${task.nome} ([ClickUp](${task.url}))`))}
+              onError={onError}
+            />
+          )}
           {github && project && (
             <Column
               colKey="github"

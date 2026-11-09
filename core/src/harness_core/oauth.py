@@ -30,6 +30,8 @@ class OAuthStart:
     token_endpoint: str
     resource: str
     authorize_url: str
+    #: Só nos clientes com segredo (o do Google, que o Pedro cria e cola).
+    client_secret: str = ""
 
 
 def _get_json(http: httpx.Client, url: str) -> dict | None:
@@ -75,7 +77,7 @@ def begin(http: httpx.Client, mcp_url: str, redirect_uri: str, client_name: str 
     resource, meta = discover(http, mcp_url)
     registration = meta.get("registration_endpoint")
     if not registration:
-        raise OAuthError("o serviço não aceita registro automático de cliente")
+        raise OAuthError("este servidor não aceita registro automático: use um token")
     response = http.post(
         registration,
         json={
@@ -109,23 +111,68 @@ def begin(http: httpx.Client, mcp_url: str, redirect_uri: str, client_name: str 
     return OAuthStart(state, verifier, client_id, redirect_uri, meta["token_endpoint"], resource, url)
 
 
-def finish(http: httpx.Client, start: OAuthStart, code: str) -> dict:
-    """Troca o código pelo token. Devolve o JSON do servidor (access_token, talvez refresh_token)."""
-    response = http.post(
-        start.token_endpoint,
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": start.redirect_uri,
-            "client_id": start.client_id,
-            "code_verifier": start.verifier,
-            "resource": start.resource,
-        },
-        headers={"Accept": "application/json"},
-    )
+def begin_with_client(
+    authorize_endpoint: str,
+    token_endpoint: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+    scopes: list[str],
+    extra: dict[str, str] | None = None,
+) -> OAuthStart:
+    """Login com um cliente já registrado (o do Google): PKCE, sem descoberta nem registro."""
+    verifier = secrets.token_urlsafe(64)
+    state = secrets.token_urlsafe(24)
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code_challenge": _challenge(verifier),
+        "code_challenge_method": "S256",
+        "state": state,
+        "scope": " ".join(scopes),
+        **(extra or {}),
+    }
+    url = f"{authorize_endpoint}?{urlencode(params)}"
+    return OAuthStart(state, verifier, client_id, redirect_uri, token_endpoint, "", url, client_secret)
+
+
+def _token_answer(response: httpx.Response, what: str) -> dict:
     if response.status_code >= 400:
-        raise OAuthError(f"troca do código recusada ({response.status_code}): {response.text[:200]}")
-    tokens = response.json()
-    if not tokens.get("access_token"):
+        # O corpo do erro do servidor de autorização não traz o token (só o motivo).
+        raise OAuthError(f"{what} recusada ({response.status_code}): {response.text[:200]}")
+    try:
+        tokens = response.json()
+    except ValueError as exc:
+        raise OAuthError(f"{what}: resposta que não é JSON") from exc
+    if not isinstance(tokens, dict) or not tokens.get("access_token"):
         raise OAuthError("o serviço não devolveu access_token")
     return tokens
+
+
+def finish(http: httpx.Client, start: OAuthStart, code: str) -> dict:
+    """Troca o código pelo token. Devolve o JSON do servidor (access_token, talvez refresh_token)."""
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": start.redirect_uri,
+        "client_id": start.client_id,
+        "code_verifier": start.verifier,
+    }
+    if start.resource:
+        data["resource"] = start.resource
+    if start.client_secret:
+        data["client_secret"] = start.client_secret
+    response = http.post(start.token_endpoint, data=data, headers={"Accept": "application/json"})
+    return _token_answer(response, "troca do código")
+
+
+def refresh(http: httpx.Client, token_endpoint: str, client_id: str, client_secret: str, refresh_token: str, resource: str = "") -> dict:
+    """Token novo pelo refresh_token (o servidor pode devolver outro refresh_token, ou não)."""
+    data = {"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": client_id}
+    if client_secret:
+        data["client_secret"] = client_secret
+    if resource:
+        data["resource"] = resource
+    response = http.post(token_endpoint, data=data, headers={"Accept": "application/json"})
+    return _token_answer(response, "renovação do login")

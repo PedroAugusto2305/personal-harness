@@ -1716,7 +1716,14 @@ export default function App() {
             : { id: "pomodoro", group: "Estudo", label: "Parar o Pomodoro", hint: pomodoro.label, run: pomodoro.stop },
           { id: "today", group: "Hoje", label: "Hoje", hint: "rotinas do dia, em andamento, aprovações", run: () => setView("today") },
           { id: "routine-new", group: "Hoje", label: "Rotinas", hint: "agendar um agente", run: () => setView("today") },
-          { id: "connectors", group: "Conectores", label: "Conectores", hint: "Slack, ClickUp e lembretes", run: () => setView("connectors") },
+          { id: "connectors", group: "Conectores", label: "Conectores", hint: "Slack, ClickUp, Notion, GitHub, Google e MCPs", run: () => setView("connectors") },
+          {
+            id: "agents-board",
+            group: "Kanban",
+            label: "Painel de agentes",
+            hint: "precisa de você, trabalhando, feito, parado",
+            run: () => (setView("kanban"), setKanbanRequest((last) => ({ id: (last?.id ?? 0) + 1, agents: true }))),
+          },
           { id: "automations", group: "Automações", label: "Automações", hint: "passos ligados: ferramentas, agentes, condições e aprovações", run: () => setView("automations") },
           { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
           { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
@@ -1940,6 +1947,12 @@ export default function App() {
             onToast={setToast}
             suggestionsTick={harness.suggestionsTick}
             onOpenNote={(title) => openNote({ title })}
+            usage={harness.usage}
+            accounts={harness.accounts}
+            onOpenAccounts={() => {
+              setSection("contas");
+              setView("settings");
+            }}
           />
         )}
         {view === "connectors" && (
@@ -1951,6 +1964,9 @@ export default function App() {
             onActivity={harness.setActivity}
             onDecide={decide}
             onToast={setToast}
+            events={harness.agentEvents}
+            onEvents={harness.setAgentEvents}
+            onOpenSession={(id) => (setView("term"), select(id))}
           />
         )}
         {view === "automations" && (
@@ -1999,6 +2015,8 @@ export default function App() {
             onRunIssue={(project, issue) => void runIssue(project, issue)}
             onOpenUrl={(url) => openWeb(url)}
             onError={setToast}
+            onOpenSession={(id) => (setView("term"), select(id))}
+            clickupAccounts={(harness.connectors ?? []).filter((a) => a.kind === "clickup")}
           />
         )}
         {view === "term" && (

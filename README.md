@@ -6,7 +6,13 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 
 ## O que já faz (v0.9.7)
 
-**Chegando na 0.9.8, parte 2 de 5 (navegador e tela):**
+**Chegando na 0.9.8, parte 3 de 5 (conectores e kanban):**
+
+- **Conectores:** Notion, GitHub (com o login do `gh`), Google (Gmail, Agenda e Drive) e **MCP próprio** (por endereço, por comando ou do catálogo oficial de MCP); testar conexão; copiar um MCP entre o Claude e o Codex.
+- **Kanban:** rótulos com filtro, subtarefas no cartão, a lista do ClickUp do projeto e o **painel de agentes** (⌘K → Painel de agentes).
+- **Atividade** com o que cada agente fez, tempo e custo; **cota dos planos** no Hoje.
+
+**Parte 2 de 5 (navegador e tela):**
 
 - **O agente usa o navegador da MÊTIS** pelas ferramentas `navegador_*` da central de MCP: lê a página, clica, digita, tira foto e vê o console e a rede, com o cursor "agente" à vista.
 - **Perfis do navegador** com cookies separados, **cookies importados do Chrome**, **emulação de iPhone, Android e iPad**, e o ⌘K com endereços e histórico.

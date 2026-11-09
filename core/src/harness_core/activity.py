@@ -1,4 +1,6 @@
-"""Atividade: o que cada agente fez pela central de MCP, com aprovação e resultado."""
+"""Atividade: o que cada agente fez pela central de MCP, com aprovação e resultado, e
+(v0.9.8) o que aconteceu com cada agente: começou, terminou o turno, perguntou, saiu,
+hibernou, acordou, com a prévia da última mensagem."""
 
 from __future__ import annotations
 
@@ -9,6 +11,8 @@ import time
 from pathlib import Path
 
 KEEP = 3000
+KEEP_EVENTS = 5000
+EVENT_KINDS = ("inicio", "terminou", "pergunta", "saiu", "hibernou", "acordou")
 
 
 class ActivityLog:
@@ -21,6 +25,10 @@ class ActivityLog:
                 """create table if not exists calls(
                     id integer primary key, ts real, session text, who text, tool text, account text,
                     args text, status text, detail text, ms integer)"""
+            )
+            con.execute(
+                """create table if not exists eventos(
+                    id integer primary key, ts real, session text, who text, kind text, title text, preview text)"""
             )
 
     def _connect(self) -> sqlite3.Connection:
@@ -63,3 +71,25 @@ class ActivityLog:
         except json.JSONDecodeError:
             pass
         return item
+
+    # --- eventos dos agentes (v0.9.8) ---------------------------------------------------
+
+    def event(self, session: str, who: str, kind: str, title: str, preview: str = "") -> dict:
+        if kind not in EVENT_KINDS:
+            raise ValueError(f"evento desconhecido: {kind}")
+        with self._lock, self._connect() as con:
+            row_id = con.execute(
+                "insert into eventos(ts, session, who, kind, title, preview) values (?,?,?,?,?,?)",
+                (time.time(), session, who, kind, title[:200], (preview or "")[:600]),
+            ).lastrowid
+            con.execute("delete from eventos where id <= ?", (row_id - KEEP_EVENTS,))
+            row = con.execute("select * from eventos where id = ?", (row_id,)).fetchone()
+        return dict(row)
+
+    def events(self, limit: int = 100, session: str = "") -> list[dict]:
+        with self._connect() as con:
+            if session:
+                rows = con.execute("select * from eventos where session = ? order by id desc limit ?", (session, limit)).fetchall()
+            else:
+                rows = con.execute("select * from eventos order by id desc limit ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]

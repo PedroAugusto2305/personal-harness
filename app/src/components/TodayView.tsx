@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { CoreClient } from "../lib/core";
-import { shortPath } from "../lib/format";
+import { KIND_COLOR, KIND_GLYPH, shortPath } from "../lib/format";
 import { renderInline } from "../lib/obsidian";
-import type { Agent, Approval, Routine, RoutineDraft, RoutineRun, Session, Suggestion, TodayData } from "../types";
+import type { Accounts, Agent, Approval, Routine, RoutineDraft, RoutineRun, Session, Suggestion, TodayData, Usage } from "../types";
+import { UsageMeter } from "./StatusBar";
 import { AgentSprite } from "./AgentSprite";
 import { ApprovalCard, ReminderTry } from "./ConnectorsView";
 import { SuggestionCard } from "./SuggestionCard";
@@ -21,6 +22,10 @@ interface Props {
   /** v0.8: sugestões de precedente esperando o Pedro, de todos os projetos. */
   suggestionsTick: number;
   onOpenNote: (title: string) => void;
+  /** v0.9.8: cota dos planos, por conta. */
+  usage: Usage;
+  accounts: Accounts;
+  onOpenAccounts: () => void;
 }
 
 const DAY_SHORT = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
@@ -308,6 +313,7 @@ export function TodayView(props: Props) {
       </section>
 
       <aside className="today-side">
+        <PlanQuota usage={props.usage} accounts={props.accounts} onOpen={props.onOpenAccounts} />
         <div className="today-side-head">
           <div className="section-title">Rotinas</div>
           <button type="button" className="btn" onClick={() => setEditing("nova")}>
@@ -386,5 +392,41 @@ function TodaySuggestions(props: { client: CoreClient; tick: number; onOpenNote:
         ))}
       </div>
     </>
+  );
+}
+
+/**
+ * Cota dos planos (v0.9.8): as janelas de 5 horas e de 7 dias de cada conta do Claude e do
+ * Codex, para decidir onde mandar o próximo trabalho pesado.
+ */
+function PlanQuota({ usage, accounts, onOpen }: { usage: Usage; accounts: Accounts; onOpen: () => void }) {
+  const rows = (["claude", "codex"] as const).flatMap((provider) =>
+    accounts[provider].accounts.map((account) => ({ provider, account, limits: usage[provider][account.id] })),
+  );
+  return (
+    <section className="today-quota">
+      <div className="today-side-head">
+        <div className="section-title">Cota dos planos</div>
+        <button type="button" className="link-btn" onClick={onOpen}>
+          contas ›
+        </button>
+      </div>
+      {rows.map(({ provider, account, limits }) => (
+        <div key={`${provider}-${account.id}`} className="quota-row" data-active={accounts[provider].active === account.id ? "true" : undefined}>
+          <span className="quota-name">
+            <span style={{ color: KIND_COLOR[provider] }}>{KIND_GLYPH[provider]}</span> {account.name}
+            {accounts[provider].active === account.id && <span className="small"> · em uso</span>}
+          </span>
+          {limits ? (
+            <span className="quota-meters">
+              <UsageMeter label="5h" window={limits.five_hour} />
+              <UsageMeter label="7d" window={limits.seven_day} />
+            </span>
+          ) : (
+            <span className="small quota-empty">{provider === "claude" ? "aparece depois da primeira resposta nesta conta" : "lido da CLI a cada 3 min"}</span>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }

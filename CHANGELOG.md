@@ -4,6 +4,15 @@ Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`R
 
 ## v0.9.8 · o que o MAPA prometeu (em andamento, em cinco partes)
 
+### Parte 3 · conectores e kanban
+
+- **Conectores novos:** Notion (MCP oficial, login no navegador), GitHub (MCP oficial, com o login do `gh` ou um token), Google (Gmail, Agenda e Drive pelas APIs do Google, com o cliente OAuth do Pedro) e **MCP próprio**: qualquer servidor por endereço (com login, token ou nada) ou por comando, ou um achado no **catálogo oficial de MCP**. Os logins se renovam sozinhos.
+- **Testar conexão** de cada conta: responde ou não, quantas ferramentas e em quanto tempo.
+- **MCPs do Claude e do Codex** lado a lado, com **copiar de um para o outro** pela própria CLI.
+- **Kanban:** **rótulos** (`#etiqueta`) com filtro, **subtarefas** marcadas e criadas no cartão, a **lista do ClickUp** do projeto numa coluna (mudar o status muda no ClickUp, trazer para as Próximas ações, executar com agente) e o **painel de agentes** (precisa de você, trabalhando, feito, parado).
+- **Atividade dos agentes:** quem está aberto, há quanto tempo e quanto custou, e a linha do tempo do que cada um fez (terminou, perguntou, saiu), com a prévia.
+- **Cota dos planos no Hoje**, por conta do Claude e do Codex.
+
 ### Parte 2 · navegador e tela
 
 - **O agente usa o navegador da MÊTIS** pela central de MCP: abrir, ler a página (com refs para clicar), clicar, digitar, teclas, listas, rolar, esperar, foto da tela, console, rede e JavaScript. Cada ação mostra o cursor "agente" andando até o alvo, e a aba ganha o chip "agente". A aba que o agente abre entra na lista sem tirar você do que está vendo.

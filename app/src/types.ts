@@ -25,6 +25,9 @@ export interface Statusline {
 export interface Session {
   /** v0.9.8: processo pausado (SIGSTOP) por estar parado há muito tempo; acorda ao focar ou escrever. */
   hibernando?: boolean;
+  /** v0.9.8: "pergunta" (Notification) ou "terminou" (Stop) e desde quando. */
+  atencao?: "pergunta" | "terminou" | null;
+  status_desde?: number;
   id: string;
   kind: SessionKind;
   title: string;
@@ -172,7 +175,7 @@ export type CoreEvent =
   | { type: "awake"; ativo: boolean }
   | { type: "session.created"; session: Session }
   | { type: "session.closed"; id: string }
-  | { type: "session.status"; id: string; status: SessionStatus; exit_code?: number | null }
+  | { type: "session.status"; id: string; status: SessionStatus; exit_code?: number | null; atencao?: "pergunta" | "terminou" | null; status_desde?: number }
   | { type: "session.statusline"; id: string; statusline: Statusline }
   | { type: "session.hook"; id: string; name: string; message?: string | null }
   | { type: "usage"; usage: Usage }
@@ -187,6 +190,7 @@ export type CoreEvent =
   | { type: "barra"; barra: SidebarState }
   | { type: "session.renamed"; id: string; title: string }
   | { type: "temas-app" }
+  | { type: "activity.event"; item: AgentEvent }
   | { type: "brain.changed"; project: string }
   | { type: "connectors"; accounts: ConnectorAccount[] }
   | { type: "approval"; approval: Approval }
@@ -280,7 +284,7 @@ export interface TodayData {
 
 export interface ConnectorAccount {
   id: string;
-  kind: "slack" | "clickup";
+  kind: "slack" | "clickup" | "notion" | "github" | "google" | "mcp";
   service: string;
   name: string;
   created: number;
@@ -372,6 +376,16 @@ export interface KanbanTask {
   subtasks_total: number;
   cancelled: boolean;
   done_on: string;
+  /** v0.9.8: rótulos (#etiquetas), o texto sem eles e as subtarefas. */
+  rotulos?: string[];
+  texto?: string;
+  subtarefas?: Subtask[];
+}
+
+export interface Subtask {
+  indice: number;
+  texto: string;
+  feita: boolean;
 }
 
 export interface GraphNodeData {
@@ -1046,4 +1060,84 @@ export interface AppThemeSource {
   base: "escuro" | "claro";
   onde: string;
   em_uso: boolean;
+}
+
+// --- Conectores e kanban (v0.9.8, parte 3) -----------------------------------------------
+
+export interface ConnectionTest {
+  ok: boolean;
+  ms: number;
+  detalhe: string;
+  ferramentas: number | null;
+}
+
+export interface RegistryServer {
+  nome: string;
+  titulo: string;
+  descricao: string;
+  versao: string;
+  site: string;
+  remotos: { tipo: string; url: string }[];
+  pacotes: { registro: string; nome: string; versao: string; comando: string; env: { nome: string; descricao: string; obrigatoria: boolean; secreta: boolean }[] }[];
+}
+
+export interface CliMcp {
+  nome: string;
+  tipo: "stdio" | "http" | "sse";
+  comando?: string;
+  args?: string[];
+  env_chaves?: string[];
+  url?: string;
+  escopo: string;
+}
+
+export interface ClickupList {
+  id: string;
+  nome: string;
+  workspace: string;
+  espaco: string;
+  pasta: string;
+}
+
+export interface ClickupTask {
+  id: string;
+  nome: string;
+  status: string;
+  cor: string;
+  url: string;
+  responsaveis: string[];
+  prazo: number | null;
+  prioridade: string | null;
+}
+
+export interface ClickupBoard {
+  ligacao: { conta: string; lista: string; nome: string } | null;
+  tarefas: ClickupTask[];
+  status: { nome: string; cor: string; tipo: string }[];
+}
+
+export type PanelColumn = "precisa" | "trabalhando" | "feito" | "parado";
+
+export interface AgentPanelItem {
+  id: string;
+  titulo: string;
+  cli: string;
+  agente: string | null;
+  cwd: string;
+  coluna: PanelColumn;
+  desde: number;
+  previa: string;
+  custo_usd: number | null;
+  duracao_s: number;
+  tag: string | null;
+}
+
+export interface AgentEvent {
+  id: number;
+  ts: number;
+  session: string;
+  who: string;
+  kind: "inicio" | "terminou" | "pergunta" | "saiu" | "hibernou" | "acordou";
+  title: string;
+  preview: string;
 }
