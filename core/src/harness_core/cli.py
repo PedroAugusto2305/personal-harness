@@ -22,6 +22,10 @@
     --json                             nos comandos de listar: a saída em JSON, para agentes
     metis automacoes                   as automações, com estado e a última execução
     metis rodar <automação>            roda a versão publicada agora (id ou nome)
+    metis worktree nova <projeto> <nome> [--base REF] [--sem-env]
+                                       worktree nova (projeto por id ou nome); imprime pasta e branch
+    metis agente <claude|codex|agente> [--pasta P] [--modelo M] [--esforco E] [--titulo T] [pedido ...]
+                                       abre um agente num terminal da MÊTIS (pasta padrão: a atual)
     metis versao                       a versão em uso e se há uma nova (na MÊTIS instalada)
     metis atualizar [versão]           instala a versão nova (ou a pedida) aqui, neste terminal
 
@@ -245,6 +249,53 @@ def web_url(target: str) -> str:
     return f"{'http' if local else 'https'}://{target}"
 
 
+def _worktree_command(home, args) -> int:
+    """metis worktree nova <projeto> <nome>: o projeto vale por id ou por nome (sem caixa)."""
+    wanted = args.projeto.strip().casefold()
+    project = next((p for p in _core(home, "GET", "/projects") if p["id"] == args.projeto or p["name"].casefold() == wanted), None)
+    if project is None:
+        raise CoreRefused(f"projeto não encontrado: {args.projeto}. Os projetos são os da barra lateral da MÊTIS.")
+    body = {"name": args.nome, "base": args.base or None, "copy_env": not args.sem_env}
+    created = _core(home, "POST", f"/projects/{urllib.parse.quote(project['id'], safe='')}/worktrees", body)
+    if args.json:
+        print(json.dumps(created, ensure_ascii=False))
+        return 0
+    print(f"worktree nova: {created['path']}")
+    print(f"branch: {created.get('branch') or '(sem branch)'}")
+    if created.get("setup"):
+        print(f"o setup do projeto roda no terminal {created['setup']}.")
+    return 0
+
+
+def _agent_command(home, args) -> int:
+    """metis agente <claude|codex|nome-ou-id>: sessão nova na MÊTIS, com o pedido já entrando."""
+    body: dict = {"cwd": os.path.abspath(os.path.expanduser(args.pasta or os.getcwd()))}
+    if args.alvo in PROVIDERS:
+        body["kind"] = args.alvo
+    else:
+        wanted = args.alvo.strip().casefold()
+        agent = next((a for a in _core(home, "GET", "/agents") if a["id"] == args.alvo or a["name"].casefold() == wanted), None)
+        if agent is None:
+            raise CoreRefused(f"agente não encontrado: {args.alvo}. Use claude, codex ou o nome de um agente da MÊTIS.")
+        body["kind"] = agent["cli"] if agent["cli"] in PROVIDERS else "shell"
+        body["agent"] = agent["id"]
+    if args.modelo:
+        body["model"] = args.modelo
+    if args.esforco:
+        body["effort"] = args.esforco
+    if args.titulo:
+        body["title"] = args.titulo
+    prompt = " ".join(args.pedido).strip()
+    if prompt:
+        body["prompt"] = prompt
+    session = _core(home, "POST", "/sessions", body)
+    if args.json:
+        print(json.dumps({k: session.get(k) for k in ("id", "title", "kind", "status", "cwd", "agent")}, ensure_ascii=False))
+        return 0
+    print(f"{session['id']}  {session['title']}")
+    return 0
+
+
 def _print_accounts(store: AccountStore) -> None:
     for provider, entry in store.list().items():
         print(provider)
@@ -256,7 +307,7 @@ def _print_accounts(store: AccountStore) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="metis", description="Contas, navegador, Brain, tarefas e lembretes da MÊTIS.")
-    parser.add_argument("--json", action="store_true", help="saída em JSON (contas, brain buscar, tarefas, sessões, automações)")
+    parser.add_argument("--json", action="store_true", help="saída em JSON (contas, brain buscar, tarefas, sessões, automações, worktree, agente)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("contas", help="lista as contas e qual está ativa")
     switch = sub.add_parser("switch", help="troca a conta ativa de uma CLI")
@@ -294,6 +345,19 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("automacoes", help="as automações, com estado e a última execução")
     run = sub.add_parser("rodar", help="roda a versão publicada de uma automação agora")
     run.add_argument("automacao", nargs="+", help="id ou nome da automação")
+    worktree = sub.add_parser("worktree", help="cria uma worktree num projeto da MÊTIS")
+    worktree.add_argument("acao", choices=("nova",))
+    worktree.add_argument("projeto", help="id ou nome do projeto")
+    worktree.add_argument("nome", help="nome da worktree (vira a branch)")
+    worktree.add_argument("--base", default="", help="branch, tag ou commit de partida (padrão: o atual)")
+    worktree.add_argument("--sem-env", action="store_true", help="não copia os .env do projeto")
+    agent = sub.add_parser("agente", help="abre o Claude, o Codex ou um agente da MÊTIS num terminal")
+    agent.add_argument("alvo", help="claude, codex ou o nome (ou id) de um agente")
+    agent.add_argument("pedido", nargs="*", help="o que pedir ao agente (opcional)")
+    agent.add_argument("--pasta", default="", help="pasta da sessão (padrão: a atual)")
+    agent.add_argument("--modelo", default="", help="modelo só desta sessão")
+    agent.add_argument("--esforco", default="", choices=("", "low", "medium", "high", "xhigh"), help="esforço (só no Codex)")
+    agent.add_argument("--titulo", default="", help="título da aba")
     sub.add_parser("versao", help="a versão em uso e se há uma nova")
     upgrade = sub.add_parser("atualizar", help="instala a versão nova da MÊTIS neste terminal")
     upgrade.add_argument("versao", nargs="?", default="", help="ex.: v0.9.5 (padrão: a mais nova)")
@@ -390,6 +454,16 @@ def main(argv: list[str] | None = None) -> int:
             done = _core(home, "POST", f"/automacoes/{match['id']}/rodar", {})
             print(f"rodando {match['nome']} (execução #{done['execucao']}); acompanhe em Automações → Execuções.")
             return 0
+        except CoreRefused as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"a MÊTIS não respondeu ({exc}). O app está aberto?", file=sys.stderr)
+            return 1
+
+    if args.command in ("worktree", "agente"):
+        try:
+            return _worktree_command(home, args) if args.command == "worktree" else _agent_command(home, args)
         except CoreRefused as exc:
             print(str(exc), file=sys.stderr)
             return 1

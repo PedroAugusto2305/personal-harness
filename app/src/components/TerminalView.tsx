@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Terminal, type IBufferLine, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CoreError, type CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH, KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
@@ -253,6 +254,8 @@ export function TerminalView({
     const search = new SearchAddon();
     terminal.loadAddon(search);
     searcher.current = search;
+    // OSC 52 (v0.9.8): o programa no terminal (tmux, nvim, um agente) copia para a área de transferência do Mac.
+    terminal.loadAddon(new ClipboardAddon());
     terminal.loadAddon(
       new WebLinksAddon((event, uri) => {
         if (event.metaKey) linkRef.current?.(uri, event.shiftKey);
@@ -358,6 +361,11 @@ export function TerminalView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id, client]);
 
+  // Agente hibernado (v0.9.8) acorda quando o terminal dele ganha o foco.
+  useEffect(() => {
+    if (focused && slot !== "hidden" && session.hibernando) void client.wakeSession(session.id).catch(() => undefined);
+  }, [focused, slot, session.hibernando, session.id, client]);
+
   useEffect(() => {
     if (!focused || slot === "hidden") return;
     const frame = requestAnimationFrame(() => {
@@ -413,10 +421,18 @@ export function TerminalView({
             {cover.status}
           </span>
         )}
-        <span className="pane-status" style={{ color: STATUS_COLOR[status] }}>
-          <span className="dot" style={{ background: STATUS_COLOR[status] }} />
-          {STATUS_LABEL[status]}
-        </span>
+        {session.hibernando ? (
+          <span className="pane-status hibernating" title="Pausado por estar parado há muito tempo (Ajustes → Agentes e avisos). Acorda ao focar ou escrever.">
+            <span className="dot" />
+            hibernando
+          </span>
+        ) : (
+          <span className="pane-status" style={{ color: STATUS_COLOR[status] }}>
+            <span className="dot" style={{ background: STATUS_COLOR[status] }} />
+            {STATUS_LABEL[status]}
+          </span>
+        )}
+        <SessionMenu client={client} session={session} />
         {agentKind && onHandOff && <HandOffButton other={other} onHandOff={onHandOff} />}
         <button
           type="button"
@@ -750,6 +766,89 @@ function TerminalSearch({ addon, onClose, signal }: { addon: SearchAddon | null;
       <button type="button" className="icon-btn" title="Fechar (Esc)" aria-label="Fechar a busca" onClick={onClose}>
         <Icon d={ICON.close} size={12} strokeWidth={2} />
       </button>
+    </div>
+  );
+}
+
+/**
+ * "⋯" do cabeçalho (v0.9.8): copiar o ID da conversa (para retomar em outro lugar), o
+ * caminho do transcript, as últimas mensagens (para levar o contexto a outro agente) e a pasta.
+ */
+function SessionMenu({ client, session }: { client: CoreClient; session: Session }) {
+  // Onde o menu abre: fixo na janela, porque o cabeçalho do painel corta o que passa dele.
+  const [open, setOpen] = useState<{ top: number; right: number } | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (box.current && !box.current.contains(event.target as Node)) setOpen(null);
+    };
+    const close = () => setOpen(null);
+    window.addEventListener("mousedown", away);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", away);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
+  const toggle = (button: HTMLButtonElement) => {
+    if (open) return setOpen(null);
+    const rect = button.getBoundingClientRect();
+    setOpen({ top: rect.bottom + 4, right: Math.max(8, window.innerWidth - rect.right) });
+  };
+
+  useEffect(() => {
+    if (!done) return;
+    const timer = window.setTimeout(() => setDone(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [done]);
+
+  const copy = async (what: "id" | "transcript" | "texto" | "pasta") => {
+    setOpen(null);
+    try {
+      const context = what === "pasta" ? null : await client.sessionContext(session.id);
+      const text = what === "pasta" ? session.cwd : what === "id" ? context?.id_conversa : what === "transcript" ? context?.transcript : context?.texto;
+      if (!text) {
+        setDone(what === "id" ? "sem conversa ainda" : what === "transcript" ? "sem transcript" : "nada para copiar");
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setDone("copiado");
+    } catch {
+      setDone("não deu para copiar");
+    }
+  };
+
+  const agent = session.kind === "claude" || session.kind === "codex";
+  return (
+    <div className="session-menu" ref={box}>
+      {done && <span className="small session-menu-done">{done}</span>}
+      <button type="button" className="icon-btn" title="Copiar o ID, o transcript, o contexto ou a pasta" aria-label="Mais" aria-expanded={!!open} onClick={(event) => toggle(event.currentTarget)}>
+        <span aria-hidden="true">⋯</span>
+      </button>
+      {open && (
+        <div className="session-menu-pop" role="menu" style={{ top: open.top, right: open.right }} onMouseDown={(event) => event.stopPropagation()}>
+          {agent && (
+            <>
+              <button type="button" role="menuitem" onClick={() => void copy("id")}>
+                Copiar o ID da conversa
+              </button>
+              <button type="button" role="menuitem" onClick={() => void copy("transcript")}>
+                Copiar o caminho do transcript
+              </button>
+              <button type="button" role="menuitem" onClick={() => void copy("texto")}>
+                Copiar as últimas mensagens
+              </button>
+            </>
+          )}
+          <button type="button" role="menuitem" onClick={() => void copy("pasta")}>
+            Copiar a pasta
+          </button>
+        </div>
+      )}
     </div>
   );
 }

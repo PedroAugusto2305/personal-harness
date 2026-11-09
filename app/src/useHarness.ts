@@ -146,6 +146,9 @@ export function useHarness() {
           );
           break;
         }
+        case "session.hibernate":
+          setSessions((all) => (all[event.id] ? { ...all, [event.id]: { ...all[event.id], hibernando: event.hibernando } } : all));
+          break;
         case "atualizacao":
           notify.current({ kind: "versao", titulo: `MÊTIS ${event.nova} disponível`, texto: `Você usa a v${event.versao}. Ajustes → Sobre → Atualizar.` });
           break;

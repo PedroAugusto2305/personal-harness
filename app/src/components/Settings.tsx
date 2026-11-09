@@ -40,6 +40,7 @@ const FIND: FindEntry[] = [
   { section: "agentes", label: "Avisos", terms: "notifications alerts notificações notificaciones sino bell terminou espera" },
   { section: "agentes", label: "Som", terms: "sound sonido volume beep" },
   { section: "agentes", label: "Silenciar tudo", terms: "mute silence do not disturb silenciar no molestar" },
+  { section: "agentes", label: "Hibernar agente parado", terms: "hibernate sleep pause pausar hibernar parado idle memoria cpu" },
   { section: "agentes", label: "Desligar a MÊTIS", terms: "quit shutdown stop core nucleo desligar apagar reiniciar restart" },
   { section: "git", label: "Agente do git", terms: "git commit pr pull request agente receita recipe codex claude" },
   { section: "git", label: "Commit (nada marcado)", find: "Receitas", terms: "receitas recipes prompt commit mensagem message" },

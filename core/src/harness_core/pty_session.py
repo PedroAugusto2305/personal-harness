@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import termios
+import time
 from collections.abc import Callable
 
 SCROLLBACK_BYTES = 2 * 1024 * 1024
@@ -50,6 +51,12 @@ class PtySession:
         self._buffer = bytearray()
         self._pending = bytearray()
         self._subscribers: set[asyncio.Queue[bytes | None]] = set()
+        # v0.9.8: hibernação. A hora da última saída e da última entrada, se o grupo do
+        # processo está parado (SIGSTOP) e quem avisar quando uma escrita o acorda.
+        self.last_output = time.time()
+        self.last_input = time.time()
+        self.paused = False
+        self.on_wake: Callable[[], None] | None = None
 
     @property
     def pid(self) -> int | None:
@@ -91,6 +98,7 @@ class PtySession:
         if not data:
             self._finish()
             return
+        self.last_output = time.time()
         self._buffer.extend(data)
         if len(self._buffer) > SCROLLBACK_BYTES:
             del self._buffer[: len(self._buffer) - SCROLLBACK_BYTES]
@@ -122,9 +130,38 @@ class PtySession:
         if self.on_exit:
             self.on_exit(self.exit_code)
 
+    @property
+    def last_activity(self) -> float:
+        return max(self.last_output, self.last_input)
+
+    def pause(self) -> bool:
+        """Para o grupo do processo (SIGSTOP): o agente hiberna sem perder nada."""
+        if not self.alive or self._proc is None or self.paused:
+            return False
+        try:
+            os.killpg(self._proc.pid, signal.SIGSTOP)
+        except (ProcessLookupError, PermissionError):
+            return False
+        self.paused = True
+        return True
+
+    def resume(self) -> bool:
+        """Continua o grupo do processo (SIGCONT). Devolve True se estava parado."""
+        if not self.paused or self._proc is None:
+            return False
+        self.paused = False
+        try:
+            os.killpg(self._proc.pid, signal.SIGCONT)
+        except (ProcessLookupError, PermissionError):
+            pass
+        return True
+
     def write(self, data: bytes) -> None:
         if not self.alive or self._fd is None or self._loop is None:
             return
+        self.last_input = time.time()
+        if self.paused and self.resume() and self.on_wake is not None:
+            self.on_wake()  # qualquer escrita acorda o agente que hibernava
         if self._pending:
             self._pending.extend(data)
             return
@@ -175,6 +212,8 @@ class PtySession:
             os.killpg(self._proc.pid, signal.SIGHUP)
         except ProcessLookupError:
             return
+        if self.paused:
+            self.resume()  # parado, o processo não trataria o SIGHUP
         for _ in range(int(grace / 0.05)):
             if self._proc.poll() is not None:
                 return

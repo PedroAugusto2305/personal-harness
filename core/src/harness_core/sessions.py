@@ -11,12 +11,12 @@ import sys
 import time
 import tomllib
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
 from .accounts import PROVIDERS, AccountStore
-from .agents import Agent, agent_args
+from .agents import Agent, AgentError, agent_args, parse_env, split_args
 from .claude_settings import claude_argv, mcp_args
 from .codex_usage import read_codex_limits
 from .config import Settings
@@ -64,6 +64,15 @@ class UnknownKind(ValueError):
 
 class ExecutableNotFound(RuntimeError):
     pass
+
+
+class CommandError(ValueError):
+    """Linha de comando de uma CLI "outra" (ou argumentos do agente) que não dá para rodar."""
+
+
+#: Etiquetas de sessão que nunca hibernam: o motor das automações e as rotinas esperam por elas.
+NO_HIBERNATE_TAGS = ("automacao", "rotina")
+EFFORTS = ("low", "medium", "high", "xhigh")
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[@-Z\\\]^_=>78]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -121,6 +130,8 @@ class Session:
     status: str = "starting"
     statusline: dict | None = None
     exit_code: int | None = None
+    #: v0.9.8: parada (SIGSTOP) depois de muito tempo esperando; qualquer escrita acorda.
+    hibernando: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +148,7 @@ class Session:
             "statusline": self.statusline,
             "exit_code": self.exit_code,
             "pid": self.pty.pid,
+            "hibernando": self.hibernando,
         }
 
 
@@ -261,20 +273,46 @@ class SessionManager:
         resume: str | None = None,
         permission: str | None = None,
         extra_args: list[str] | None = None,
+        model: str | None = None,
+        effort: str | None = None,
     ) -> Session:
         if agent is not None:
             kind = agent.cli
             cwd = cwd or agent.folder or None
             title = title or agent.name
             account_id = account_id or agent.account or None
-        if kind not in KINDS:
+            if model and kind in PROVIDERS:
+                agent = replace(agent, model=model)  # o modelo do pedido vence o do agente
+        if kind != "outra" and kind not in KINDS:
             raise UnknownKind(kind)
         session_id = uuid.uuid4().hex[:8]
         workdir = str(Path(cwd or Path.home()).expanduser())
-        argv = resolve_argv(kind, self.settings)
-        if agent is not None:
-            argv = argv + agent_args(agent)
+        try:
+            agent_env = parse_env(agent.env) if agent is not None else {}
+            if kind == "outra":
+                # v0.9.8: qualquer CLI de agente, num terminal comum (sem a central de MCP).
+                argv = split_args(agent.command if agent else "", "o comando") + split_args(agent.args if agent else "")
+                if not argv:
+                    raise CommandError("o agente não tem a linha de comando da CLI")
+                found = shutil.which(argv[0])
+                if not found:
+                    raise CommandError(f"não achei {argv[0]} no PATH")
+                argv[0] = found
+                kind = "shell"
+            else:
+                argv = resolve_argv(kind, self.settings)
+                if agent is not None:
+                    argv = argv + agent_args(agent)
+        except AgentError as exc:
+            raise CommandError(str(exc)) from exc
+        if model and kind in PROVIDERS and (agent is None or not agent.model):
+            argv = argv + (["--model", model] if kind == "claude" else ["-m", model])
+        if effort and kind == "codex":
+            if effort not in EFFORTS:
+                raise CommandError(f"esforço inválido: {effort}")
+            argv = argv + ["-c", f'model_reasoning_effort="{effort}"']
         env, account = self.session_env(kind, session_id, account_id)
+        env.update(agent_env)
         if kind in PROVIDERS:
             prefs = self.prefs.get()
             argv = argv + permission_args(kind, permission or prefs[f"permissao_{kind}"])
@@ -308,6 +346,7 @@ class SessionManager:
             rows=rows,
             on_exit=lambda code: self._on_exit(session_id, code),
         )
+        pty.on_wake = lambda: self._woke(session_id)
         default_title = {"claude": "Claude", "codex": "Codex"}.get(kind, Path(argv[0]).name)
         session = Session(
             id=session_id,
@@ -392,6 +431,9 @@ class SessionManager:
         session = self.sessions.pop(session_id, None)
         if session is None:
             return False
+        if session.hibernando:
+            session.pty.resume()  # acorda antes de terminar
+            session.hibernando = False
         await session.pty.terminate()
         if self.mcp_forget is not None:
             self.mcp_forget(session_id)
@@ -401,6 +443,48 @@ class SessionManager:
     async def close_all(self) -> None:
         for session_id in list(self.sessions):
             await self.close(session_id)
+
+    # --- hibernação (v0.9.8) -------------------------------------------------
+
+    def hibernate_idle(self, now: float | None = None) -> list[str]:
+        """Para (SIGSTOP) os agentes que esperam há mais de hibernar_min minutos sem saída nem
+        entrada. Fora: automações e rotinas, que o núcleo espera. Devolve os ids parados."""
+        minutes = int(self.prefs.get().get("hibernar_min") or 0)
+        if minutes <= 0:
+            return []
+        now = time.time() if now is None else now
+        stopped: list[str] = []
+        for session in list(self.sessions.values()):
+            if (
+                session.kind in PROVIDERS
+                and session.pty.alive
+                and session.status == "waiting"
+                and not session.hibernando
+                and session.tag not in NO_HIBERNATE_TAGS
+                and now - session.pty.last_activity >= minutes * 60
+                and session.pty.pause()
+            ):
+                session.hibernando = True
+                self.events.publish({"type": "session.hibernate", "id": session.id, "hibernando": True})
+                stopped.append(session.id)
+        return stopped
+
+    def wake(self, session_id: str) -> Session | None:
+        """Acorda um agente que hibernava (a tela pede ao focar o terminal)."""
+        session = self.sessions.get(session_id)
+        if session is None:
+            return None
+        if session.hibernando:
+            session.pty.resume()
+            self._woke(session_id)
+        return session
+
+    def _woke(self, session_id: str) -> None:
+        session = self.sessions.get(session_id)
+        if session is None or not session.hibernando:
+            return
+        session.hibernando = False
+        self.events.publish({"type": "session.hibernate", "id": session_id, "hibernando": False})
 
     def _set_status(self, session: Session, status: str) -> None:
         if session.status == status:

@@ -108,7 +108,7 @@ def tree_usage(table: dict[int, tuple[int, float, float, str]], root: int) -> di
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---", re.S)
 
 
-def _frontmatter(text: str) -> dict[str, str]:
+def frontmatter(text: str) -> dict[str, str]:
     """As chaves de primeiro nível do frontmatter, inclusive as em bloco (`description: >` ou `|`)."""
     meta: dict[str, str] = {}
     match = FRONTMATTER.match(text)
@@ -139,7 +139,7 @@ def _skill(path: Path, origin: str) -> dict | None:
         text = path.read_text(encoding="utf-8", errors="replace")[:6000]
     except OSError:
         return None
-    meta = _frontmatter(text)
+    meta = frontmatter(text)
     return {
         "nome": meta.get("name") or path.parent.name,
         "descricao": (meta.get("description") or "").replace("\\n", " ")[:400],

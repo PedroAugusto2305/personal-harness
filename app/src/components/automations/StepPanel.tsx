@@ -392,7 +392,10 @@ export function StepPanel(props: Props) {
 
   const agentForm = (s: AutoStep) => {
     const who = s.agente ? `agente:${s.agente}` : `cli:${s.cli ?? "claude"}`;
-    const gallery = catalog?.agentes ?? agents.map((a) => ({ id: a.id, nome: a.name, cli: a.cli, cor: a.color, descricao: a.description }));
+    // Outra CLI não fala com a central de MCP (a saída do passo não volta): fica de fora.
+    const gallery = (catalog?.agentes ?? agents.map((a) => ({ id: a.id, nome: a.name, cli: a.cli, cor: a.color, descricao: a.description }))).filter(
+      (a) => a.cli === "claude" || a.cli === "codex",
+    ) as { id: string; nome: string; cli: "claude" | "codex"; cor: string; descricao: string }[];
     const chosen = s.ferramentas ?? [];
     return (
       <>

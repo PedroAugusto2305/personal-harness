@@ -66,7 +66,7 @@ export function Drawer({ ctx, flow, catalog, catalogError, agents, client, onClo
   const gallery = [
     { key: "claude", label: "Claude Code", sub: "claude · padrão", draft: { tipo: "agente", titulo: "Pedido ao Claude", cli: "claude" } as StepDraft },
     { key: "codex", label: "Codex", sub: "codex · padrão", draft: { tipo: "agente", titulo: "Pedido ao Codex", cli: "codex" } as StepDraft },
-    ...(catalog?.agentes ?? []).map((a) => ({
+    ...(catalog?.agentes ?? []).filter((a) => (a.cli as string) !== "outra").map((a) => ({
       key: a.id,
       label: a.nome,
       sub: a.cli,

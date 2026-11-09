@@ -21,6 +21,8 @@ from typing import Any
 PERMISSION_MODES = ("padrao", "manual", "auto", "yolo")
 AWAKE_MODES = ("nunca", "agente", "sempre")
 GIT_AGENTS = ("claude", "codex")
+#: v0.9.8: minutos esperando até o agente hibernar (0 = nunca).
+HIBERNATE_MINUTES = (0, 15, 30, 60)
 RECIPE_MAX = 4000
 
 # Receitas de IA por ação (v0.9.6): o pedido que vai ao agente da worktree. {base} vira o branch alvo do PR.
@@ -49,6 +51,7 @@ DEFAULTS: dict[str, Any] = {
     "receita_pr": RECIPE_PR,
     "agente_git": "claude",
     "editor_externo": "",
+    "hibernar_min": 0,
 }
 
 
@@ -94,6 +97,9 @@ class Prefs:
                     value = value.strip() or DEFAULTS[key]  # vazia volta ao padrão
                 if key == "agente_git" and value not in GIT_AGENTS:
                     raise PrefsError(f"o agente do git é {', '.join(GIT_AGENTS)}")
+                if key == "hibernar_min":
+                    if isinstance(value, bool) or not isinstance(value, int) or value not in HIBERNATE_MINUTES:
+                        raise PrefsError("hibernar é 0 (nunca), 15, 30 ou 60 minutos")
                 if key == "editor_externo":
                     if not isinstance(value, str) or len(value) > 40:
                         raise PrefsError("editor externo inválido")

@@ -4,7 +4,16 @@ import type { CoreClient } from "../lib/core";
 import { KIND_COLOR, KIND_GLYPH } from "../lib/format";
 import { quotePaths, submit, terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
-import type { Session } from "../types";
+import type { BarCommand, Session } from "../types";
+
+/** Sugestão da barra (v0.9.8): @ cita uma nota do Brain, / no começo lista os comandos da CLI. */
+interface Suggest {
+  kind: "nota" | "comando";
+  /** Onde começa o trecho que a sugestão troca (o @ ou o /). */
+  start: number;
+  items: { label: string; detail: string; insert: string }[];
+  index: number;
+}
 import { Waveform } from "./Waveform";
 
 const MAX_SECONDS = 300;
@@ -43,6 +52,61 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
   const files = useRef<HTMLInputElement>(null);
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
+  const [suggest, setSuggest] = useState<Suggest | null>(null);
+  /** Comandos da barra por sessão e a pasta do vault, buscados uma vez. */
+  const barCache = useRef(new Map<string, BarCommand[]>());
+  const vaultRoot = useRef<string | null>(null);
+  const suggestSeq = useRef(0);
+
+  /** Olha o que está antes do cursor e abre (ou fecha) as sugestões. */
+  const lookForSuggest = async (value: string, caret: number) => {
+    const seq = ++suggestSeq.current;
+    const before = value.slice(0, caret);
+    const command = /^\/([\w:.-]*)$/.exec(before);
+    const mention = /(^|\s)@([^\s@]{0,60})$/.exec(before);
+    if (command && client && target && target.kind !== "shell") {
+      let list = barCache.current.get(target.id);
+      if (!list) {
+        list = await client.sessionBar(target.id).then((r) => r.comandos, () => []);
+        barCache.current.set(target.id, list);
+      }
+      const q = command[1].toLowerCase();
+      const items = list
+        .filter((c) => c.nome.slice(1).toLowerCase().includes(q))
+        .slice(0, 10)
+        .map((c) => ({ label: c.nome, detail: c.descricao || c.origem, insert: `${c.nome} ` }));
+      if (seq === suggestSeq.current) setSuggest(items.length ? { kind: "comando", start: 0, items, index: 0 } : null);
+      return;
+    }
+    if (mention && client) {
+      if (vaultRoot.current === null) vaultRoot.current = await client.brainStatus().then((s) => s.vault, () => "");
+      const notes = await client.brainTitles(mention[2], 8).catch(() => []);
+      const root = vaultRoot.current.replace(/\/$/, "");
+      const items = notes.map((n) => ({
+        label: n.titulo,
+        detail: [n.tipo, n.projeto].filter(Boolean).join(" · "),
+        // O agente lê pelo caminho; o [[título]] deixa claro de que nota se trata.
+        insert: `a nota do Brain [[${n.titulo}]] (${root}/${n.path}) `,
+      }));
+      if (seq === suggestSeq.current) setSuggest(items.length ? { kind: "nota", start: caret - mention[2].length - 1, items, index: 0 } : null);
+      return;
+    }
+    if (seq === suggestSeq.current) setSuggest(null);
+  };
+
+  const accept = (item: Suggest["items"][number]) => {
+    if (!suggest) return;
+    const el = field.current;
+    const caret = el?.selectionStart ?? text.length;
+    const next = text.slice(0, suggest.start) + item.insert + text.slice(caret);
+    setText(next);
+    setSuggest(null);
+    const pos = suggest.start + item.insert.length;
+    requestAnimationFrame(() => {
+      field.current?.focus();
+      field.current?.setSelectionRange(pos, pos);
+    });
+  };
   const recRef = useRef(recording);
   recRef.current = recording;
 
@@ -182,6 +246,26 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
 
   return (
     <div className="dock" data-drop="dock" data-dropping={dropping ? "true" : undefined}>
+      {suggest && (
+        <ul className="dock-suggest" role="listbox" aria-label={suggest.kind === "nota" ? "Notas do Brain" : "Comandos"}>
+          {suggest.items.map((item, i) => (
+            <li key={`${item.label}-${i}`} role="presentation">
+              <button
+                type="button"
+                role="option"
+                aria-selected={i === suggest.index}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  accept(item);
+                }}
+              >
+                <span className={suggest.kind === "comando" ? "mono" : undefined}>{item.label}</span>
+                <span className="small">{item.detail}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="composer" data-voice={voice}>
         {recordingNow ? (
           <Waveform recording={recording} />
@@ -193,8 +277,31 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
             placeholder={placeholder}
             disabled={voice === "transcribing"}
             spellCheck={false}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              void lookForSuggest(event.target.value, event.target.selectionStart ?? event.target.value.length);
+            }}
+            onBlur={() => window.setTimeout(() => setSuggest(null), 150)}
             onKeyDown={(event) => {
+              // Sugestões abertas: ↑↓ escolhem, ⏎ ou ⇥ aceitam, Esc fecha.
+              if (suggest && !event.nativeEvent.isComposing) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const step = event.key === "ArrowDown" ? 1 : -1;
+                  setSuggest({ ...suggest, index: (suggest.index + step + suggest.items.length) % suggest.items.length });
+                  return;
+                }
+                if ((event.key === "Enter" && !event.shiftKey && !event.altKey) || event.key === "Tab") {
+                  event.preventDefault();
+                  accept(suggest.items[suggest.index]);
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSuggest(null);
+                  return;
+                }
+              }
               // Barra vazia num terminal de agente: as teclas de menu vão para ele
               // (escolher opção, confirmar, interromper, trocar de modo).
               if (target && target.kind !== "shell" && !text && !event.nativeEvent.isComposing) {
@@ -259,7 +366,7 @@ export function Dock({ client, target, targetAccount, language, dropping, ref }:
               {targetAccount && <span className="small"> · {targetAccount}</span>}
             </span>
           )}
-          <span className="dock-hint mono">⏎ envia · ⌥⏎ só cola · ⇧⏎ linha</span>
+          <span className="dock-hint mono">⏎ envia · ⌥⏎ só cola · ⇧⏎ linha · @ nota · / comando</span>
           <button
             type="button"
             className="send"
