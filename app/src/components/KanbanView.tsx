@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { CoreClient } from "../lib/core";
 import { renderInline } from "../lib/obsidian";
-import type { BoardProject, KanbanTask, Stage, TaskState } from "../types";
+import type { BoardProject, GithubIssue, GithubPr, KanbanTask, Stage, TaskState } from "../types";
 
 export interface KanbanRequest {
   id: number;
@@ -15,6 +15,9 @@ interface Props {
   onOpenNote: (title: string) => void;
   onOpenProject: (project: BoardProject) => void;
   onRunTask: (project: BoardProject, task: KanbanTask) => void;
+  /** v0.9.6: issues e PRs do GitHub do projeto, na coluna GitHub das tarefas. */
+  onRunIssue: (project: BoardProject, issue: GithubIssue) => void;
+  onOpenUrl: (url: string) => void;
   onError: (message: string) => void;
 }
 
@@ -133,7 +136,7 @@ function Column(props: {
   );
 }
 
-export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, onRunTask, onError }: Props) {
+export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, onRunTask, onRunIssue, onOpenUrl, onError }: Props) {
   const [projects, setProjects] = useState<BoardProject[]>([]);
   const [mode, setMode] = useState<"projects" | "tasks">("projects");
   const [current, setCurrent] = useState<string>("");
@@ -146,8 +149,22 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
   // Projetos: a coluna "none" é Sem estágio. Tarefas: a coluna é o estado.
   const cardDrag = useCardDrag((col, id) => {
     if (mode === "projects") void moveProject(id, (col === "none" ? "" : col) as Stage);
-    else void moveTask(id, col as TaskState);
+    else if (col !== "github") void moveTask(id, col as TaskState);
   });
+  // Issues e PRs abertos do repositório do projeto (pelo gh), ao lado das tarefas do Brain.
+  const [github, setGithub] = useState<{ issues: GithubIssue[]; prs: GithubPr[] } | null>(null);
+  useEffect(() => {
+    setGithub(null);
+    if (!client || mode !== "tasks" || !project?.directory) return;
+    let alive = true;
+    client
+      .githubItems(project.directory)
+      .then((items) => alive && setGithub(items.issues.length || items.prs.length ? items : null))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [client, mode, project?.directory, tick]);
 
   useEffect(() => {
     if (!client) return;
@@ -412,6 +429,58 @@ export function KanbanView({ client, tick, request, onOpenNote, onOpenProject, o
               </Column>
             );
           })}
+          {github && project && (
+            <Column
+              colKey="github"
+              over={false}
+              label="GitHub"
+              dot="var(--fnt)"
+              count={github.issues.length + github.prs.length}
+              hint="issues e PRs abertos do repositório"
+            >
+              {github.issues.map((issue) => (
+                <article key={`i-${issue.numero}`} className="kb-card kb-task kb-gh">
+                  <div className="kb-task-text">
+                    <span className="mono kb-gh-num">#{issue.numero}</span> {issue.titulo}
+                  </div>
+                  {issue.rotulos.length > 0 && (
+                    <div className="kb-tags">
+                      {issue.rotulos.slice(0, 4).map((label) => (
+                        <span key={label} className="kb-tag">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="kb-card-actions">
+                    <button type="button" className="link-btn" onClick={() => onOpenUrl(issue.url)}>
+                      abrir
+                    </button>
+                    <button type="button" className="link-btn kb-run" onClick={() => onRunIssue(project, issue)}>
+                      ▶ Executar com agente
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {github.prs.map((pr) => (
+                <article key={`p-${pr.numero}`} className="kb-card kb-task kb-gh">
+                  <div className="kb-task-text">
+                    <span className="mono kb-gh-num">PR #{pr.numero}</span> {pr.titulo}
+                  </div>
+                  <div className="kb-meta small mono">
+                    {pr.cabeca}
+                    {pr.rascunho ? " · rascunho" : ""}
+                    {pr.checks.falhou ? ` · ✗${pr.checks.falhou}` : pr.checks.pendente ? ` · ⏳${pr.checks.pendente}` : pr.checks.ok ? ` · ✓${pr.checks.ok}` : ""}
+                  </div>
+                  <div className="kb-card-actions">
+                    <button type="button" className="link-btn" onClick={() => onOpenUrl(pr.url)}>
+                      abrir
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </Column>
+          )}
         </div>
       )}
       {cardDrag.drag && (

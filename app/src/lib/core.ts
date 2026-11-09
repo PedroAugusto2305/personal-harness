@@ -55,6 +55,16 @@ import type {
   SavedCommand,
   TerminalTheme,
   VersionInfo,
+  ChangedFile,
+  ConflictBlock,
+  ConflictChoice,
+  DiffMode,
+  GitConfig,
+  GitRefs,
+  GithubIssue,
+  GithubPr,
+  GithubState,
+  PullRequest,
 } from "../types";
 
 export interface CoreInfo {
@@ -257,8 +267,8 @@ export class CoreClient {
     return this.request("GET", `/git/status?${new URLSearchParams({ path })}`);
   }
 
-  async gitDiff(path: string, file: string, mode: "head" | "staged" | "worktree", untracked: boolean): Promise<string> {
-    const query = new URLSearchParams({ path, file, mode, untracked: String(untracked) });
+  async gitDiff(path: string, file: string, mode: DiffMode, untracked: boolean, ref = ""): Promise<string> {
+    const query = new URLSearchParams({ path, file, mode, untracked: String(untracked), ...(mode === "ref" ? { ref } : {}) });
     const response = await fetch(`${this.info.url}/git/diff?${query}`, { headers: { "X-Harness-Token": this.info.token } });
     if (!response.ok) throw new CoreError((await response.json().catch(() => ({}))).detail ?? response.statusText, response.status);
     return response.text();
@@ -272,12 +282,96 @@ export class CoreClient {
     return this.request("POST", "/git/unstage", { path, files });
   }
 
-  commit(path: string, message: string): Promise<unknown> {
-    return this.request("POST", "/git/commit", { path, message });
+  commit(path: string, message: string, amend = false): Promise<unknown> {
+    return this.request("POST", "/git/commit", { path, message, amend });
   }
 
-  push(path: string): Promise<unknown> {
-    return this.request("POST", "/git/push", { path });
+  push(path: string, force = false): Promise<unknown> {
+    return this.request("POST", "/git/push", { path, force });
+  }
+
+  // --- git e GitHub (v0.9.6)
+
+  gitRefs(path: string): Promise<GitRefs> {
+    return this.request("GET", `/git/refs?${new URLSearchParams({ path })}`);
+  }
+
+  gitChanged(path: string, ref: string): Promise<{ ref: string; base: string; files: ChangedFile[] }> {
+    return this.request("GET", `/git/changed?${new URLSearchParams({ path, ref })}`);
+  }
+
+  /** Aplica um patch: no índice (cached) para marcar e desmarcar trechos; na árvore (reverse) para descartar. */
+  gitApply(path: string, patch: string, cached: boolean, reverse: boolean): Promise<unknown> {
+    return this.request("POST", "/git/apply", { path, patch, cached, reverse });
+  }
+
+  gitDiscard(path: string, files: string[]): Promise<{ ok: boolean; lixeira: string[] }> {
+    return this.request("POST", "/git/discard", { path, files });
+  }
+
+  gitFetch(path: string): Promise<unknown> {
+    return this.request("POST", "/git/fetch", { path });
+  }
+
+  gitSync(path: string): Promise<{ feito: "push" | "pull" | "sync" | "nada"; saida: string }> {
+    return this.request("POST", "/git/sync", { path });
+  }
+
+  gitOperation(path: string, acao: "abortar" | "continuar"): Promise<unknown> {
+    return this.request("POST", "/git/operacao", { path, acao });
+  }
+
+  gitConflict(path: string, file: string): Promise<{ blocos: ConflictBlock[]; texto: string }> {
+    return this.request("GET", `/git/conflito?${new URLSearchParams({ path, file })}`);
+  }
+
+  resolveConflict(path: string, file: string, escolhas: ConflictChoice[]): Promise<{ resolvido: boolean }> {
+    return this.request("POST", "/git/conflito", { path, file, escolhas });
+  }
+
+  resolveConflictSide(path: string, file: string, lado: "nosso" | "deles"): Promise<{ resolvido: boolean }> {
+    return this.request("POST", "/git/conflito", { path, file, lado });
+  }
+
+  /** O arquivo como estava numa ref (para o diff de imagem), com o token no endereço. */
+  gitBlobUrl(path: string, file: string, ref = "HEAD"): string {
+    return `${this.info.url}/git/blob?${new URLSearchParams({ path, file, ref, token: this.info.token })}`;
+  }
+
+  gitConfig(): Promise<GitConfig> {
+    return this.request("GET", "/git/config");
+  }
+
+  saveGitConfig(assinar: boolean): Promise<GitConfig> {
+    return this.request("PUT", "/git/config", { assinar });
+  }
+
+  github(path: string): Promise<GithubState> {
+    return this.request("GET", `/github/estado?${new URLSearchParams({ path })}`);
+  }
+
+  createPr(path: string, titulo: string, corpo: string, base: string, rascunho: boolean): Promise<PullRequest> {
+    return this.request("POST", "/github/pr", { path, titulo, corpo, base, rascunho });
+  }
+
+  mergePr(path: string, numero: number, metodo: "rebase" | "squash" | "merge"): Promise<PullRequest | { ok: boolean }> {
+    return this.request("POST", "/github/pr/juntar", { path, numero, metodo });
+  }
+
+  readyPr(path: string, numero: number): Promise<PullRequest | { ok: boolean }> {
+    return this.request("POST", "/github/pr/pronto", { path, numero });
+  }
+
+  githubItems(path: string): Promise<{ gh?: boolean; issues: GithubIssue[]; prs: GithubPr[] }> {
+    return this.request("GET", `/github/itens?${new URLSearchParams({ path })}`);
+  }
+
+  editors(): Promise<{ id: string; nome: string }[]> {
+    return this.request("GET", "/sistema/editores");
+  }
+
+  openIn(editor: string, path: string): Promise<unknown> {
+    return this.request("POST", "/sistema/abrir-em", { editor, path });
   }
 
   pull(path: string): Promise<unknown> {

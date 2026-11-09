@@ -4,7 +4,17 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v0.9.5)
+## O que já faz (v0.9.6)
+
+**Novo na 0.9.6, Git e GitHub (paridade com o Orca):**
+
+- **Marcar por trecho e por linha** no diff: em "Não marcado", cada trecho tem marcar e descartar; clique no número da linha para escolher linhas soltas (⇧ + clique pega um intervalo). Em "Marcado", desmarcar do mesmo jeito.
+- **Comparar com outro branch, tag ou commit:** no painel de mudanças ("Comparar com outro branch") ou no modo Comparar do diff. Imagens aparecem antes e agora, lado a lado.
+- **O botão do branch muda com o estado:** Publicar branch, Subir ↑, Puxar ↓ ou Sincronizar; o ícone ao lado busca o remoto. Subida recusada oferece forçar com `--force-with-lease`.
+- **Commit:** "Corrigir o último commit" (amend); se o pre-commit recusar, a saída aparece e "Consertar com o agente" manda para ele.
+- **Merge e rebase:** a faixa da operação em andamento tem Continuar, Abortar e Resolver com o agente; cada conflito abre bloco a bloco (o nosso, o deles, os dois) ou vai inteiro para um lado.
+- **GitHub** (pelo `gh` já logado): o PR do branch com checks e revisão, Criar PR (formulário ou agente), Pronto para revisão e Juntar. No kanban, as tarefas de um projeto ganham a coluna GitHub com as issues e os PRs abertos; "Executar com agente" numa issue cria a worktree `issue-<n>-…` e deixa o pedido na barra.
+- **Ajustes → Git:** as receitas que o agente da worktree recebe no commit e no PR, qual agente abre, assinar os commits e o editor externo.
 
 **Na 0.9.5:** a MÊTIS instalada abre pelo Finder, pelo Launchpad e pelo Dock com o PATH do seu shell (antes, aberta assim, não achava o `uv`, o `claude` nem o `codex`).
 

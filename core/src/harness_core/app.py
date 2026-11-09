@@ -39,7 +39,7 @@ from .history import codex_rollout_for
 from .history import list_sessions as history_sessions
 from .system import Awake, list_skills, mac_notify, process_table, tree_usage, wants_awake
 from .prefs import PrefsError
-from . import ghostty, updates
+from . import ghostty, github, system, updates
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban import Kanban
@@ -116,10 +116,58 @@ class GitFiles(BaseModel):
 
 class GitCommit(BaseModel):
     path: str
-    message: str = Field(min_length=1)
+    message: str = Field(default="", max_length=20000)
+    amend: bool = False
 
 
 class GitPath(BaseModel):
+    path: str
+
+
+class GitPush(BaseModel):
+    path: str
+    force: bool = False
+
+
+class GitApply(BaseModel):
+    path: str
+    patch: str = Field(min_length=1, max_length=5_000_000)
+    cached: bool = True
+    reverse: bool = False
+
+
+class GitOperation(BaseModel):
+    path: str
+    acao: str = Field(pattern="^(abortar|continuar)$")
+
+
+class GitConflict(BaseModel):
+    path: str
+    file: str
+    escolhas: list[str] | None = None
+    lado: str | None = Field(default=None, pattern="^(nosso|deles)$")
+
+
+class PrCreate(BaseModel):
+    path: str
+    titulo: str = Field(min_length=1, max_length=256)
+    corpo: str = Field(default="", max_length=60000)
+    base: str = Field(min_length=1, max_length=200)
+    rascunho: bool = False
+
+
+class PrNumber(BaseModel):
+    path: str
+    numero: int = Field(ge=1)
+    metodo: str = Field(default="rebase", pattern="^(rebase|squash|merge)$")
+
+
+class GitSigning(BaseModel):
+    assinar: bool
+
+
+class OpenIn(BaseModel):
+    editor: str = Field(min_length=1, max_length=40)
     path: str
 
 
@@ -1043,12 +1091,143 @@ def create_app(
             raise fail(exc) from exc
 
     @app.get("/git/diff", dependencies=[Depends(require_token)], response_class=PlainTextResponse)
-    async def git_diff(path: str, file: str, mode: str = Query(default="head", pattern="^(head|staged|worktree)$"), untracked: bool = False) -> str:
+    async def git_diff(
+        path: str, file: str, mode: str = Query(default="head", pattern="^(head|staged|worktree|ref)$"), untracked: bool = False, ref: str = ""
+    ) -> str:
         try:
             fs.inside(path, file)
-            return await gitops.diff(path, file, mode, untracked)
+            return await gitops.diff(path, file, mode, untracked, ref=ref or None)
         except (gitops.GitError, fs.FileError) as exc:
             raise fail(exc) from exc
+
+    # --- v0.9.6: git e GitHub -----------------------------------------------------------
+
+    @app.get("/git/refs", dependencies=[Depends(require_token)])
+    async def git_refs(path: str) -> dict:
+        try:
+            return await gitops.refs(path)
+        except (gitops.GitError, FileNotFoundError, NotADirectoryError) as exc:
+            raise fail(exc) from exc
+
+    @app.get("/git/changed", dependencies=[Depends(require_token)])
+    async def git_changed(path: str, ref: str) -> dict:
+        try:
+            return await gitops.changed(path, ref)
+        except (gitops.GitError, FileNotFoundError, NotADirectoryError) as exc:
+            raise fail(exc) from exc
+
+    @app.post("/git/apply", dependencies=[Depends(require_token)])
+    async def git_apply(body: GitApply) -> dict:
+        try:
+            await gitops.apply_patch(body.path, body.patch, body.cached, body.reverse)
+        except (gitops.GitError, FileNotFoundError) as exc:
+            raise fail(exc) from exc
+        return {"ok": True}
+
+    @app.post("/git/discard", dependencies=[Depends(require_token)])
+    async def git_discard(body: GitFiles) -> dict:
+        try:
+            moved = await gitops.discard(body.path, body.files)
+        except (gitops.GitError, fs.FileError, FileNotFoundError, OSError) as exc:
+            raise fail(exc) from exc
+        return {"ok": True, "lixeira": moved}
+
+    @app.post("/git/fetch", dependencies=[Depends(require_token)])
+    async def git_fetch(body: GitPath) -> dict:
+        return await git_action(gitops.fetch, body.path)
+
+    @app.post("/git/sync", dependencies=[Depends(require_token)])
+    async def git_sync(body: GitPath) -> dict:
+        try:
+            return await gitops.sync(body.path)
+        except (gitops.GitError, FileNotFoundError) as exc:
+            raise fail(exc) from exc
+
+    @app.post("/git/operacao", dependencies=[Depends(require_token)])
+    async def git_operation(body: GitOperation) -> dict:
+        return await git_action(gitops.finish_operation, body.path, body.acao)
+
+    @app.get("/git/conflito", dependencies=[Depends(require_token)])
+    async def git_conflict(path: str, file: str) -> dict:
+        try:
+            return await gitops.conflict(path, file)
+        except (gitops.GitError, fs.FileError, FileNotFoundError, IsADirectoryError) as exc:
+            raise fail(exc) from exc
+
+    @app.post("/git/conflito", dependencies=[Depends(require_token)])
+    async def git_resolve(body: GitConflict) -> dict:
+        if body.lado is None and body.escolhas is None:
+            raise HTTPException(status_code=400, detail="diga as escolhas de cada conflito ou o lado do arquivo inteiro")
+        try:
+            done = await gitops.resolve(body.path, body.file, choices=body.escolhas, side=body.lado)
+        except (gitops.GitError, fs.FileError, FileNotFoundError) as exc:
+            raise fail(exc) from exc
+        return {"resolvido": done}
+
+    @app.get("/git/blob", dependencies=[Depends(require_token_or_query)])
+    async def git_blob(path: str, file: str, ref: str = "HEAD") -> Response:
+        try:
+            data = await gitops.blob(path, file, ref)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (gitops.GitError, fs.FileError) as exc:
+            raise fail(exc) from exc
+        return Response(content=data, media_type=fs.media_type(Path(file)), headers={"Cache-Control": "no-store"})
+
+    @app.get("/git/config", dependencies=[Depends(require_token)])
+    async def git_config() -> dict:
+        return await gitops.global_config()
+
+    @app.put("/git/config", dependencies=[Depends(require_token)])
+    async def git_config_set(body: GitSigning) -> dict:
+        try:
+            return await gitops.set_signing(body.assinar)
+        except gitops.GitError as exc:
+            raise fail(exc) from exc
+
+    @app.get("/github/estado", dependencies=[Depends(require_token)])
+    async def github_state(path: str) -> dict:
+        return await asyncio.to_thread(github.state, path)
+
+    @app.get("/github/itens", dependencies=[Depends(require_token)])
+    async def github_items(path: str) -> dict:
+        return await asyncio.to_thread(github.items, path)
+
+    @app.post("/github/pr", dependencies=[Depends(require_token)])
+    async def github_create(body: PrCreate) -> dict:
+        try:
+            gitops.check_ref(body.base)
+            info = await gitops.status(body.path)
+            if not info["upstream"] or info["ahead"] > 0:
+                await gitops.push(body.path)  # o gh não cria PR de branch que não subiu
+            return await asyncio.to_thread(github.create_pr, body.path, body.titulo, body.corpo, body.base, body.rascunho)
+        except (gitops.GitError, github.GithubError, FileNotFoundError) as exc:
+            raise fail(exc) from exc
+
+    @app.post("/github/pr/juntar", dependencies=[Depends(require_token)])
+    async def github_merge(body: PrNumber) -> dict:
+        try:
+            return await asyncio.to_thread(github.merge_pr, body.path, body.numero, body.metodo)
+        except github.GithubError as exc:
+            raise fail(exc) from exc
+
+    @app.post("/github/pr/pronto", dependencies=[Depends(require_token)])
+    async def github_ready(body: PrNumber) -> dict:
+        try:
+            return await asyncio.to_thread(github.mark_ready, body.path, body.numero)
+        except github.GithubError as exc:
+            raise fail(exc) from exc
+
+    @app.get("/sistema/editores", dependencies=[Depends(require_token)])
+    def system_editors() -> list[dict]:
+        return system.list_editors()
+
+    @app.post("/sistema/abrir-em", dependencies=[Depends(require_token)], status_code=204)
+    def system_open_in(body: OpenIn) -> None:
+        try:
+            system.open_in(body.editor, body.path)
+        except (ValueError, subprocess.SubprocessError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     async def git_action(action, *args) -> dict:
         try:
@@ -1067,11 +1246,11 @@ def create_app(
 
     @app.post("/git/commit", dependencies=[Depends(require_token)])
     async def git_commit(body: GitCommit) -> dict:
-        return await git_action(gitops.commit, body.path, body.message)
+        return await git_action(gitops.commit, body.path, body.message, body.amend)
 
     @app.post("/git/push", dependencies=[Depends(require_token)])
-    async def git_push(body: GitPath) -> dict:
-        return await git_action(gitops.push, body.path)
+    async def git_push(body: GitPush) -> dict:
+        return await git_action(gitops.push, body.path, body.force)
 
     @app.post("/git/pull", dependencies=[Depends(require_token)])
     async def git_pull(body: GitPath) -> dict:

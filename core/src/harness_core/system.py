@@ -166,3 +166,50 @@ def list_skills(user_dirs: Iterable[Path], project_dir: str | None = None) -> li
             if item:
                 found.append(item)
     return found
+
+
+# --- editores externos (v0.9.6) ------------------------------------------------------
+
+EDITORS = {
+    "code": ("Visual Studio Code", "Visual Studio Code.app"),
+    "cursor": ("Cursor", "Cursor.app"),
+    "zed": ("Zed", "Zed.app"),
+    "sublime": ("Sublime Text", "Sublime Text.app"),
+    "xcode": ("Xcode", "Xcode.app"),
+}
+
+
+def app_dirs() -> list[Path]:
+    return [Path("/Applications"), Path.home() / "Applications"]
+
+
+def find_editor(editor_id: str, dirs: Iterable[Path] | None = None) -> Path | None:
+    entry = EDITORS.get(editor_id)
+    if entry is None:
+        return None
+    for folder in dirs if dirs is not None else app_dirs():
+        candidate = folder / entry[1]
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def list_editors(dirs: Iterable[Path] | None = None) -> list[dict]:
+    """Os editores conhecidos que estão instalados, para o "Abrir em"."""
+    folders = list(dirs) if dirs is not None else app_dirs()
+    return [{"id": key, "nome": name} for key, (name, _) in EDITORS.items() if find_editor(key, folders)]
+
+
+def open_in(editor_id: str, path: str, dirs: Iterable[Path] | None = None, run: Callable[[list[str]], object] | None = None) -> None:
+    """Abre a pasta ou o arquivo no editor (`open -a`), sem shell."""
+    app = find_editor(editor_id, dirs)
+    if app is None:
+        raise ValueError(f"editor não instalado: {editor_id}")
+    target = Path(path).expanduser()
+    if not target.exists():
+        raise ValueError(f"não existe: {path}")
+    command = ["open", "-a", str(app), str(target)]
+    if run is not None:
+        run(command)
+    else:
+        subprocess.run(command, check=True, timeout=15)

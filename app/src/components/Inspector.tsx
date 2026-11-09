@@ -5,9 +5,12 @@ import { KIND_COLOR, KIND_GLYPH, fold } from "../lib/format";
 import { openExternal } from "../lib/browser";
 import { buildTree, type TreeNode } from "../lib/tree";
 import { TYPE_ICON, renderInline } from "../lib/obsidian";
-import type { BrainPlace, ContextWindow, GitFile, GitStatus, ReviewNote, Session, Suggestion } from "../types";
-import { worktreeLabel, type Place } from "../useWorktrees";
+import type { BrainPlace, ContextWindow, GitStatus, Prefs, ReviewNote, Session, Suggestion } from "../types";
+import type { Place } from "../useWorktrees";
 import { SuggestionCard } from "./SuggestionCard";
+import { GitPanel, fileMark, type GitPanelProps } from "./GitPanel";
+
+export { fileMark };
 
 export type InspectorTab = "changes" | "files" | "ports" | "brain" | "context";
 
@@ -19,7 +22,11 @@ interface Props {
   sessions: Session[];
   notes: ReviewNote[];
   tick: number;
-  onOpenDiff: (file: GitFile) => void;
+  onOpenDiff: GitPanelProps["onOpenDiff"];
+  /** v0.9.6: conflito bloco a bloco, pedido ao agente da worktree e as receitas dos Ajustes. */
+  onOpenConflict: (path: string) => void;
+  onAgent: (prompt: string) => void;
+  prefs: Prefs | null;
   onOpenFile: (path: string) => void;
   onOpenUrl: (url: string) => void;
   onAskCommit: (staged: number) => void;
@@ -35,23 +42,6 @@ interface Props {
   suggestionsTick: number;
   contextSession: Session | null;
   onNotice: (message: string) => void;
-}
-
-/** Letra e cor do estado de um arquivo no git, no estilo do VS Code. */
-export function fileMark(file: GitFile, side: "staged" | "unstaged"): { letter: string; color: string } {
-  if (file.conflict) return { letter: "!", color: "var(--err)" };
-  if (file.untracked) return { letter: "U", color: "var(--run)" };
-  const code = side === "staged" ? file.x : file.y;
-  const map: Record<string, [string, string]> = {
-    M: ["M", "var(--wait)"],
-    A: ["A", "var(--run)"],
-    D: ["D", "var(--err)"],
-    R: ["R", "var(--acct)"],
-    C: ["C", "var(--acct)"],
-    T: ["T", "var(--wait)"],
-  };
-  const [letter, color] = map[code] ?? [code, "var(--mut)"];
-  return { letter, color };
 }
 
 export function Inspector(props: Props) {
@@ -109,7 +99,24 @@ export function Inspector(props: Props) {
           as portas dela.
         </p>
       ) : tab === "changes" ? (
-        <Changes {...props} place={place} status={status} reload={load} />
+        <GitPanel
+          client={client}
+          place={place}
+          status={status}
+          reload={load}
+          notes={props.notes}
+          prefs={props.prefs}
+          onOpenDiff={props.onOpenDiff}
+          onOpenConflict={props.onOpenConflict}
+          onOpenUrl={props.onOpenUrl}
+          onAskCommit={props.onAskCommit}
+          onAgent={props.onAgent}
+          onSendNotes={props.onSendNotes}
+          onClearNotes={props.onClearNotes}
+          onChanged={props.onChanged}
+          onError={props.onError}
+          onNotice={props.onNotice}
+        />
       ) : tab === "files" ? (
         <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
       ) : tab === "brain" ? (
@@ -126,158 +133,6 @@ export function Inspector(props: Props) {
         <Ports sessions={props.sessions} onOpenUrl={props.onOpenUrl} />
       )}
     </aside>
-  );
-}
-
-function Changes(props: Props & { place: Place; status: GitStatus | null; reload: () => Promise<void> }) {
-  const { client, place, status, notes } = props;
-  const path = place.worktree.path;
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const staged = status?.files.filter((f) => f.staged) ?? [];
-  const unstaged = status?.files.filter((f) => f.unstaged) ?? [];
-
-  const act = async (label: string, action: () => Promise<unknown>) => {
-    if (!client) return;
-    setBusy(label);
-    try {
-      await action();
-    } catch (cause) {
-      props.onError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(null);
-      await props.reload();
-      props.onChanged();
-    }
-  };
-
-  const row = (file: GitFile, side: "staged" | "unstaged") => {
-    const mark = fileMark(file, side);
-    const parts = file.path.split("/");
-    const name = parts.pop();
-    return (
-      <div key={`${side}-${file.path}`} className="change-row">
-        <button type="button" className="change-main" onClick={() => props.onOpenDiff(file)} title={`Ver o diff de ${file.path}`}>
-          <span className="change-name">{name}</span>
-          <span className="change-dir small">{parts.join("/")}</span>
-        </button>
-        <button
-          type="button"
-          className="icon-btn row-action"
-          title={side === "staged" ? "Desmarcar" : "Marcar para o commit"}
-          aria-label={side === "staged" ? `Desmarcar ${file.path}` : `Marcar ${file.path}`}
-          onClick={() => act(side, () => (side === "staged" ? client!.unstage(path, [file.path]) : client!.stage(path, [file.path])))}
-        >
-          <Icon d={side === "staged" ? ICON.minus : ICON.plus} size={13} strokeWidth={2} />
-        </button>
-        <span className="change-mark mono" style={{ color: mark.color }}>
-          {mark.letter}
-        </span>
-      </div>
-    );
-  };
-
-  return (
-    <div className="inspector-body">
-      <div className="branch-bar">
-        <Icon d={ICON.branch} size={13} />
-        <span className="mono branch-name">{status?.branch ?? worktreeLabel(place.worktree)}</span>
-        {status && status.ahead > 0 && <span className="badge">↑{status.ahead}</span>}
-        {status && status.behind > 0 && <span className="badge">↓{status.behind}</span>}
-        <span className="grow" />
-        <button type="button" className="icon-btn" title="Puxar (pull --ff-only)" disabled={!!busy} onClick={() => act("pull", () => client!.pull(path))}>
-          <Icon d={ICON.down} size={14} />
-        </button>
-        <button type="button" className="icon-btn" title="Subir (push)" disabled={!!busy} onClick={() => act("push", () => client!.push(path))}>
-          <Icon d={ICON.up} size={14} />
-        </button>
-      </div>
-      {busy === "push" || busy === "pull" ? <div className="small busy-line">{busy === "push" ? "subindo…" : "puxando…"}</div> : null}
-
-      {notes.length > 0 && (
-        <div className="notes-box">
-          <Icon d={ICON.note} size={13} />
-          <span>
-            {notes.length} nota{notes.length > 1 ? "s" : ""} na revisão
-          </span>
-          <span className="grow" />
-          <button type="button" className="pill" onClick={props.onSendNotes} title="Vai para a barra de entrada do agente desta worktree">
-            Mandar ao agente
-          </button>
-          <button type="button" className="icon-btn" title="Limpar notas" onClick={props.onClearNotes}>
-            <Icon d={ICON.trash} size={12} />
-          </button>
-        </div>
-      )}
-
-      <div className="commit-box">
-        <textarea
-          value={message}
-          rows={2}
-          placeholder={staged.length ? "Mensagem do commit (ou peça ao agente)" : "Marque arquivos ou peça ao agente"}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.metaKey && message.trim() && staged.length) {
-              e.preventDefault();
-              void act("commit", async () => {
-                await client!.commit(path, message.trim());
-                setMessage("");
-              });
-            }
-          }}
-        />
-        <div className="form-buttons">
-          <button
-            type="button"
-            className="btn primary"
-            disabled={!message.trim() || !staged.length || !!busy}
-            title="Commit dos arquivos marcados (⌘⏎)"
-            onClick={() =>
-              act("commit", async () => {
-                await client!.commit(path, message.trim());
-                setMessage("");
-              })
-            }
-          >
-            <Icon d={ICON.check} size={13} strokeWidth={2.2} />
-            Commit
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={!status?.files.length}
-            onClick={() => props.onAskCommit(staged.length)}
-            title="O agente desta worktree escreve a mensagem e faz o commit, no terminal dele"
-          >
-            ✻ Pedir ao agente
-          </button>
-        </div>
-      </div>
-
-      <div className="change-group">
-        <div className="group-head">
-          <span>Marcados · {staged.length}</span>
-          {staged.length > 0 && (
-            <button type="button" className="link-btn" onClick={() => act("unstage", () => client!.unstage(path, staged.map((f) => f.path)))}>
-              desmarcar todos
-            </button>
-          )}
-        </div>
-        {staged.map((f) => row(f, "staged"))}
-      </div>
-      <div className="change-group">
-        <div className="group-head">
-          <span>Não marcados · {unstaged.length}</span>
-          {unstaged.length > 0 && (
-            <button type="button" className="link-btn" onClick={() => act("stage", () => client!.stage(path, unstaged.map((f) => f.path)))}>
-              marcar todos
-            </button>
-          )}
-        </div>
-        {unstaged.map((f) => row(f, "unstaged"))}
-        {status && status.files.length === 0 && <p className="small inspector-empty">Nada mudou desde o último commit.</p>}
-      </div>
-    </div>
   );
 }
 

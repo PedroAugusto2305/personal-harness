@@ -7,13 +7,15 @@ import type { Accounts, Prefs, Project, Provider, SavedCommand, Session, Termina
 import { THEME_LABEL } from "./Chrome";
 import { AgentsPrefsSection, ResourcesSection, SkillsSection } from "./SettingsSystem";
 import { CommandsSection, KeymapSection, TerminalThemeCard, type FindEntry } from "./SettingsTerminal";
+import { GitSection } from "./SettingsGit";
 import { Limits } from "./StatusBar";
 
-export type SettingsSection = "contas" | "agentes" | "skills" | "recursos" | "aparencia" | "atalhos" | "comandos" | "voz" | "sobre";
+export type SettingsSection = "contas" | "agentes" | "git" | "skills" | "recursos" | "aparencia" | "atalhos" | "comandos" | "voz" | "sobre";
 
 const SECTIONS: { key: SettingsSection; label: string; icon: keyof typeof ICON }[] = [
   { key: "contas", label: "Contas e uso", icon: "user" },
   { key: "agentes", label: "Agentes e avisos", icon: "bell" },
+  { key: "git", label: "Git", icon: "branch" },
   { key: "skills", label: "Skills", icon: "spark" },
   { key: "recursos", label: "Recursos", icon: "cpu" },
   { key: "aparencia", label: "Aparência", icon: "palette" },
@@ -39,6 +41,11 @@ const FIND: FindEntry[] = [
   { section: "agentes", label: "Som", terms: "sound sonido volume beep" },
   { section: "agentes", label: "Silenciar tudo", terms: "mute silence do not disturb silenciar no molestar" },
   { section: "agentes", label: "Desligar a MÊTIS", terms: "quit shutdown stop core nucleo desligar apagar reiniciar restart" },
+  { section: "git", label: "Agente do git", terms: "git commit pr pull request agente receita recipe codex claude" },
+  { section: "git", label: "Commit (nada marcado)", find: "Receitas", terms: "receitas recipes prompt commit mensagem message" },
+  { section: "git", label: "Pull request", terms: "pr pull request receita github" },
+  { section: "git", label: "Assinar os commits", terms: "sign signing gpg ssh assinatura assinar firma commits" },
+  { section: "git", label: "Editor externo", terms: "editor vscode visual studio code cursor zed sublime xcode abrir em open in" },
   { section: "skills", label: "Skills", terms: "skills habilidades plugins claude" },
   { section: "recursos", label: "Recursos", terms: "resources memory cpu memoria processos procesos sessões" },
   { section: "aparencia", label: "Aparência", terms: "appearance theme colors dark light tema cores escuro claro dracula grafite apariencia" },
@@ -248,6 +255,7 @@ export function Settings(props: Props) {
         {props.section === "agentes" && (
           <AgentsPrefsSection client={props.client} prefs={props.prefs} onSave={props.onSavePrefs} openSessions={props.openSessions} />
         )}
+        {props.section === "git" && <GitSection client={props.client} prefs={props.prefs} onSave={props.onSavePrefs} />}
         {props.section === "skills" && <SkillsSection client={props.client} cwd={props.skillsCwd} cwdLabel={props.skillsCwdLabel} />}
         {props.section === "recursos" && <ResourcesSection client={props.client} onClose={props.onCloseSession} onOpen={props.onGoToSession} />}
         {props.section === "aparencia" && (
