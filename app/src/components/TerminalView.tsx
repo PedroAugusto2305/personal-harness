@@ -331,6 +331,7 @@ export function TerminalView({
       send: sendInput,
       // Num terminal só para ler, "focar" é ir para a barra de baixo.
       focus: () => (live.current.readOnly && live.current.onFocusInput ? live.current.onFocusInput() : terminal.focus()),
+      focusTerminal: () => terminal.focus(),
     });
 
     (async () => {

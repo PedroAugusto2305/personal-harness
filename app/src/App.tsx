@@ -246,13 +246,15 @@ export default function App() {
       const term = id ? terminals.get(id) : undefined;
       if (term) {
         term.paste(text);
-        term.focus();
+        term.focusTerminal();
       } else setToast("Abra um terminal do Claude ou do Codex: o texto vai para a barra dele.");
     };
+    // Sem barra (shell, ou agente encerrado, que não mostra a barra), o foco vai direto ao
+    // terminal: o `focus` dele, num agente, mandaria de volta para cá, sem fim (v1.1.1).
     const proxy: DockHandle = {
       insert: (text) => (handle() ? handle()!.insert(text) : fallback(text)),
       type: (text) => (handle() ? handle()!.type(text) : fallback(text)),
-      focus: () => (handle() ? handle()!.focus() : terminals.get(target() ?? "")?.focus()),
+      focus: () => (handle() ? handle()!.focus() : terminals.get(target() ?? "")?.focusTerminal()),
       toggleVoice: () => handle()?.toggleVoice(),
       attach: (files) => handle()?.attach(files),
     };
