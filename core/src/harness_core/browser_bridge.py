@@ -100,6 +100,9 @@ class _Pending:
     ok: bool = False
     resultado: Any = None
     erro: str | None = None
+    #: v1.0: quantas janelas receberam o pedido e quantas já responderam com erro.
+    windows: int = 1
+    errors: int = 0
 
 
 class BrowserBridge:
@@ -115,7 +118,7 @@ class BrowserBridge:
         if self.events.listeners == 0:
             raise BridgeError(CLOSED)
         request_id = secrets.token_hex(6)
-        pending = _Pending()
+        pending = _Pending(windows=max(1, int(self.events.listeners)))
         with self._lock:
             self._pending[request_id] = pending
         try:
@@ -123,6 +126,10 @@ class BrowserBridge:
                 {"type": "browser.command", "id": request_id, "session": session, "who": who, "cwd": cwd, "action": action, "args": args}
             )
             if not pending.event.wait(timeout):
+                with self._lock:
+                    erro = pending.erro
+                if erro:  # alguma janela respondeu com erro e a outra ficou muda: vale o erro
+                    raise BridgeError(erro)
                 seconds = int(timeout) if float(timeout).is_integer() else round(timeout, 1)
                 raise BridgeError(f"A janela não respondeu em {seconds} s.")
         finally:
@@ -133,11 +140,23 @@ class BrowserBridge:
         return pending.resultado
 
     def resolve(self, request_id: str, ok: bool, resultado: Any = None, erro: str | None = None) -> bool:
+        """O pedido vai a todas as janelas ligadas. Uma resposta boa vale na hora; um erro só vale
+        quando todas responderam, porque a janela sem o navegador nativo (a tela de
+        desenvolvimento no Chrome, ou uma que ainda está abrindo) recusa na hora e não pode
+        ganhar da janela que faz a ação."""
         with self._lock:
             pending = self._pending.get(request_id)
             if pending is None or pending.event.is_set():
                 return False
-            pending.ok, pending.resultado, pending.erro = bool(ok), resultado, erro
+            if not ok:
+                pending.errors += 1
+                # O último erro fica: a recusa instantânea chega primeiro, a de quem tentou, depois.
+                pending.erro = erro or pending.erro
+                if pending.errors < pending.windows:
+                    return True
+            pending.ok, pending.resultado = bool(ok), resultado
+            if ok:
+                pending.erro = None
             pending.event.set()
         return True
 

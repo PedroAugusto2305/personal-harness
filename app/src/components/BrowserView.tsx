@@ -58,6 +58,9 @@ export function BrowserView(props: Props) {
   // O laço de sincronia lê sempre o valor atual, sem depender de quando o efeito rodou.
   const live = useRef(props);
   live.current = props;
+  // O cofre do perfil. A lista de perfis chega do núcleo depois da primeira tela (antes dela só
+  // há o Padrão); quando o identificador aparece, a página renasce no cofre certo (v1.0).
+  const store = props.profiles.find((p) => p.id === props.profileId)?.identificador ?? null;
 
   const rect = (): Rect | null => {
     const el = area.current;
@@ -92,7 +95,7 @@ export function BrowserView(props: Props) {
     let alive = true;
     let frame = 0;
     const s = { created: false, opening: false, busy: false, visible: true, applied: "", stale: true, warned: "", zoom: 1, last: null as Rect | null };
-    const profile = live.current.profiles.find((p) => p.id === live.current.profileId)?.identificador ?? null;
+    const profile = store;
     const fail = (cause: unknown) => {
       const message = cause instanceof Error ? cause.message : String(cause);
       if (message.includes("não existe")) {
@@ -149,6 +152,9 @@ export function BrowserView(props: Props) {
             s.visible = true;
             s.stale = true;
             s.warned = "";
+            // A página nova nasce com zoom 1; sem isto, a que renasce depois de sumir ficava em
+            // 100% num retângulo feito para o zoom do aparelho emulado.
+            s.zoom = 1;
             // Pedido de "Modo de design" feito antes de a página existir.
             if (live.current.info?.design) live.current.onDesign(true);
           })
@@ -217,9 +223,9 @@ export function BrowserView(props: Props) {
         void done.then(() => closing.get(label) === done && closing.delete(label));
       }
     };
-    // Trocar de perfil fecha a página e abre outra, com o cofre do perfil novo.
+    // Trocar de perfil (ou o cofre dele chegar do núcleo) fecha a página e abre outra, com o cofre certo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [label, props.profileId]);
+  }, [label, props.profileId, store]);
 
   // Aparelho novo: o user agent dele e a página de novo (o tamanho o laço acima ajusta).
   const device = info?.device ?? "";

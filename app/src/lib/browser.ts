@@ -149,8 +149,28 @@ export class AgentPageError extends Error {}
  */
 export async function agentAction(label: string, action: string, args: Record<string, unknown>, timeoutMs = 15000): Promise<unknown> {
   const call = `window.__metis && window.__metis.agent ? window.__metis.agent(${JSON.stringify(action)}, ${JSON.stringify(args)}) : null`;
-  let reply: AgentReply | null = await agentEval(label, call);
+  const reply: AgentReply | null = await agentEval(label, call);
   if (!reply) throw new AgentPageError("a página ainda não está pronta (carregando ou em branco)");
+  return follow(label, reply, timeoutMs);
+}
+
+/**
+ * navegador_js (v1.0). O código vai dentro de uma função no próprio script do evaluateJavaScript,
+ * que o CSP da página não bloqueia (o eval de dentro da página dá EvalError em sites sem
+ * 'unsafe-eval', como o GitHub e os apps do Google). Se não for uma expressão (vários comandos),
+ * o script nem compila, nada roda, e o pedido cai no eval da página, como antes.
+ */
+export async function agentJs(label: string, code: string, timeoutMs = 15000): Promise<unknown> {
+  const expression = code.trim().replace(/[\s;]+$/, "");
+  const script = `window.__metis && window.__metis.value ? window.__metis.value(function () { return (${expression}\n); }) : null`;
+  const reply: AgentReply | null = await agentEval(label, script).catch(() => null);
+  if (reply) return follow(label, reply, timeoutMs);
+  return agentAction(label, "js", { codigo: code }, timeoutMs);
+}
+
+/** Segue a resposta da página até o fim (a ação pendente é buscada por __metis.result). */
+async function follow(label: string, first: AgentReply, timeoutMs: number): Promise<unknown> {
+  let reply = first;
   const started = Date.now();
   while (reply.pendente) {
     if (Date.now() - started > timeoutMs) throw new AgentPageError("a página não terminou a ação a tempo");

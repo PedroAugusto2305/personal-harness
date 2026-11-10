@@ -454,11 +454,16 @@
     return out;
   }
 
+  // Ref → elemento da última leitura. v1.0: o mapa alcança o que está dentro de shadow DOM,
+  // que document.querySelector não enxerga.
+  var refs = {};
+
   /** O texto da página com uma ref [eN] em cada coisa clicável ou editável. */
   function snapshot() {
-    Array.prototype.forEach.call(document.querySelectorAll("[data-metis-ref]"), function (n) {
-      n.removeAttribute("data-metis-ref");
+    Object.keys(refs).forEach(function (old) {
+      refs[old].removeAttribute("data-metis-ref");
     });
+    refs = {};
     var lines = [];
     var size = 0;
     var cut = 0;
@@ -482,6 +487,7 @@
         count++;
         var ref = "e" + count;
         el.setAttribute("data-metis-ref", ref);
+        refs[ref] = el;
         push(line(el, ref, kind));
         if (kind !== "lista" || el.tagName === "SELECT") return;
       }
@@ -525,8 +531,8 @@
   function find(args) {
     if (args.ref) {
       var ref = String(args.ref).replace(/[^\w-]/g, "");
-      var byRef = document.querySelector('[data-metis-ref="' + ref + '"]');
-      if (!byRef) throw new Error("a ref " + ref + " não existe mais: leia a página de novo (navegador_ler)");
+      var byRef = Object.prototype.hasOwnProperty.call(refs, ref) ? refs[ref] : null;
+      if (!byRef || !byRef.isConnected) throw new Error("a ref " + ref + " não existe mais: leia a página de novo (navegador_ler)");
       return byRef;
     }
     if (args.seletor) {
@@ -862,12 +868,35 @@
       list.sort(function (x, y) { return (x.quando || 0) - (y.quando || 0); });
       return { pedidos: list.slice(-150) };
     },
+    // Só para o código que não é uma expressão (vários comandos): a MÊTIS manda a expressão
+    // por __metis.value, sem eval. Aqui o eval é da página e o CSP dela pode bloquear.
     js: function (a) {
-      var value = (0, eval)(String(a.codigo || ""));
+      var value;
+      try {
+        value = (0, eval)(String(a.codigo || ""));
+      } catch (e) {
+        if (e instanceof EvalError) throw new Error("esta página bloqueia eval (CSP): mande uma expressão só, sem ; entre comandos");
+        throw e;
+      }
       if (value && typeof value.then === "function") return later(function () { return value; }, 0);
       return safe(value);
     },
   };
+
+  // navegador_js (v1.0): a MÊTIS põe o código do agente dentro de uma função no próprio script
+  // do evaluateJavaScript do WebKit, que o CSP da página não bloqueia. Aqui chega só a função,
+  // para o valor virar JSON (ou esperar a promessa), como nas outras ações.
+  function evaluate(run) {
+    try {
+      var value = run();
+      if (value && typeof value.then === "function") {
+        return JSON.stringify(later(function () { return value; }, 0));
+      }
+      return JSON.stringify({ ok: true, v: safe(value) });
+    } catch (e) {
+      return JSON.stringify({ ok: false, e: msg(e) });
+    }
+  }
 
   function agent(name, args) {
     try {
@@ -880,5 +909,5 @@
     }
   }
 
-  window.__metis = { design: setDesign, agent: agent, result: result };
+  window.__metis = { design: setDesign, agent: agent, result: result, value: evaluate };
 })();

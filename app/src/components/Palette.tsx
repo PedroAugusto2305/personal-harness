@@ -28,12 +28,19 @@ export function Palette({
   const [found, setFound] = useState<PaletteItem[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  // O App passa uma função nova a cada render (e ele renderiza várias vezes por segundo com
+  // agentes trabalhando): a busca só recomeça quando o texto muda, com a função mais recente.
+  const extraRef = useRef(extra);
+  extraRef.current = extra;
+  const hasExtra = !!extra;
 
   useEffect(() => {
-    if (!extra) return;
+    if (!hasExtra) return;
     let stale = false;
     const timer = window.setTimeout(() => {
-      void extra(query)
+      const run = extraRef.current;
+      if (!run) return;
+      void run(query)
         .then((list) => !stale && setFound(list))
         .catch(() => !stale && setFound([]));
     }, 120);
@@ -41,7 +48,7 @@ export function Palette({
       stale = true;
       window.clearTimeout(timer);
     };
-  }, [extra, query]);
+  }, [hasExtra, query]);
 
   const shown = useMemo(() => {
     const words = fold(query).split(/\s+/).filter(Boolean);

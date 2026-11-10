@@ -354,9 +354,21 @@ export function BrowserSection(props: BrowserProps) {
     setProblem(null);
     props.onCloseProfileTabs(profile.id);
     try {
-      // As abas dele precisam sumir antes de o WebKit apagar o cofre.
-      await new Promise((done) => window.setTimeout(done, 600));
-      if (browser.available()) await browser.removeProfile(profile.identificador);
+      // As abas dele precisam sumir antes de o WebKit apagar o cofre, e fechar a página nativa
+      // termina depois (o WebKit solta o cofre aos poucos). Enquanto ele recusa por o cofre
+      // ainda estar em uso, tenta de novo, por até 15 s; o perfil só sai da lista depois disso.
+      if (browser.available()) {
+        const started = Date.now();
+        for (let wait = 400; ; wait = Math.min(wait * 2, 2000)) {
+          await new Promise((done) => window.setTimeout(done, wait));
+          try {
+            await browser.removeProfile(profile.identificador);
+            break;
+          } catch (cause) {
+            if (Date.now() - started > 15000) throw cause;
+          }
+        }
+      }
       await client.deleteBrowserProfile(profile.id);
       if (props.defaultProfile === profile.id) props.onDefaultProfile("padrao");
       setDone(`Perfil ${profile.nome} apagado, com os cookies e os dados dele.`);

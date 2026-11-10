@@ -149,7 +149,8 @@ def hub(settings, tmp_path):
         kanban=Kanban(vault),
         vault=vault,
         activity=ActivityLog(settings.home / "atividade.db"),
-        publish=lambda _e: None,
+        # v1.0: navegador_js pede aprovação; aqui o Pedro aprova na hora (test_v100_navegador cobre o pedido).
+        publish=lambda e: hub.decide(e["approval"]["id"], True) if e.get("type") == "approval" else None,
         session_info=lambda _s: {"who": "Claude", "cwd": str(tmp_path), "allowed": None},
         browser=bridge,
     )
