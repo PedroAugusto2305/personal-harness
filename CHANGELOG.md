@@ -2,6 +2,44 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.0.0 · a MÊTIS no lugar do Orca e do Maestri
+
+A primeira versão estável. Antes dela, tudo o que entrou da v0.9.6 à v0.9.8 (git e GitHub, editores, agentes e terminal, navegador, conectores e kanban, automações, perfis, backup, Skills e estudo) passou por uma revisão de código, PR por PR, e o que ela achou foi corrigido. Ficaram 72 testes novos, 463 no total.
+
+- **Janela com os botões do macOS:** vermelho, amarelo e verde de verdade, com tela cheia pelo botão verde, por ⌃⌘F e pelo menu Visualizar. Em tela cheia a barra começa na borda.
+- **Escritório final da Sala dos agentes**, de dia e de noite, com a pixel art nítida.
+- **Rotinas voltaram a ser só abrir o agente:** a rotina abre o terminal com o pedido e já conta como rodou. Antes ela esperava o agente "devolver a saída" por 2 horas e virava erro (foi o que aconteceu com o check-in da Aurora), além de segurar a vaga das automações. O pedido vai exatamente como foi escrito, e uma automação comum com "Rotina" no nome não vai mais parar na tela Rotinas.
+- **Seus dados mais protegidos:**
+  - Importar um backup não apaga mais as contas dos conectores nem as variáveis de ambiente e os segredos que já estão no Mac.
+  - O backup não troca mais por `<SEGREDO REMOVIDO>` palavras como "task-…" ou "risk-…".
+  - Uma Skill com nome `..` não consegue mais mandar o `~/.claude` para a Lixeira.
+- **Git sem perder trabalho:**
+  - No conflito do Sincronizar, "nosso" volta a ser a mudança deste branch (estava invertido durante o rebase).
+  - Resolver bloco a bloco não reescreve mais o arquivo inteiro, nem o fim das linhas nem os acentos.
+  - O push forçado não apaga mais o commit de um colega que chegou só pela busca automática do painel.
+- **Editores sem perder texto:**
+  - O que você digitou é gravado ao sair da nota.
+  - Uma gravação que falha não fica tentando sem parar.
+  - A sua gravação não passa por cima do que o agente acabou de salvar.
+  - Arquivos fora do UTF-8 abrem só para leitura, em vez de serem corrompidos.
+  - ⌘⇧K volta a apagar a linha dentro do editor.
+- **Aprovação mais segura:**
+  - Ferramenta de MCP externo sem a marca de "só leitura" volta a pedir aprovação (antes passava pelo nome, como `query`).
+  - No navegador, rodar JavaScript na página ou digitar e enviar um formulário pede aprovação.
+  - No teste de uma automação, um passo Código marcado como "escreve" não roda de verdade.
+- **Terminal:**
+  - Um texto no terminal não consegue mais ler a sua área de transferência.
+  - Acordar um agente hibernado não faz ele dormir de novo 30 s depois, e agente com servidor de dev aberto não hiberna.
+  - "Copiar o ID da conversa" funciona, e com dois Codex na mesma pasta cada um acha a sua conversa.
+  - O `/` da barra prefere o comando que você digitou inteiro.
+- **Navegador:** `navegador_js` funciona em sites que bloqueavam o código, como o GitHub e o Google, e uma aba aberta logo ao iniciar usa o perfil certo.
+- **Conectores e kanban:**
+  - Conectar o GitHub pelo login do `gh` volta a funcionar.
+  - Mudar os rótulos de uma tarefa não muda mais o número dela nem marca como feita uma tarefa cancelada.
+  - A agenda de um dia mostra os eventos daquele dia.
+  - O MCP que demora a iniciar não fica preso pela metade.
+- **Mais leve:** o fim de turno dos agentes não trava mais o núcleo enquanto lê a conversa, o painel de agentes só relê o que mudou, e o painel de git roda metade dos processos.
+
 ## v0.9.9 · as telas dos mockups e o kanban do jeito certo
 
 - **Agentes:** abre na **Sala dos agentes**, agora a casa de trabalho dos agentes: o escritório animado (de dia das 6h às 18h, de noite no resto) cobrindo a sala inteira, com cada agente de corpo inteiro na sua mesa (as 9 mesas, a mesa redonda e o mosaico); cada agente fica na sua mesa, com as pernas atrás do móvel, e com o movimento parado da própria sprite (respira e pisca), o nome embaixo, o balão quando trabalha ou espera você e a sprite no estado (trabalhando, esperando você, dormindo, concluiu, erro). Agente novo aparece na primeira mesa livre; arrastar leva o agente para qualquer lugar da sala, e soltar perto de uma mesa faz ele sentar nela (com a mesa ocupada, os dois trocam); dois cliques abrem o terminal. As sprites ficaram bem maiores e as mesinhas saíram. Lembra o último agente aberto (não volta mais sempre para o primeiro). À direita, as propriedades, a missão, a última mensagem, Abrir terminal e Editar. Apagar um agente direto da sala: a lixeira ao passar o mouse na lista ou o botão ao lado de Editar, com confirmação; o arquivo e a sprite vão para a lixeira dos agentes.
