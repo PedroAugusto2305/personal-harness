@@ -319,7 +319,7 @@ wheels = [
 
 [[package]]
 name = "harness-core"
-version = "0.9.9"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
