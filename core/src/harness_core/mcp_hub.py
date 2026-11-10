@@ -77,6 +77,12 @@ class Tool:
     account: str = ""
     write: bool = False
     summary: Callable[[dict], str] | None = None
+    #: v1.0: escrita que depende dos argumentos (navegador_digitar só escreve com enviar=true).
+    write_when: Callable[[dict], bool] | None = None
+
+    def writes(self, args: dict) -> bool:
+        """Se esta chamada escreve e, portanto, segue o caminho da aprovação."""
+        return self.write or bool(self.write_when and self.write_when(args))
 
     def spec(self) -> dict:
         return {"name": self.name, "description": self.description, "inputSchema": self.schema}
@@ -548,6 +554,9 @@ class Hub:
                 raise ToolError("segundos é um número de 1 a 30") from exc
             body = {"texto": str(args.get("texto") or "").strip(), "seletor": str(args.get("seletor") or "").strip(),
                     "segundos": seconds, "aba": args.get("aba")}
+            if not (body["texto"] or body["seletor"]):
+                # Sem nada a procurar, a espera ia gastar o tempo todo e dizer que não apareceu.
+                raise ToolError("diga o que esperar: um texto ou um seletor CSS")
             result = ask(ctx, "esperar", body, timeout=seconds + 10)
             data = result if isinstance(result, dict) else {}
             if data.get("achou"):
@@ -601,8 +610,14 @@ class Hub:
                  _schema({"aba": aba}, []), ler),
             Tool("navegador_clicar", "Clica num elemento (ref do navegador_ler, seletor ou o texto visível). O Pedro vê o cursor do agente.",
                  _schema({"ref": ref, "seletor": seletor, "texto": {"type": "string", "description": "Texto visível do elemento, se não houver ref."}, "aba": aba}, []), clicar),
-            Tool("navegador_digitar", "Digita num campo (ref ou seletor). limpar apaga o que havia; enviar aperta Enter no fim.",
-                 _schema({"texto": {"type": "string"}, "ref": ref, "seletor": seletor, "enviar": {"type": "boolean"}, "limpar": {"type": "boolean"}, "aba": aba}, ["texto"]), digitar),
+            # v1.0: ler, abrir, clicar e digitar são o propósito destas ferramentas e não pedem
+            # aprovação; digitar e mandar (enviar=true) e o JavaScript solto pedem, como a escrita
+            # dos conectores: numa aba logada (Gmail, por exemplo) eles mandam algo em nome do Pedro.
+            Tool("navegador_digitar", "Digita num campo (ref ou seletor). limpar apaga o que havia; enviar aperta Enter no fim e pede aprovação do Pedro.",
+                 _schema({"texto": {"type": "string"}, "ref": ref, "seletor": seletor, "enviar": {"type": "boolean"}, "limpar": {"type": "boolean"}, "aba": aba}, ["texto"]), digitar,
+                 write_when=lambda a: bool(a.get("enviar")),
+                 summary=lambda a: f"digitar {json.dumps(str(a.get('texto') or ''), ensure_ascii=False)[:240]} e apertar Enter em "
+                                   f"{a.get('ref') or a.get('seletor') or 'o campo'}, na aba {a.get('aba') or 'mais recente desta worktree'}"),
             Tool("navegador_tecla", "Aperta uma tecla na página: Enter, Escape, Tab, ArrowDown, ArrowUp, Backspace…",
                  _schema({"tecla": {"type": "string"}, "aba": aba}, ["tecla"]), tecla),
             Tool("navegador_escolher", "Escolhe uma opção numa lista (select), pelo valor ou pelo texto da opção.",
@@ -619,8 +634,9 @@ class Hub:
                  _schema({"limpar": {"type": "boolean", "description": "apaga as mensagens depois de ler"}, "aba": aba}, []), console),
             Tool("navegador_rede", "Pedidos de rede da página (fetch e XHR): método, endereço, status e tempo.",
                  _schema({"filtro": {"type": "string", "description": "parte do endereço"}, "aba": aba}, []), rede),
-            Tool("navegador_js", "Roda uma expressão JavaScript na página e devolve o valor (em JSON).",
-                 _schema({"codigo": {"type": "string"}, "aba": aba}, ["codigo"]), js),
+            Tool("navegador_js", "Roda uma expressão JavaScript na página e devolve o valor (em JSON). Pede aprovação do Pedro.",
+                 _schema({"codigo": {"type": "string"}, "aba": aba}, ["codigo"]), js, write=True,
+                 summary=lambda a: f"rodar JavaScript na aba {a.get('aba') or 'mais recente desta worktree'}: {str(a.get('codigo') or '')[:300]}"),
             Tool("navegador_fechar", "Fecha uma aba de navegador.", _schema({"aba": {"type": "string"}}, ["aba"]), fechar),
         ]
 
@@ -800,7 +816,8 @@ class Hub:
         """Espera o Pedro: 'aprovado', 'recusado' ou 'expirou'."""
         account = next((a for a in self.connectors.list() if a.id == tool.account), None)
         summary = tool.summary(args) if tool.summary else json.dumps(args, ensure_ascii=False)[:300]
-        return await self.ask(ctx.session, ctx.who, tool.name, account.name if account else tool.account, summary, args)
+        # As do navegador não têm conta: o cartão diz MÊTIS em vez de ficar sem nome.
+        return await self.ask(ctx.session, ctx.who, tool.name, account.name if account else (tool.account or "MÊTIS"), summary, args)
 
     async def ask(self, session: str, who: str, tool: str, account: str, summary: str, args: dict, timeout: float = APPROVAL_TIMEOUT) -> str:
         """Pedido de aprovação na tela (o mesmo cartão da central): 'aprovado', 'recusado' ou 'expirou'."""
@@ -834,7 +851,7 @@ class Hub:
         if tool is None:
             return {**_text(f"ferramenta desconhecida ou não liberada para este agente: {name}"), "isError": True}
         account = next((a for a in self.connectors.list() if a.id == tool.account), None)
-        needs = tool_mode(account, tool.name, tool.write) == "aprovacao"
+        needs = tool_mode(account, tool.name, tool.writes(args)) == "aprovacao"
         started = time.time()
         call_id = self.activity.start(ctx.session, ctx.who, name, tool.account, args, "aguardando você" if needs else "rodando")
         self.publish({"type": "activity", "item": self.activity.get(call_id)})

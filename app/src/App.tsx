@@ -29,7 +29,7 @@ import { StatusBar } from "./components/StatusBar";
 import { Tabs, type TabItem } from "./components/Tabs";
 import { TerminalView, type Slot } from "./components/TerminalView";
 import { MiniMap } from "./components/MiniMap";
-import { agentAction, browser, describePick, normalizeUrl, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
+import { agentAction, agentJs, browser, describePick, normalizeUrl, onBrowserEvent, openExternal, type BrowserState, type DesignPick, type ForwardedKey } from "./lib/browser";
 import { applyAppearance, applyTheme, BUILTIN_THEMES, customOf, loadAppearance, nextZoom, saveAppearance, setCustomThemes, themeKey, themeLabel, type Appearance } from "./lib/appearance";
 import { appExecutable, CoreError, inTauri, onNativeNoticeClick, takePendingNotice, type NewSessionOptions } from "./lib/core";
 import { KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
@@ -1407,7 +1407,7 @@ export default function App() {
       case "rede":
         return { aba: label, ...((await agentAction(label, command.action, args)) as object) };
       case "js":
-        return { aba: label, valor: await agentAction(label, "js", { codigo: args.codigo }, 15000) };
+        return { aba: label, valor: await agentJs(label, String(args.codigo ?? ""), 15000) };
       case "fechar":
         setDocs((current) => current.filter((d) => d.label !== label));
         return { aba: label };

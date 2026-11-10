@@ -158,7 +158,8 @@ seu cursor agindo na página:
 
 Regras do navegador: use `navegador_ler` antes de agir e as refs [eN] que ele mostra; nunca digite senha,
 dado de cartão nem documento: peça ao Pedro; envio que fala com outras pessoas (formulário, compra,
-mensagem) só com o Pedro de acordo.
+mensagem) só com o Pedro de acordo. `navegador_js` e `navegador_digitar` com `enviar` esperam a aprovação
+do Pedro na MÊTIS.
 
 ## Regras
 

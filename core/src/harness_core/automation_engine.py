@@ -546,7 +546,7 @@ class Engine:
         tool = await asyncio.to_thread(self.hub.find_tool, ctx, name)
         if tool is None:
             raise StepError(f"a ferramenta {name} não existe ou a conta dela foi desligada em Conectores")
-        if read_only and tool.write:
+        if read_only and tool.writes(args):
             raise StepError(f"a ferramenta {name} escreve (fala com outras pessoas ou muda algo): a sondagem só usa leitura")
         payload = await self.hub.call(ctx, name, args)
         texts = [c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict) and c.get("type") == "text"]
@@ -569,11 +569,11 @@ class Engine:
         tool = await asyncio.to_thread(self.hub.find_tool, ctx, name)
         if tool is None:
             raise StepError(f"a ferramenta {name} não existe ou a conta dela foi desligada em Conectores")
-        if state.mode == "teste" and tool.write:
+        if state.mode == "teste" and tool.writes(args):
             sent = await asyncio.to_thread(self.notify, f"🧪 Ensaio de {state.flow['nome']} · {step['titulo']}: ia chamar {name} com {_json(args)[:900]}")
             return {"ensaio": True, "ferramenta": name, "argumentos": args}, f"ensaio: não chamou ({sent or 'foi para a sua DM'})"
         account = next((a for a in self.hub.connectors.list() if a.id == tool.account), None)
-        if tool.write and (account.approve_writes if account else True):
+        if tool.writes(args) and (account.approve_writes if account else True):
             self._save_step(state.id, step["id"], status="esperando", nota="esperando sua aprovação")
         payload = await self.hub.call(ctx, name, args)
         texts = [c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict) and c.get("type") == "text"]
