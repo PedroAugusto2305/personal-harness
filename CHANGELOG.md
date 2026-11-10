@@ -2,6 +2,12 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.0.2 · print colado com ⌘V vira anexo
+
+- **Colar um print na barra de mensagem agora funciona.** Antes, ⌘V com uma imagem na área de transferência não fazia nada: a barra só aceitava texto, e o jeito era o botão de anexar ou arrastar o arquivo. Agora o print copiado (⌘⌃⇧4) ou uma imagem copiada do navegador vira anexo na hora, como no botão de anexar: o arquivo vai para `~/.harness/anexos`, com nome `print-<data>-<hora>.png`, e o caminho entra na mensagem para o agente abrir.
+- **Vale também com o foco no terminal.** No terminal de um agente, o print vai para a barra do próprio painel. No terminal comum, o caminho é colado direto, como no arrastar.
+- Quando a colagem traz texto, o texto continua valendo. Um trecho copiado de planilha ou do Word leva junto uma imagem dele, e não vira anexo.
+
 ## v1.0.1 · o aviso de núcleo antigo some ao reiniciar
 
 - **O aviso "o núcleo em execução é a v0.9.9" não sumia na 1.0.0,** nem depois de reiniciar o núcleo. O núcleo já era o da 1.0.0, mas continuava dizendo que era o 0.9.9, porque o número dele estava escrito num segundo lugar que ficou para trás no lançamento. Agora o núcleo lê a própria versão do mesmo lugar que o lançamento atualiza, e um teste falha se o núcleo e o app ficarem com números diferentes.

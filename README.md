@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.0.1)
+## O que já faz (v1.0.2)
+
+**Na 1.0.2:** um print colado com ⌘V na barra de mensagem (ou no terminal) vira anexo, como no botão de anexar.
 
 **Na 1.0.1:** o aviso de que o núcleo é de outra versão some depois de reiniciar (na 1.0.0 o núcleo continuava se dizendo 0.9.9).
 

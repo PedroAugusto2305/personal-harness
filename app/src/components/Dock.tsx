@@ -2,7 +2,7 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 import { KindIcon } from "./KindIcon";
 import { Recording, micError } from "../lib/audio";
 import type { CoreClient } from "../lib/core";
-import { quotePaths, submit, terminals } from "../lib/terminals";
+import { pastedFiles, quotePaths, submit, terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { BarCommand, Session } from "../types";
 
@@ -27,6 +27,8 @@ export interface DockHandle {
   focus(): void;
   /** Acrescenta o texto como foi digitado (sem espaço extra) e foca a barra. */
   type(text: string): void;
+  /** Sobe os arquivos como anexo e põe o caminho deles no campo (print colado no terminal). */
+  attach(files: File[]): void;
 }
 
 interface Props {
@@ -213,7 +215,13 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
     else if (voiceRef.current === "recording") void stop();
   };
 
-  useImperativeHandle(ref, () => ({ insert, type, toggleVoice, focus: () => field.current?.focus() }));
+  useImperativeHandle(ref, () => ({
+    insert,
+    type,
+    toggleVoice,
+    focus: () => field.current?.focus(),
+    attach: (list) => void attach(list),
+  }));
 
   // Esc cancela a gravação; a gravação para sozinha em 5 minutos.
   useEffect(() => {
@@ -257,7 +265,7 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
     setError(null);
   };
 
-  const attach = async (list: FileList | null) => {
+  const attach = async (list: FileList | File[] | null) => {
     if (!client || !list?.length) return;
     setBusy(list.length === 1 ? "enviando anexo…" : `enviando ${list.length} anexos…`);
     setError(null);
@@ -321,6 +329,13 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
               void lookForSuggest(event.target.value, event.target.selectionStart ?? event.target.value.length);
             }}
             onBlur={() => window.setTimeout(() => setSuggest(null), 150)}
+            onPaste={(event) => {
+              // Print colado com ⌘V vira anexo, como no botão de anexar.
+              const pasted = pastedFiles(event.clipboardData);
+              if (!pasted.length) return;
+              event.preventDefault();
+              void attach(pasted);
+            }}
             onKeyDown={(event) => {
               // Sugestões abertas: ↑↓ escolhem, ⏎ ou ⇥ aceitam, Esc fecha.
               if (suggest && !event.nativeEvent.isComposing) {
@@ -376,7 +391,7 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
               className="dock-icon"
               disabled={!client || !!busy || voice === "recording"}
               onClick={() => files.current?.click()}
-              title={busy ?? "Anexar arquivos: o caminho vai junto com o texto"}
+              title={busy ?? "Anexar arquivos (ou colar um print com ⌘V): o caminho vai junto com o texto"}
               aria-label="Anexar"
             >
               <Icon d={ICON.plus} size={15} strokeWidth={2} />
@@ -473,7 +488,7 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
               className="pill"
               disabled={!client || !!busy || voice === "recording"}
               onClick={() => files.current?.click()}
-              title="Anexar arquivos: o caminho vai junto com o texto"
+              title="Anexar arquivos (ou colar um print com ⌘V): o caminho vai junto com o texto"
             >
               <Icon d={ICON.clip} size={14} strokeWidth={1.9} />
               {busy ?? "Anexar"}
