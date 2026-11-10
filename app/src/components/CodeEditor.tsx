@@ -41,6 +41,8 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
   /** O que está no disco (texto e hash) desde a última leitura ou gravação. */
   const disk = useRef<{ hash: string; text: string } | null>(null);
   const [ready, setReady] = useState(false);
+  /** v1.1.2: o editor não abriu; o motivo fica no lugar do "carregando", que antes não saía. */
+  const [failed, setFailed] = useState<string | null>(null);
   const [readOnly, setReadOnly] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -98,6 +100,7 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
   useEffect(() => {
     let disposed = false;
     let created: Monaco.editor.IStandaloneCodeEditor | null = null;
+    setFailed(null);
     (async () => {
       const [monaco, file] = await Promise.all([loadMonaco(), client.readText(root, path)]);
       if (disposed || !host.current) return;
@@ -139,7 +142,11 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
       created.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void live.current.save());
       editor.current = created;
       setReady(true);
-    })().catch((cause) => !disposed && live.current.onError(errorText(cause)));
+    })().catch((cause) => {
+      if (disposed) return;
+      setFailed(errorText(cause));
+      live.current.onError(errorText(cause));
+    });
     return () => {
       disposed = true;
       created?.getModel()?.dispose();
@@ -274,7 +281,7 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
         </div>
       )}
       <div className="editor-host" ref={host} hidden={!!(conflict && showDiff)}>
-        {!ready && <p className="small doc-empty">carregando o editor…</p>}
+        {!ready && <p className="small doc-empty">{failed ? `o editor não abriu: ${failed}` : "carregando o editor…"}</p>}
       </div>
     </div>
   );

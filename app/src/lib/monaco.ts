@@ -34,7 +34,10 @@ export function loadMonaco(): Promise<MonacoApi> {
       defaults?.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false });
     }
     return monaco as MonacoApi;
-  })();
+  })().catch((cause) => {
+    loading = null; // v1.1.2: uma falha não fica guardada; o próximo arquivo tenta de novo
+    throw cause;
+  });
   return loading;
 }
 
@@ -82,7 +85,10 @@ export function applyMonacoTheme(monaco: MonacoApi, theme: ThemeName): string {
   const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   const hex = (value: string) => value.replace("#", "");
   const light = themeIsLight(theme);
-  const name = `metis-${theme}`;
+  // v1.1.2: o Monaco só aceita letras, números e hífen no nome ("Illegal theme name!"). Os
+  // temas por prompt ou importados são `tema:<id>`, e os dois-pontos deixavam o editor
+  // parado em "carregando o editor…".
+  const name = `metis-${theme.replace(/[^a-z0-9-]/gi, "-")}`;
   const bg = token("--term", light ? "#ffffff" : "#1e1f29");
   monaco.editor.defineTheme(name, {
     base: light ? "vs" : "vs-dark",

@@ -2,6 +2,12 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.1.2 · o editor de código abre com tema personalizado
+
+- **O editor de código ficava em "carregando o editor…" e nunca abria** quando o tema da MÊTIS era um tema criado por prompt ou importado (como o Noite em Atenas). O Monaco só aceita letras, números e hífen no nome do tema, e o nome levava o `tema:` do id. Agora o nome vai limpo e o editor abre na hora, com as cores do tema.
+- **Trocar para um tema personalizado com um arquivo aberto** não derruba mais a tela (dava o mesmo erro).
+- **Se o editor não abrir por outro motivo, o motivo aparece no lugar do "carregando",** e o próximo arquivo tenta carregar o editor de novo (antes, uma falha ficava guardada até reabrir a MÊTIS).
+
 ## v1.1.1 · a janela não trava mais com um agente encerrado em foco
 
 - **A janela abria vazia e parada** (sem projetos, sem terminais, sem uso, só "núcleo conectado") quando a aba em foco era um agente que já tinha terminado. O terminal de agente manda o foco para a barra de baixo, e o agente encerrado não tem barra: a barra devolvia o foco ao terminal, que mandava de volta, sem fim. No WebKit da janela isso não estourava a pilha, girava para sempre e a tela congelava antes de mostrar os dados. Agora, sem barra, o foco vai direto ao terminal. O defeito vinha da 0.9.9 e só aparecia nesse caso.

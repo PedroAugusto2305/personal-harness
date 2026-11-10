@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.1.1)
+## O que já faz (v1.1.2)
+
+**Na 1.1.2:** o editor de código abre com tema personalizado (criado por prompt ou importado); antes ficava em "carregando o editor…".
 
 **Na 1.1.1:** a janela não trava mais (vazia, só com "núcleo conectado") quando a aba em foco é um agente que já terminou.
 
