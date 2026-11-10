@@ -1366,8 +1366,13 @@ export class CoreClient {
   }
 }
 
-export async function windowAction(action: "close" | "minimize" | "toggleMaximize"): Promise<void> {
-  if (!inTauri()) return;
+/** Acompanha a tela cheia da janela (pelo botão verde, ⌃⌘F ou Visualizar → Tela cheia): o
+ * macOS esconde os botões da janela nela, e a barra de título devolve o espaço deles. */
+export async function watchFullscreen(onChange: (full: boolean) => void): Promise<() => void> {
+  if (!inTauri()) return () => {};
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await getCurrentWindow()[action]();
+  const win = getCurrentWindow();
+  const check = () => void win.isFullscreen().then(onChange, () => {});
+  check();
+  return win.onResized(check);
 }
