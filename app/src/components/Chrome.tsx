@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { themeLabel } from "../lib/appearance";
-import { restartCore, watchFullscreen } from "../lib/core";
+import { inTauri, restartCore, watchFullscreen } from "../lib/core";
 import { ago } from "../lib/format";
 import type { Notice, NoticeKind } from "../lib/inbox";
 import { ICON, Icon, MetisMark } from "../icons";
@@ -45,8 +45,9 @@ export function TitleBar({
   return (
     <header className="titlebar" data-tauri-drag-region data-fullscreen={fullscreen ? "true" : undefined}>
       {/* Os botões da janela são os do macOS (fechar, minimizar e tela cheia), desenhados por cima da
-          barra pela moldura nativa transparente: este espaço é deles. */}
-      <div className="traffic-space" data-tauri-drag-region aria-hidden="true" />
+          barra pela moldura nativa transparente: este espaço é deles. Fora do app (a tela aberta
+          no navegador, em desenvolvimento) não há botões, e o espaço some. */}
+      {inTauri() && <div className="traffic-space" data-tauri-drag-region aria-hidden="true" />}
       <span className="name" data-tauri-drag-region>
         <MetisMark size={15} />
         MÊTIS

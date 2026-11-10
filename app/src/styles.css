@@ -152,10 +152,12 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
-/* Lugar dos três botões do macOS (trafficLightPosition x 14 no tauri.conf.json). */
+/* Lugar dos três botões do macOS. Eles vão de x 14 (trafficLightPosition no tauri.conf.json) a
+   x 68 (três botões de 14 px a cada 20 px); com os 12 px de padding da barra, os 64 px daqui
+   terminam em x 76, e o nome MÊTIS ainda ganha o gap e a margem dele. Mudou o x? Mude aqui. */
 .traffic-space {
   flex: 0 0 auto;
-  width: 60px;
+  width: 64px;
   align-self: stretch;
 }
 
