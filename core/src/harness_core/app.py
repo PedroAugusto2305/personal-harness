@@ -762,7 +762,9 @@ def create_app(
                 agent=agent,
                 prompt=routine.prompt,
             )
-        except (AgentError, UnknownKind, ExecutableNotFound, OSError) as exc:
+        except (AgentError, LaunchError, UnknownKind, ExecutableNotFound, OSError) as exc:
+            # LaunchError: linha de comando que não roda (CLI "outra" fora do PATH, argumentos ruins).
+            # Sem ela aqui, o erro subia pelo agendador e a task dele morria.
             run = routines.record(routine.id, slot, "erro", detail=str(exc))
             manager.events.publish({"type": "routine.run", "routine": routine.to_dict(), "run": run})
             return run
@@ -1075,6 +1077,13 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"pasta inválida: {body.cwd}") from exc
         return session.to_dict()
 
+    def codex_rollout_of(session) -> dict | None:
+        """A conversa do Codex deste terminal: pelo thread-id do notify; antes do primeiro fim de
+        turno, a mais recente da pasta que nenhum outro terminal aberto já sabe que é dele."""
+        others = {s.conversa for s in manager.sessions.values() if s.id != session.id and s.conversa}
+        return codex_rollout_for(manager.accounts.list(), session.cwd, session.created_at - 5, app.state.cli_homes,
+                                 conversation=session.conversa, skip=others)  # fmt: skip
+
     def reopen(old, *, kind: str | None = None, resume: str | None = None, prompt: str | None = None):
         """Sessão nova no lugar de outra: mesma pasta, conta, agente e etiqueta."""
         agent = None
@@ -1100,7 +1109,7 @@ def create_app(
             if old.kind == "claude":
                 resume = (old.statusline or {}).get("session_id")
             elif old.kind == "codex":
-                found = await asyncio.to_thread(codex_rollout_for, manager.accounts.list(), old.cwd, old.created_at - 5, app.state.cli_homes)
+                found = await asyncio.to_thread(codex_rollout_of, old)
                 resume = found["id"] if found else None
             if not resume:
                 raise HTTPException(status_code=409, detail="não achei a conversa desta sessão para continuar; reinicie do zero")
@@ -1110,7 +1119,7 @@ def create_app(
             manager.forget(session_id)  # já saiu: sai da lista para a nova nascer com o mesmo nome
         try:
             session = reopen(old, resume=resume)
-        except (UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
+        except (LaunchError, UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
             raise fail(exc) from exc
         return session.to_dict()
 
@@ -1123,7 +1132,7 @@ def create_app(
         target = body.para or ("codex" if old.kind == "claude" else "claude")
         transcript = (old.statusline or {}).get("transcript") if old.kind == "claude" else None
         if old.kind == "codex":
-            found = await asyncio.to_thread(codex_rollout_for, manager.accounts.list(), old.cwd, old.created_at - 5, app.state.cli_homes)
+            found = await asyncio.to_thread(codex_rollout_of, old)
             transcript = found["arquivo"] if found else None
         recent = last_messages(transcript, 6) if transcript and old.kind == "claude" else []
         names = {"claude": "Claude", "codex": "Codex"}
@@ -1138,7 +1147,7 @@ def create_app(
             lines.append(f"Recado do Pedro: {body.nota}")
         try:
             session = reopen(old, kind=target, prompt="\n".join(lines))
-        except (UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
+        except (LaunchError, UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
             raise fail(exc) from exc
         return session.to_dict()
 
@@ -2184,18 +2193,24 @@ def create_app(
 
     @app.get("/sessions/{session_id}/contexto", dependencies=[Depends(require_token)])
     async def session_context_window(session_id: str) -> dict:
-        """Janela de contexto do Claude (o que ocupa o contexto, lido do transcript) e, desde a
-        v0.9.8, a conversa da sessão: cli, id_conversa, transcript, cwd e texto (Claude e Codex)."""
+        """Janela de contexto do Claude (o que ocupa o contexto, lido do transcript). O Inspector
+        chama a cada resposta: a conversa da sessão fica em /conversa, que só o ⋯ e a espiada pedem."""
         session = manager.get(session_id)
         if session is None:
             raise HTTPException(status_code=404, detail="sessão não encontrada")
-        conversation = await conversation_of(session)
         line = session.statusline or {}
         transcript = line.get("transcript")
         if not transcript:
-            return {"available": False, "reason": "o Claude ainda não mandou a statusline desta sessão", **conversation}
-        window = await asyncio.to_thread(context_breakdown, transcript, line.get("context") or {})
-        return {**window, **conversation}
+            return {"available": False, "reason": "o Claude ainda não mandou a statusline desta sessão"}
+        return await asyncio.to_thread(context_breakdown, transcript, line.get("context") or {})
+
+    @app.get("/sessions/{session_id}/conversa", dependencies=[Depends(require_token)])
+    async def session_conversation(session_id: str) -> dict:
+        """A conversa da sessão (v0.9.8): cli, id_conversa, transcript, cwd e texto (Claude e Codex)."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        return await conversation_of(session)
 
     @app.get("/brain/projects", dependencies=[Depends(require_token)])
     def brain_projects() -> list[dict]:
@@ -2462,7 +2477,7 @@ def create_app(
             if not transcript and session.kind == "claude":
                 transcript = (session.statusline or {}).get("transcript")
             if not transcript and session.kind == "codex":
-                found = codex_rollout_for(manager.accounts.list(), session.cwd, session.created_at - 5, app.state.cli_homes)
+                found = codex_rollout_of(session)
                 transcript = found["arquivo"] if found else None
             if not transcript:
                 return ""
@@ -2854,7 +2869,7 @@ def create_app(
             line = session.statusline or {}
             conversation, transcript = line.get("session_id"), line.get("transcript")
         elif session.kind == "codex":
-            found = await asyncio.to_thread(codex_rollout_for, manager.accounts.list(), session.cwd, session.created_at - 5, app.state.cli_homes)
+            found = await asyncio.to_thread(codex_rollout_of, session)
             if found:
                 conversation, transcript = found["id"] or None, found["arquivo"]
         recent = await asyncio.to_thread(last_messages, transcript, 20, 2000) if transcript else []

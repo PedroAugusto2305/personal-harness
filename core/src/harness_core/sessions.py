@@ -67,6 +67,10 @@ IDLE_NOTICE = "claude is waiting for your input"
 KINDS = ("claude", "codex", "shell")
 CODEX_POLL_SECONDS = 180
 PORTS_POLL_SECONDS = 4
+#: Pedido inicial de uma CLI "outra": entra digitado quando a saída dela para por este tempo
+#: (a tela já se desenhou), ou no limite, se ela não disser nada.
+OTHER_PROMPT_QUIET = 1.5
+OTHER_PROMPT_WAIT = 15.0
 
 
 class UnknownKind(ValueError):
@@ -157,6 +161,9 @@ class Session:
     #: v0.9.8: "pergunta" (Notification), "terminou" (Stop) ou None; e desde quando está assim.
     atencao: str | None = None
     status_desde: float = field(default_factory=time.time)
+    #: Id da conversa do Codex (o thread-id que ele manda no notify a cada fim de turno). Com ele,
+    #: dois Codex na mesma pasta não trocam de conversa ao copiar o id, retomar ou passar o trabalho.
+    conversa: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -306,6 +313,7 @@ class SessionManager:
         model: str | None = None,
         effort: str | None = None,
     ) -> Session:
+        other_cli = agent is not None and agent.cli == "outra"
         if agent is not None:
             kind = agent.cli
             cwd = cwd or agent.folder or None
@@ -392,9 +400,27 @@ class SessionManager:
         )
         self.sessions[session_id] = session
         pty.start()
+        if prompt and other_cli:
+            # A CLI "outra" não tem flag conhecida para o pedido: ele entra digitado, como se viesse
+            # da barra, quando ela terminar de se desenhar (antes, ele sumia sem aviso).
+            asyncio.get_running_loop().call_later(0.25, self._type_prompt, session_id, prompt, time.time() + OTHER_PROMPT_WAIT)
         self.events.publish({"type": "session.created", "session": session.to_dict()})
         self._activity(session, "inicio")
         return session
+
+    def _type_prompt(self, session_id: str, prompt: str, deadline: float) -> None:
+        """Digita o pedido inicial de uma CLI "outra" quando a saída dela para por um instante
+        (ou no limite). Com a colagem ligada pela CLI vai inteiro; sem ela, numa linha só, para
+        cada quebra de linha não virar um Enter."""
+        session = self.sessions.get(session_id)
+        if session is None or not session.pty.alive or session.pty._loop is None:
+            return
+        pty, now = session.pty, time.time()
+        if now < deadline and (not pty._buffer or now - pty.last_output < OTHER_PROMPT_QUIET):
+            pty._loop.call_later(0.25, self._type_prompt, session_id, prompt, deadline)
+            return
+        paste = b"\x1b[?2004h" in pty._buffer
+        self.send_text(session_id, prompt if paste else " ".join(prompt.split()), paste=paste)
 
     def _activity(self, session: Session, kind: str, data: dict | None = None) -> None:
         if self.on_activity is None:
@@ -500,6 +526,9 @@ class SessionManager:
                 and session.status == "waiting"
                 and not session.hibernando
                 and session.tag not in NO_HIBERNATE_TAGS
+                # Porta aberta é servidor que o agente subiu (npm run dev): o SIGSTOP vai para o
+                # grupo inteiro e o derrubaria junto.
+                and not session.ports
                 and now - session.pty.last_activity >= minutes * 60
                 and session.pty.pause()
             ):
@@ -516,6 +545,9 @@ class SessionManager:
             return None
         if session.hibernando:
             session.pty.resume()
+            # Acordar conta como atividade: sem isso, a próxima volta do hibernate_watch (até 30 s)
+            # pararia o agente de novo, porque a última entrada e a última saída continuam antigas.
+            session.pty.last_input = time.time()
             self._woke(session_id)
         return session
 
@@ -583,6 +615,9 @@ class SessionManager:
         if session is None:
             return False
         message = (payload or {}).get("message") if isinstance((payload or {}).get("message"), str) else None
+        thread = (payload or {}).get("thread-id")
+        if session.kind == "codex" and isinstance(thread, str) and thread:
+            session.conversa = thread  # o notify do Codex diz qual conversa é a deste terminal
         changed = False
         idle = name == "Notification" and (message or "").lower().startswith(IDLE_NOTICE)
         if name in HOOK_ATTENTION and not idle and session.atencao != HOOK_ATTENTION[name]:

@@ -178,9 +178,25 @@ def list_sessions(accounts: dict, query: str = "", limit: int = 80, cwd: str = "
     return found
 
 
-def codex_rollout_for(accounts: dict, cwd: str, since: float, defaults: dict[str, Path] | None = None) -> dict | None:
-    """A sessão do Codex que nasceu numa pasta depois de um instante (para retomar ou passar o trabalho)."""
+def codex_rollout_for(
+    accounts: dict,
+    cwd: str,
+    since: float,
+    defaults: dict[str, Path] | None = None,
+    conversation: str | None = None,
+    skip: set[str] | frozenset[str] = frozenset(),
+) -> dict | None:
+    """A sessão do Codex que nasceu numa pasta depois de um instante (para retomar ou passar o trabalho).
+
+    Com `conversation` (o thread-id que o Codex manda no notify), só serve a conversa com esse id.
+    Sem ele (antes do primeiro fim de turno), vale a mais recente, menos as de `skip`: as conversas
+    que outros terminais abertos já sabem que são deles."""
     for item in list_sessions(accounts, limit=20, cwd=cwd, defaults=defaults):
-        if item["cli"] == "codex" and item["atualizado"] >= since:
-            return item
+        if item["cli"] != "codex" or item["atualizado"] < since:
+            continue
+        if conversation and item["id"] != conversation:
+            continue
+        if not conversation and item["id"] in skip:
+            continue
+        return item
     return None

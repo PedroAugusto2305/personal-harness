@@ -99,8 +99,15 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
         barCache.current.set(target.id, list);
       }
       const q = command[1].toLowerCase();
+      // O igual vem primeiro, depois quem começa com o digitado, depois quem só contém:
+      // "/clear" não pode perder para um "/clear-cache" do usuário, que vem antes na lista.
+      const rank = (c: BarCommand) => {
+        const name = c.nome.slice(1).toLowerCase();
+        return name === q ? 0 : name.startsWith(q) ? 1 : 2;
+      };
       const items = list
         .filter((c) => c.nome.slice(1).toLowerCase().includes(q))
+        .sort((a, b) => rank(a) - rank(b))
         .slice(0, 10)
         .map((c) => ({ label: c.nome, detail: c.descricao || c.origem, insert: `${c.nome} ` }));
       if (seq === suggestSeq.current) setSuggest(items.length ? { kind: "comando", start: 0, items, index: 0 } : null);
@@ -323,9 +330,14 @@ export function Dock({ client, target, targetAccount, language, dropping, ref, c
                   setSuggest({ ...suggest, index: (suggest.index + step + suggest.items.length) % suggest.items.length });
                   return;
                 }
-                if ((event.key === "Enter" && !event.shiftKey && !event.altKey) || event.key === "Tab") {
+                const chosen = suggest.items[suggest.index];
+                // ⏎ com o comando escolhido já inteiro na barra envia (em vez de só acrescentar o espaço).
+                const whole = event.key === "Enter" && suggest.kind === "comando" && text.trim() === chosen.label;
+                if (whole) {
+                  setSuggest(null);
+                } else if ((event.key === "Enter" && !event.shiftKey && !event.altKey) || event.key === "Tab") {
                   event.preventDefault();
-                  accept(suggest.items[suggest.index]);
+                  accept(chosen);
                   return;
                 }
                 if (event.key === "Escape") {
