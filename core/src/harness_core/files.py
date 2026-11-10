@@ -40,6 +40,16 @@ def file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def is_utf8(data: bytes) -> bool:
+    """Texto em UTF-8 válido. Outra codificação (Latin-1, Windows-1252) abre com � no lugar dos
+    acentos, e gravar de volta trocaria cada acento por esse � para sempre."""
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
 def inside(root: str, rel: str) -> Path:
     base = Path(root).expanduser().resolve()
     if not base.is_dir():
@@ -54,28 +64,37 @@ def read_text(root: str, rel: str) -> dict:
     target = inside(root, rel)
     if not target.is_file():
         raise FileError(f"arquivo não encontrado: {rel}")
-    size = target.stat().st_size
     with target.open("rb") as handle:
-        data = handle.read(MAX_TEXT_BYTES)
+        info = os.fstat(handle.fileno())
+        data = handle.read(MAX_TEXT_BYTES + 1)
+    truncated = len(data) > MAX_TEXT_BYTES
+    data = data[:MAX_TEXT_BYTES]
     binary = b"\0" in data[:8192]
+    utf8 = not binary and is_utf8(data)
     return {
         "path": rel,
-        "size": size,
+        "size": info.st_size if truncated else len(data),
         "binary": binary,
-        "truncated": size > MAX_TEXT_BYTES,
+        "truncated": truncated,
         "text": "" if binary else data.decode("utf-8", "replace"),
+        # v1.0.0: fora de UTF-8 o editor abre só para leitura (gravar estragaria os acentos).
+        "utf8": utf8,
         "mime": mimetypes.guess_type(target.name)[0] or "",
         # v0.9.7: o editor guarda o hash e o manda de volta ao salvar (conferência de mudança no disco).
-        "hash": file_hash(target),
-        "mtime": target.stat().st_mtime,
+        # v1.0.0: o hash sai dos mesmos bytes do texto. Uma segunda leitura podia pegar outra versão
+        # (o agente gravou no meio), e o editor gravaria por cima dela sem conflito. Só o arquivo
+        # grande demais, que o editor não grava, é lido inteiro de novo para o hash.
+        "hash": file_hash(target) if truncated else hashlib.sha256(data).hexdigest(),
+        "mtime": info.st_mtime,
     }
 
 
 def write_text(root: str, rel: str, text: str, expected_hash: str) -> dict:
     """Grava o que o editor mandou, exatamente como veio, só se o arquivo ainda for o que ele abriu.
 
-    O editor não cria arquivo nem mexe em .git, binário ou arquivo grande demais para abrir.
-    A gravação é atômica (temporário na mesma pasta e troca) e mantém as permissões do original."""
+    O editor não cria arquivo nem mexe em .git, binário, arquivo fora de UTF-8 ou arquivo grande
+    demais para abrir. A gravação é atômica (temporário na mesma pasta e troca) e mantém as
+    permissões do original."""
     target = inside(root, rel)
     base = Path(root).expanduser().resolve()
     if ".git" in target.relative_to(base).parts:
@@ -86,13 +105,15 @@ def write_text(root: str, rel: str, text: str, expected_hash: str) -> dict:
         raise FileError(f"arquivo não existe: {rel} (o editor não cria arquivo)")
     if target.stat().st_size > MAX_TEXT_BYTES:
         raise FileError(f"arquivo grande demais para o editor: {rel}")
-    with target.open("rb") as handle:
-        if b"\0" in handle.read(8192):
-            raise FileError(f"arquivo binário: {rel}")
+    on_disk = target.read_bytes()
+    if b"\0" in on_disk[:8192]:
+        raise FileError(f"arquivo binário: {rel}")
+    if not is_utf8(on_disk):
+        raise FileError(f"o arquivo não está em UTF-8: {rel}. O editor não grava por cima para não estragar os acentos.")
     data = text.encode("utf-8")
     if len(data) > MAX_TEXT_BYTES:
         raise TooLarge(f"texto grande demais para gravar ({len(data)} bytes)")
-    current = file_hash(target)
+    current = hashlib.sha256(on_disk).hexdigest()
     if current != expected_hash:
         raise FileConflict("o arquivo mudou no disco desde que foi aberto", current)
     mode = stat.S_IMODE(target.stat().st_mode)

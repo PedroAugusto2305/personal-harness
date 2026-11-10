@@ -157,6 +157,8 @@ export interface TextFile {
   /** v0.9.7: sha256 do arquivo inteiro (o editor só grava se ninguém mudou desde que abriu). */
   hash?: string;
   mtime?: number;
+  /** v1.0.0: false quando o arquivo não está em UTF-8 (o editor abre só para leitura). */
+  utf8?: boolean;
 }
 
 /** Nota numa linha do diff, que vai em lote para o agente. */
@@ -1074,6 +1076,8 @@ export interface NoteText {
   texto: string;
   hash: string;
   alterado: number;
+  /** v1.0.0: false quando a nota não está em UTF-8 (o editor abre só para leitura). */
+  utf8?: boolean;
 }
 
 export interface NoteTitle {

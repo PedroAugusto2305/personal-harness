@@ -47,6 +47,11 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
   const [conflict, setConflict] = useState<{ text: string; hash: string } | null>(null);
   const [showDiff, setShowDiff] = useState(false);
   const [autosave, setAutosave] = useState(() => storedFlag("harness.editor.autosave", false));
+  /** v1.0.0: a gravação falhou (o arquivo sumiu, o núcleo caiu): "Salvar sozinho" espera a
+   * próxima tecla. Antes tentava de novo a cada segundo, sem fim, com um aviso a cada vez. */
+  const [stalled, setStalled] = useState(false);
+  /** Uma gravação está a caminho do disco (a conferência periódica não mexe no texto nessa hora). */
+  const busy = useRef(false);
   const live = useRef({ save: async (_force?: string) => undefined as void, onError });
   live.current.onError = onError;
 
@@ -60,23 +65,30 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
 
   const save = async (force?: string) => {
     const ed = editor.current;
-    if (!ed || !disk.current || readOnly) return;
+    const base = disk.current;
+    if (!ed || !base || readOnly || busy.current) return;
     const text = ed.getValue();
+    // Nada mudou: não regrava (nem troca as quebras de linha de um arquivo misto).
+    if (text === base.text && !force) return;
+    busy.current = true;
     setSaving(true);
     try {
-      const answer = await client.writeText(root, path, text, force ?? disk.current.hash);
+      const answer = await client.writeText(root, path, text, force ?? base.hash);
       disk.current = { hash: answer.hash, text };
       setDirty(ed.getValue() !== text);
       setConflict(null);
       setShowDiff(false);
+      setStalled(false);
     } catch (cause) {
-      if (cause instanceof CoreError && cause.status === 409) {
-        const now = await client.readText(root, path).catch(() => null);
-        if (now?.hash) setConflict({ text: now.text, hash: now.hash });
+      const now = cause instanceof CoreError && cause.status === 409 ? await client.readText(root, path).catch(() => null) : null;
+      if (now?.hash) {
+        setConflict({ text: now.text, hash: now.hash });
       } else {
-        live.current.onError(errorText(cause));
+        setStalled(true);
+        live.current.onError(cause instanceof CoreError && cause.status === 409 ? `O arquivo ${path} mudou no disco e não deu para ler a versão nova.` : errorText(cause));
       }
     } finally {
+      busy.current = false;
       setSaving(false);
     }
   };
@@ -90,7 +102,13 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
       const [monaco, file] = await Promise.all([loadMonaco(), client.readText(root, path)]);
       if (disposed || !host.current) return;
       monacoRef.current = monaco;
-      const locked = file.binary ? "arquivo binário" : file.truncated ? "maior que 2 MB: só leitura" : null;
+      const locked = file.binary
+        ? "arquivo binário"
+        : file.truncated
+          ? "maior que 2 MB: só leitura"
+          : file.utf8 === false
+            ? "não está em UTF-8: só leitura (gravar estragaria os acentos)"
+            : null;
       setReadOnly(locked);
       const uri = monaco.Uri.file(`${root}/${path}`);
       monaco.editor.getModel(uri)?.dispose();
@@ -111,8 +129,13 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
         smoothScrolling: true,
         padding: { top: 8 },
       });
-      disk.current = { hash: file.hash ?? "", text: file.text };
-      created.onDidChangeModelContent(() => setDirty(created!.getValue() !== disk.current?.text));
+      // O texto como o Monaco o guarda: ele uniformiza as quebras de linha de um arquivo misto
+      // (CRLF e LF), e comparar com o texto cru do disco daria "mudou" sem ninguém ter editado.
+      disk.current = { hash: file.hash ?? "", text: model.getValue() };
+      created.onDidChangeModelContent(() => {
+        setDirty(created!.getValue() !== disk.current?.text);
+        setStalled(false);
+      });
       created.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void live.current.save());
       editor.current = created;
       setReady(true);
@@ -135,22 +158,29 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
     if (!visible || !ready) return;
     const timer = window.setInterval(async () => {
       const ed = editor.current;
-      if (!ed || !disk.current || saving) return;
+      const before = disk.current;
+      if (!ed || !before || busy.current) return;
       const now = await client.readText(root, path).catch(() => null);
-      if (!now?.hash || now.hash === disk.current.hash) return;
-      if (ed.getValue() === disk.current.text) {
+      // Uma gravação começou ou terminou enquanto lia: o que veio pode ser de antes dela, e
+      // recarregar trocaria o texto recém-salvo pela versão velha.
+      if (busy.current || disk.current !== before || editor.current !== ed) return;
+      if (!now?.hash || now.hash === before.hash) return;
+      if (ed.getValue() === before.text) {
         const view = ed.saveViewState();
         const model = ed.getModel()!;
         model.pushEditOperations([], [{ range: model.getFullModelRange(), text: now.text }], () => null);
         ed.restoreViewState(view);
-        disk.current = { hash: now.hash, text: now.text };
+        disk.current = { hash: now.hash, text: model.getValue() };
         setDirty(false);
       } else {
-        setConflict({ text: now.text, hash: now.hash });
+        // O mesmo aviso de antes fica como está: um objeto novo refazia o editor das diferenças
+        // (rolagem e piscada) a cada 2,5 s.
+        const fresh = { text: now.text, hash: now.hash };
+        setConflict((shown) => (shown?.hash === fresh.hash ? shown : fresh));
       }
     }, 2500);
     return () => window.clearInterval(timer);
-  }, [client, root, path, visible, ready, saving]);
+  }, [client, root, path, visible, ready]);
 
   // Salvar sozinho: 1 s depois da última tecla.
   useEffect(() => {
@@ -159,7 +189,7 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
     } catch {
       // sem armazenamento: só não lembra
     }
-    if (!autosave || !dirty || conflict || readOnly) return;
+    if (!autosave || !dirty || conflict || readOnly || saving || stalled) return;
     const timer = window.setTimeout(() => void live.current.save(), 1000);
     return () => window.clearTimeout(timer);
   });
@@ -191,7 +221,7 @@ export function CodeEditor({ client, docKey, root, path, theme, visible, onError
     if (!ed || !conflict) return;
     const model = ed.getModel()!;
     model.pushEditOperations([], [{ range: model.getFullModelRange(), text: conflict.text }], () => null);
-    disk.current = { hash: conflict.hash, text: conflict.text };
+    disk.current = { hash: conflict.hash, text: model.getValue() };
     setDirty(false);
     setConflict(null);
     setShowDiff(false);

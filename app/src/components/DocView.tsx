@@ -598,6 +598,8 @@ function FileView({ doc, client, visible, onError, theme }: DocProps) {
   const raw = client.rawUrl(doc.root, doc.path);
   const needsText = kind === "text" || kind === "markdown" || kind === "csv" || kind === "html";
 
+  // v1.0.0: relê também ao trocar entre Editar e Visualizar, para a prévia mostrar o que o
+  // editor ao lado acabou de salvar (antes ficava o texto de quando a aba apareceu).
   useEffect(() => {
     if (!visible || !needsText) return;
     let alive = true;
@@ -608,7 +610,7 @@ function FileView({ doc, client, visible, onError, theme }: DocProps) {
     return () => {
       alive = false;
     };
-  }, [client, doc.root, doc.path, visible, needsText, onError]);
+  }, [client, doc.root, doc.path, visible, needsText, onError, rendered]);
 
   const html = useMemo(() => {
     if (kind !== "markdown" || !file) return "";
