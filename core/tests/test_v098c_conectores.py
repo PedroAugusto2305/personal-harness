@@ -282,20 +282,19 @@ def test_old_account_with_only_the_token_still_works(store, fake):
 # --- 2. galeria: Notion, GitHub, Google, MCP próprio ----------------------------------------
 
 
-def test_notion_tools_need_approval_only_for_writes(settings, store):
+def test_notion_tools_without_annotation_need_approval(settings, store):
     connect_notion(store)
     hub, token = make_hub(settings, store)
     tools = {t.name: t for t in hub.tools_for(hub.context(token))}
-    assert tools["notion-pessoal__notion-search"].write is False
+    # v1.0: sem readOnlyHint, até a busca pede aprovação (o nome não diz se a ferramenta só lê).
+    assert tools["notion-pessoal__notion-search"].write is True
     assert tools["notion-pessoal__notion-create-pages"].write is True
 
 
-def test_read_rule_by_annotation_and_by_name():
+def test_read_rule_by_annotation_only():
     assert _is_read({"name": "create_x", "annotations": {"readOnlyHint": True}})
     assert not _is_read({"name": "get_x", "annotations": {"readOnlyHint": False}})
-    for name in ("get_issue", "list_pull_requests", "search_code", "read_file", "fetch", "query_db", "notion-search", "notion-fetch"):
-        assert _is_read({"name": name}), name
-    for name in ("create_issue", "update_page", "delete_x", "merge_pull_request", "notion-create-pages", "send", ""):
+    for name in ("get_issue", "list_pull_requests", "notion-search", "create_issue", "send", ""):
         assert not _is_read({"name": name}), name
 
 

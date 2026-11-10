@@ -196,8 +196,13 @@ class ConnectorStore:
         self.gh = gh or _run_gh
         self._pending: dict[str, tuple[OAuthStart, str, str, float, dict]] = {}
         self._clients: dict[str, Any] = {}
+        #: Um cliente do Google por conta (v1.0): reaproveita a conexão e fecha ao remover a conta.
+        self._google: dict[str, google_api.Google] = {}
         self._lock = threading.Lock()
         self._token_lock = threading.RLock()
+        #: Cria cada cliente de conta uma vez só, mesmo com duas chamadas ao mesmo tempo (senão
+        #: subiriam dois processos do MCP por stdio, e um deles nunca seria fechado).
+        self._client_lock = threading.Lock()
 
     # --- arquivo -------------------------------------------------------------
 
@@ -285,16 +290,22 @@ class ConnectorStore:
             if len(kept) == len(accounts):
                 raise ConnectorError(f"conta de conector desconhecida: {account_id}")
             self.vault.delete(f"conector:{account_id}")
-            client = self._clients.pop(account_id, None)
+            with self._client_lock:
+                client = self._clients.pop(account_id, None)
+                google = self._google.pop(account_id, None)
             if isinstance(client, StdioClient):
                 client.close()  # o processo do MCP por stdio não fica órfão
+            if google is not None:
+                google.close()
             self._save(kept)
 
     def close(self) -> None:
-        """Encerra os MCPs por stdio (o núcleo vai desligar)."""
+        """Encerra os MCPs por stdio e as conexões do Google (o núcleo vai desligar)."""
         for client in list(self._clients.values()):
             if isinstance(client, StdioClient):
                 client.close()
+        for google in list(self._google.values()):
+            google.close()
 
     def secret(self, account_id: str) -> str:
         value = self.vault.get(f"conector:{account_id}")
@@ -459,17 +470,18 @@ class ConnectorStore:
 
     def mcp(self, account_id: str) -> Any:
         """Cliente do MCP da conta (HTTP com token em dia, ou o processo por stdio)."""
-        client = self._clients.get(account_id)
-        if client is None:
-            account = self.get(account_id)
-            if account.kind in ("slack", "google"):
-                raise ConnectorError(f"{account.name} não é um servidor MCP")
-            if account.kind == "mcp" and account.meta.get("transporte") == "stdio":
-                spec = self._stdio_spec(account_id)
-                client = StdioClient(spec["comando"], spec.get("env") or {}, spec.get("pasta") or None)
-            else:
-                client = _Remote(self, account_id, self._url(account))
-            self._clients[account_id] = client
+        with self._client_lock:
+            client = self._clients.get(account_id)
+            if client is None:
+                account = self.get(account_id)
+                if account.kind in ("slack", "google"):
+                    raise ConnectorError(f"{account.name} não é um servidor MCP")
+                if account.kind == "mcp" and account.meta.get("transporte") == "stdio":
+                    spec = self._stdio_spec(account_id)
+                    client = StdioClient(spec["comando"], spec.get("env") or {}, spec.get("pasta") or None)
+                else:
+                    client = _Remote(self, account_id, self._url(account))
+                self._clients[account_id] = client
         return client
 
     # --- GitHub (token do gh) -----------------------------------------------------------
@@ -478,20 +490,21 @@ class ConnectorStore:
         token = (token or "").strip() or self.gh(["auth", "token"])
         if not token:
             raise ConnectorError("o gh não está logado (gh auth login) e nenhum token foi colado")
-        client = McpClient(CATALOG["github"]["url"], token, self.http())
-        try:
-            tools = client.tools()
-        except McpAuthError as exc:
-            raise ConnectorError("o GitHub recusou o token (o gh está logado? gh auth status)") from exc
-        except (McpError, httpx.HTTPError) as exc:
-            raise ConnectorError(f"o MCP do GitHub não respondeu: {_scrub(str(exc), token)}") from exc
-        login = ""
-        try:
-            response = self.http().get("https://api.github.com/user", headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
-            if response.status_code == 200:
-                login = str(response.json().get("login") or "")
-        except (httpx.HTTPError, ValueError):
-            pass
+        with self.http() as http:  # uma conexão só para conferir, fechada no fim
+            client = McpClient(CATALOG["github"]["url"], token, http)
+            try:
+                tools = client.tools()
+            except McpAuthError as exc:
+                raise ConnectorError("o GitHub recusou o token (o gh está logado? gh auth status)") from exc
+            except (McpError, httpx.HTTPError) as exc:
+                raise ConnectorError(f"o MCP do GitHub não respondeu: {_scrub(str(exc), token)}") from exc
+            login = ""
+            try:
+                response = http.get("https://api.github.com/user", headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+                if response.status_code == 200:
+                    login = str(response.json().get("login") or "")
+            except (httpx.HTTPError, ValueError):
+                pass
         account = ConnectorAccount(
             id=self._new_id("github", name.strip() or f"GitHub {login}".strip()),
             kind="github",
@@ -520,13 +533,14 @@ class ConnectorStore:
         token = (token or "").strip() if auth == "token" else ""
         if auth == "token" and not token:
             raise ConnectorError("cole o token do servidor MCP")
-        client = McpClient(url, token, self.http())
-        try:
-            tools = client.tools()
-        except McpAuthError as exc:
-            raise ConnectorError("o servidor recusou o acesso: veja o token ou use o login (oauth)") from exc
-        except (McpError, httpx.HTTPError) as exc:
-            raise ConnectorError(f"o servidor MCP não respondeu: {_scrub(str(exc), token)}") from exc
+        with self.http() as http:  # uma conexão só para conferir, fechada no fim
+            client = McpClient(url, token, http)
+            try:
+                tools = client.tools()
+            except McpAuthError as exc:
+                raise ConnectorError("o servidor recusou o acesso: veja o token ou use o login (oauth)") from exc
+            except (McpError, httpx.HTTPError) as exc:
+                raise ConnectorError(f"o servidor MCP não respondeu: {_scrub(str(exc), token)}") from exc
         account = ConnectorAccount(
             id=self._new_id("mcp", name),
             kind="mcp",
@@ -608,11 +622,12 @@ class ConnectorStore:
 
     def _finish_google(self, name: str, record: dict) -> ConnectorAccount:
         token = record["access_token"]
-        api = google_api.Google(lambda: token, lambda: token, self.http())
-        try:
-            email = str(api.userinfo().get("email") or "")
-        except (google_api.GoogleError, httpx.HTTPError) as exc:
-            raise ConnectorError(f"o Google não disse de quem é a conta: {exc}") from exc
+        with self.http() as http:
+            api = google_api.Google(lambda: token, lambda: token, http)
+            try:
+                email = str(api.userinfo().get("email") or "")
+            except (google_api.GoogleError, httpx.HTTPError) as exc:
+                raise ConnectorError(f"o Google não disse de quem é a conta: {exc}") from exc
         account = ConnectorAccount(
             id=self._new_id("google", name if name != "Google" else f"google {email.split('@')[0]}"),
             kind="google",
@@ -626,7 +641,13 @@ class ConnectorStore:
         account = self.get(account_id)
         if account.kind != "google":
             raise ConnectorError(f"{account.name} não é uma conta do Google")
-        return google_api.Google(lambda: self.access_token(account_id), lambda: self.refresh_login(account_id), self.http())
+        # O mesmo cliente a cada ferramenta (antes, cada chamada abria uma conexão e nunca a fechava).
+        with self._client_lock:
+            api = self._google.get(account_id)
+            if api is None:
+                api = google_api.Google(lambda: self.access_token(account_id), lambda: self.refresh_login(account_id), self.http())
+                self._google[account_id] = api
+        return api
 
     # --- testar conexão ------------------------------------------------------------------
 

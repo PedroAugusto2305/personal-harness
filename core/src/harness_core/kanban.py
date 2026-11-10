@@ -8,8 +8,11 @@
 - Rótulos (v0.9.8): as outras etiquetas `#assim` do texto (com pelo menos uma letra, então
   `#123` continua sendo texto). Subtarefas: as linhas `- [ ]` recuadas logo abaixo.
 
-Toda escrita relê a nota, acha a linha pelo id (hash do texto sem etiquetas) e troca só
-ela, para não atropelar o que o Obsidian ou outro agente gravou no meio tempo.
+Toda escrita relê a nota, acha a linha pelo id e troca só ela, para não atropelar o que o
+Obsidian ou outro agente gravou no meio tempo. O id é o hash do texto sem a etiqueta de
+estado e sem os rótulos (v1.0), então mudar os rótulos não muda o id. O id de antes (que
+contava os rótulos) continua achando a tarefa: a fila do Auto e os pedidos já entregues aos
+agentes guardam ids desse tempo.
 """
 
 from __future__ import annotations
@@ -55,10 +58,13 @@ class Task:
     subtarefas: list[dict] = field(default_factory=list)
     #: Linha de cada subtarefa na nota (fica fora do to_dict).
     sub_lines: list[int] = field(default_factory=list)
+    #: Id da v0.9.8 e da v0.9.9, que contava os rótulos (fica fora do to_dict).
+    old_id: str = ""
 
     def to_dict(self) -> dict:
         data = asdict(self)
         data.pop("sub_lines", None)
+        data.pop("old_id", None)
         return data
 
 
@@ -99,6 +105,15 @@ def _clean(text: str) -> str:
     return _DONE_DATE.sub("", _STATE_TAG.sub("", text)).strip()
 
 
+def _digest(text: str) -> str:
+    return hashlib.sha1(text.lower().encode("utf-8")).hexdigest()[:8]
+
+
+def _numbered(seen: dict[str, int], digest: str) -> str:
+    seen[digest] = seen.get(digest, 0) + 1
+    return digest if seen[digest] == 1 else f"{digest}-{seen[digest]}"
+
+
 def _state(mark: str, text: str) -> str:
     # [x] feita, [-] cancelada (plugin Tasks), [/] em andamento (plugin Tasks); o resto é etiqueta.
     if mark.lower() == "x" or mark == "-":
@@ -130,6 +145,7 @@ def parse_tasks(text: str) -> list[Task]:
         return []
     tasks: list[Task] = []
     seen: dict[str, int] = {}
+    seen_old: dict[str, int] = {}
     parent: Task | None = None
     for i in range(bounds[0] + 1, bounds[1]):
         match = _TASK.match(lines[i])
@@ -147,12 +163,10 @@ def parse_tasks(text: str) -> list[Task]:
             continue
         raw = match.group("text")
         clean = _clean(raw)
-        digest = hashlib.sha1(clean.lower().encode("utf-8")).hexdigest()[:8]
-        seen[digest] = seen.get(digest, 0) + 1
-        task_id = digest if seen[digest] == 1 else f"{digest}-{seen[digest]}"
         done = _DONE_DATE.search(raw)
         parent = Task(
-            id=task_id,
+            id=_numbered(seen, _digest(strip_labels(clean))),
+            old_id=_numbered(seen_old, _digest(clean)),
             text=clean,
             state=_state(match.group("mark"), raw),
             line=i,
@@ -243,10 +257,18 @@ class Kanban:
 
     def _find(self, path: Path, task_id: str) -> tuple[str, list[str], Task]:
         text = path.read_text(encoding="utf-8")
-        for task in parse_tasks(text):
-            if task.id == task_id:
-                return text, text.splitlines(), task
-        raise KanbanError(f"tarefa não encontrada (a nota mudou?): {task_id}")
+        tasks = parse_tasks(text)
+        # O id de agora vale primeiro; o de antes da v1.0 (com os rótulos) só se nenhum bater.
+        task = next((t for t in tasks if t.id == task_id), None) or next((t for t in tasks if t.old_id == task_id), None)
+        if task is None:
+            raise KanbanError(f"tarefa não encontrada (a nota mudou?): {task_id}")
+        return text, text.splitlines(), task
+
+    def current_ids(self, name: str) -> dict[str, str]:
+        """Id de agora de cada tarefa do projeto, pelo id de agora e pelo de antes da v1.0
+        (como no _find, o de agora vale primeiro)."""
+        tasks = parse_tasks(self.vault.project(name).path.read_text(encoding="utf-8"))
+        return {**{t.old_id: t.id for t in tasks}, **{t.id: t.id for t in tasks}}
 
     def move(self, name: str, task_id: str, state: str) -> dict:
         if state not in STATES:
@@ -260,10 +282,11 @@ class Kanban:
             lines[task.line] = _render(match.group("indent"), body, state, task.done_on if state == "concluida" else "")
             nl = _newline(text)
             write_atomic(note.path, nl.join(lines) + (nl if text.endswith(("\n", "\r\n")) else ""))
-        moved = next(t for t in self.tasks(name) if t["id"] == task_id)
+        # Pela linha (só ela mudou): o id pedido pode ser o de antes da v1.0.
+        moved = self._task_at(note.path, task.line)
         if task.state != state and self.on_move is not None:
             try:
-                self.on_move({"projeto": name, "id": task_id, "texto": moved.get("texto") or moved["text"], "de": task.state, "para": state})
+                self.on_move({"projeto": name, "id": moved["id"], "texto": moved.get("texto") or moved["text"], "de": task.state, "para": state})
             except Exception:  # noqa: BLE001 - o gatilho nunca atrapalha mover a tarefa
                 pass
         return moved
@@ -272,7 +295,9 @@ class Kanban:
         body = " ".join(text.split()).strip()
         body = re.sub(r"^- \[.\]\s*", "", body)
         if labels:
-            body = " ".join([strip_labels(body), *(f"#{label}" for label in normalize_labels(labels))]).strip()
+            # Os rótulos escritos no texto ficam, somados aos pedidos à parte (sem repetir).
+            merged = normalize_labels([*labels_of(body), *labels])
+            body = " ".join([strip_labels(body), *(f"#{label}" for label in merged)]).strip()
         if not body:
             raise KanbanError("a tarefa está vazia")
         if state not in STATES:
@@ -305,7 +330,7 @@ class Kanban:
             lines.insert(at, line)
         write_atomic(note.path, nl.join(lines) + nl)
         added = parse_tasks(nl.join(lines))
-        digest = hashlib.sha1(_clean(body).lower().encode("utf-8")).hexdigest()[:8]
+        digest = _digest(strip_labels(_clean(body)))
         task = next(t for t in reversed(added) if t.id.split("-")[0] == digest)
         result = task.to_dict()
         for sub in subtasks or []:
@@ -321,21 +346,23 @@ class Kanban:
 
     def set_labels(self, name: str, task_id: str, labels: list[str]) -> dict:
         """Troca os rótulos da tarefa: ficam no fim do texto, antes da etiqueta de estado.
-        O id é o hash do texto com os rótulos, então a tarefa volta com o id novo."""
+        O id é o hash do texto sem os rótulos, então ele não muda."""
         note = self.vault.project(name)
         text, lines, task = self._find(note.path, task_id)
         match = _TASK.match(lines[task.line])
         assert match is not None
-        base = strip_labels(_clean(match.group("text")))
+        raw = match.group("text")
+        base = strip_labels(_clean(raw))
         wanted = normalize_labels(labels)
         body = " ".join([base, *(f"#{label}" for label in wanted)]).strip()
-        lines[task.line] = _render(match.group("indent"), body, task.state, task.done_on)
+        # Só os rótulos mudam: a marca ([x], [-] cancelada, [/]…), a etiqueta de estado e a
+        # data ficam como estavam (o _render reescreveria [-] como [x] e [/] como [ ]).
+        tag = _STATE_TAG.search(raw)
+        done = _DONE_DATE.search(raw)
+        suffix = (f" #{tag.group(1)}" if tag else "") + (f" {done.group(0).strip()}" if done else "")
+        lines[task.line] = f"{match.group('indent')}- [{match.group('mark')}] {body}{suffix}"
         self._write(note.path, text, lines)
-        digest = hashlib.sha1(_clean(body).lower().encode("utf-8")).hexdigest()[:8]
-        found = [t for t in parse_tasks("\n".join(lines)) if t.line == task.line]
-        if found:
-            return found[0].to_dict()
-        raise KanbanError(f"tarefa sumiu depois de gravar os rótulos: {digest}")
+        return self._task_at(note.path, task.line)
 
     def add_subtask(self, name: str, task_id: str, text: str) -> dict:
         body = " ".join(str(text).split()).strip()

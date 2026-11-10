@@ -101,7 +101,8 @@ class McpRegistry:
         if key:
             params["search"] = key
         try:
-            response = self.http().get(REGISTRY, params=params, headers={"Accept": "application/json"})
+            with self.http() as client:  # a conexão fecha a cada busca (o cache segura 10 minutos)
+                response = client.get(REGISTRY, params=params, headers={"Accept": "application/json"})
             data = response.json() if response.status_code == 200 else None
         except (httpx.HTTPError, ValueError) as exc:
             raise RegistryError("o catálogo oficial de MCP não respondeu") from exc
