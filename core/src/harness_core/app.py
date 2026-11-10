@@ -2024,6 +2024,8 @@ def create_app(
         return {
             "path": vault.rel(target),
             "texto": data.decode("utf-8", "replace"),
+            # v1.0.0: nota fora de UTF-8 abre só para leitura (gravar estragaria os acentos).
+            "utf8": fs.is_utf8(data),
             "hash": hashlib.sha256(data).hexdigest(),
             "alterado": target.stat().st_mtime,
         }
@@ -2031,14 +2033,17 @@ def create_app(
     @app.put("/brain/note/texto", dependencies=[Depends(require_token)])
     def brain_note_save(body: NoteText) -> dict:
         """Salva a nota só se ela ainda for a que o editor abriu: se o Obsidian gravou depois,
-        recusa (409) com o hash de agora. Nunca grava nota vazia nem cria nota."""
+        recusa (409) com o hash de agora. Nunca grava nota vazia, nota fora de UTF-8 nem cria nota."""
         if not body.texto.strip():
             raise HTTPException(status_code=400, detail="o Brain nunca apaga: nota vazia não é gravada")
         try:
             target = vault.resolve(body.path)
-            current = hashlib.sha256(target.read_bytes()).hexdigest()
+            on_disk = target.read_bytes()
         except (VaultError, OSError) as exc:
             raise brain_fail(exc) from exc
+        if not fs.is_utf8(on_disk):
+            raise HTTPException(status_code=400, detail="a nota não está em UTF-8: a MÊTIS não grava por cima para não estragar os acentos.")
+        current = hashlib.sha256(on_disk).hexdigest()
         if current != body.hash:
             raise HTTPException(status_code=409, detail={"mensagem": "a nota mudou (no Obsidian?) desde que foi aberta", "hash": current})
         write_atomic(target, body.texto)

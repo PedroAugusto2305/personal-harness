@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { KindIcon } from "./components/KindIcon";
 import { Agents, toDraft } from "./components/Agents";
 import { ICON, Icon } from "./icons";
@@ -39,7 +39,10 @@ import { bindings, comboOf, hintFor, recorder } from "./lib/keymap";
 import { dirtyDocs } from "./lib/editors";
 
 /** Ações da janela que cedem a vez ao editor em foco (os atalhos de edição são dele). */
-const EDITOR_KEYS = new Set(["dividir.direita", "dividir.baixo", "buscar", "barra", "foco.esquerda", "foco.direita", "foco.cima", "foco.baixo", "web.recarregar", "web.voltar", "web.avancar"]);
+// v1.0.0: ⌘⇧K (comandos salvos) também: no Monaco e no CodeMirror ela apaga a linha. O ⌘K da
+// paleta fica com a MÊTIS, mesmo dentro do editor (os atalhos de duas teclas do Monaco com ⌘K
+// não chegam a ele; o principal deles, comentar, também está em ⌘/).
+const EDITOR_KEYS = new Set(["dividir.direita", "dividir.baixo", "buscar", "barra", "comandos", "foco.esquerda", "foco.direita", "foco.cima", "foco.baixo", "web.recarregar", "web.voltar", "web.avancar"]);
 import {
   dropZone,
   findLeaf,
@@ -261,7 +264,9 @@ export default function App() {
     if (harness.client) warmMonaco();
   }, [harness.client]);
 
-  useEffect(() => {
+  // v1.0.0: antes dos efeitos dos filhos (o React roda os deles primeiro). Com useEffect, o
+  // Monaco e o terminal liam as cores do tema anterior e ficavam sempre uma troca atrás.
+  useLayoutEffect(() => {
     applyTheme(theme);
     remember("harness.theme", theme);
     remember("harness.themeCustom", customOf(theme));

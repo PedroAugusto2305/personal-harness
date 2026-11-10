@@ -30,6 +30,8 @@ export interface NoteEditorOptions {
   /** Quais destes títulos existem no vault (para marcar link de nota que não existe). */
   known: (titles: string[]) => Promise<string[]>;
   onOpenNote: (title: string) => void;
+  /** v1.0.0: só leitura (nota fora de UTF-8: gravar estragaria os acentos). */
+  readOnly?: boolean;
 }
 
 const CALLOUT_LABEL: Record<string, string> = {
@@ -86,6 +88,7 @@ class CheckboxWidget extends WidgetType {
     box.checked = this.checked;
     box.addEventListener("mousedown", (event) => {
       event.preventDefault();
+      if (view.state.readOnly) return;
       // "[ ]" ↔ "[x]": troca só o caractere do meio.
       view.dispatch({ changes: { from: this.pos + 1, to: this.pos + 2, insert: this.checked ? " " : "x" } });
     });
@@ -458,6 +461,7 @@ export function createNoteEditor(parent: HTMLElement, options: NoteEditorOptions
       EditorView.updateListener.of((update) => {
         if (update.docChanged) live.options.onChange(update.state.doc.toString());
       }),
+      EditorState.readOnly.of(!!options.readOnly),
       theme,
     ],
   });
