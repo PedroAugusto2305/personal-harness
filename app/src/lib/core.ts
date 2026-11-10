@@ -1367,12 +1367,30 @@ export class CoreClient {
 }
 
 /** Acompanha a tela cheia da janela (pelo botão verde, ⌃⌘F ou Visualizar → Tela cheia): o
- * macOS esconde os botões da janela nela, e a barra de título devolve o espaço deles. */
+ * macOS esconde os botões da janela nela, e a barra de título devolve o espaço deles.
+ *
+ * Não há evento de tela cheia: o estado é perguntado depois que a janela para de mudar de
+ * tamanho. A pergunta espera 250 ms do último resize (arrastar a borda não vira uma chamada
+ * por quadro) e se repete 700 ms depois, porque o macOS só marca a saída da tela cheia no fim
+ * da animação, depois do último resize. Resposta atrasada de uma pergunta antiga é ignorada. */
 export async function watchFullscreen(onChange: (full: boolean) => void): Promise<() => void> {
   if (!inTauri()) return () => {};
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const win = getCurrentWindow();
-  const check = () => void win.isFullscreen().then(onChange, () => {});
-  check();
-  return win.onResized(check);
+  let asked = 0;
+  const timers: number[] = [];
+  const ask = () => {
+    const mine = ++asked;
+    void win.isFullscreen().then((full) => mine === asked && onChange(full), () => {});
+  };
+  const settle = () => {
+    timers.splice(0).forEach((timer) => window.clearTimeout(timer));
+    timers.push(window.setTimeout(ask, 250), window.setTimeout(ask, 950));
+  };
+  ask();
+  const unlisten = await win.onResized(settle);
+  return () => {
+    unlisten();
+    timers.splice(0).forEach((timer) => window.clearTimeout(timer));
+  };
 }
