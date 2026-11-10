@@ -25,7 +25,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .accounts import slugify
+from .accounts import ENV_VAR, slugify
 
 #: "outra" (v0.9.8): qualquer CLI de agente (opencode, aider, gemini…) num terminal comum.
 CLIS = ("claude", "codex", "outra")
@@ -49,7 +49,8 @@ def split_args(text: str, what: str = "argumentos") -> list[str]:
 
 def parse_env(text: str) -> dict[str, str]:
     """Variáveis do agente, uma por linha (CHAVE=valor); linhas vazias e # são ignoradas.
-    As da MÊTIS (HARNESS_*, METIS_*) e o PATH ficam de fora: são dela, não do agente."""
+    As da MÊTIS (HARNESS_*, METIS_*), a pasta da conta (CLAUDE_CONFIG_DIR, CODEX_HOME) e o PATH
+    ficam de fora: são dela, não do agente. Aspas em volta do valor, como num .env, saem."""
     env: dict[str, str] = {}
     for number, raw in enumerate((text or "").splitlines(), start=1):
         line = raw.strip()
@@ -61,7 +62,13 @@ def parse_env(text: str) -> dict[str, str]:
             raise AgentError(f"variável inválida na linha {number}: use CHAVE=valor, com a chave em maiúsculas")
         if key == "PATH" or key.startswith(("HARNESS_", "METIS_")):
             raise AgentError(f"a variável {key} é da MÊTIS e não pode ser trocada pelo agente")
-        env[key] = value.strip()
+        if key in ENV_VAR.values():
+            # Trocada aqui, a sessão rodaria noutra conta sem a MÊTIS saber (uso, histórico, retomar).
+            raise AgentError(f"a variável {key} escolhe a conta da CLI: use o campo Conta do agente")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        env[key] = value
     return env
 
 

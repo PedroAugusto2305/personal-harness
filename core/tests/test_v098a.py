@@ -371,13 +371,15 @@ def test_session_context_for_claude_and_codex(core, tmp_path):
     )  # fmt: skip
     claude = client.post("/sessions", json={"kind": "claude", "cwd": str(folder)}, headers=AUTH).json()
     app.state.manager.record_statusline(claude["id"], {"session_id": "conv-1234-5678", "transcript_path": str(transcript)})
-    ctx = client.get(f"/sessions/{claude['id']}/contexto", headers=AUTH).json()
-    assert ctx["available"] is True and "categories" in ctx  # a janela de contexto de antes continua na mesma rota
+    window = client.get(f"/sessions/{claude['id']}/contexto", headers=AUTH).json()
+    assert window["available"] is True and "categories" in window  # a janela de contexto de antes continua na mesma rota
+    # v1.0: a conversa saiu do /contexto (o Inspector o chama a cada resposta) e foi para o /conversa.
+    ctx = client.get(f"/sessions/{claude['id']}/conversa", headers=AUTH).json()
     assert {k: ctx[k] for k in CONVERSATION} == {"cli": "claude", "id_conversa": "conv-1234-5678", "transcript": str(transcript), "cwd": str(folder),
                    "texto": "você: arruma o login\n\nagente: Arrumei o login."}  # fmt: skip
 
     codex = client.post("/sessions", json={"kind": "codex", "cwd": str(folder)}, headers=AUTH).json()
-    empty = client.get(f"/sessions/{codex['id']}/contexto", headers=AUTH).json()
+    empty = client.get(f"/sessions/{codex['id']}/conversa", headers=AUTH).json()
     assert empty["id_conversa"] is None and empty["texto"] == ""
     rollouts = tmp_path / "homes" / "codex" / "sessions" / "2026" / "11" / "08"
     rollouts.mkdir(parents=True)
@@ -392,15 +394,17 @@ def test_session_context_for_claude_and_codex(core, tmp_path):
         ]) + "\n",
         encoding="utf-8",
     )  # fmt: skip
-    ctx = client.get(f"/sessions/{codex['id']}/contexto", headers=AUTH).json()
+    ctx = client.get(f"/sessions/{codex['id']}/conversa", headers=AUTH).json()
     assert ctx["cli"] == "codex" and ctx["id_conversa"] == "019a-codex" and ctx["transcript"] == str(rollout)
     assert ctx["texto"] == "você: roda os testes\n\nagente: Todos passaram."
 
     shell = client.post("/sessions", json={"kind": "shell", "cwd": str(folder)}, headers=AUTH).json()
-    plain = client.get(f"/sessions/{shell['id']}/contexto", headers=AUTH).json()
-    assert plain["available"] is False and {k: plain[k] for k in CONVERSATION} == {
+    assert client.get(f"/sessions/{shell['id']}/contexto", headers=AUTH).json()["available"] is False
+    plain = client.get(f"/sessions/{shell['id']}/conversa", headers=AUTH).json()
+    assert {k: plain[k] for k in CONVERSATION} == {
         "cli": "shell", "id_conversa": None, "transcript": None, "cwd": str(folder), "texto": ""}  # fmt: skip
     assert client.get("/sessions/naoexiste/contexto", headers=AUTH).status_code == 404
+    assert client.get("/sessions/naoexiste/conversa", headers=AUTH).status_code == 404
 
 
 # --- a skill da MÊTIS --------------------------------------------------------------------------

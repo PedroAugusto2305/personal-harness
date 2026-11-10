@@ -468,7 +468,7 @@ function AgentEditor({ client, agents, accounts, run, onLaunch, onTest, connecto
               <label className="wide">
                 <span className="setting-label">
                   Variáveis de ambiente
-                  <span className="small">Uma por linha, CHAVE=valor. Só deste agente (as da MÊTIS e o PATH não mudam).</span>
+                  <span className="small">Uma por linha, CHAVE=valor. Só deste agente (as da MÊTIS, a pasta da conta e o PATH não mudam).</span>
                 </span>
                 <textarea className="mono" rows={3} value={draft.env ?? ""} onChange={(e) => set("env", e.target.value)} placeholder="ANTHROPIC_MODEL=claude-opus-5-5" spellCheck={false} />
               </label>

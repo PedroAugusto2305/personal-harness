@@ -3,13 +3,13 @@ import { KindIcon } from "./KindIcon";
 import { Terminal, type IBufferLine, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon, type ISearchOptions } from "@xterm/addon-search";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CoreError, type CoreClient } from "../lib/core";
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
 import { terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
-import type { Session, TerminalColors, ThemeName } from "../types";
+import type { Session, SessionContext, TerminalColors, ThemeName } from "../types";
 import { DEFAULT_APPEARANCE, monoFamily, themeIsLight, type Appearance } from "../lib/appearance";
 
 const ANSI_DARK = {
@@ -48,6 +48,17 @@ const ANSI_LIGHT = {
   brightMagenta: "#b33a8a",
   brightCyan: "#0e8fbf",
   brightWhite: "#1f2330",
+};
+
+/**
+ * OSC 52 só para copiar. O provedor padrão também atende a leitura (`ESC]52;c;?`): qualquer texto
+ * que passasse pelo terminal (um README, a saída de um curl) leria a área de transferência do Mac e
+ * a mandaria ao programa como entrada. Aqui a leitura volta sempre vazia.
+ */
+const COPY_ONLY_CLIPBOARD: IClipboardProvider = {
+  readText: () => "",
+  writeText: (selection, text) =>
+    String(selection) === "c" ? navigator.clipboard.writeText(text).catch(() => undefined) : undefined,
 };
 
 /**
@@ -266,7 +277,7 @@ export function TerminalView({
     terminal.loadAddon(search);
     searcher.current = search;
     // OSC 52 (v0.9.8): o programa no terminal (tmux, nvim, um agente) copia para a área de transferência do Mac.
-    terminal.loadAddon(new ClipboardAddon());
+    terminal.loadAddon(new ClipboardAddon(undefined, COPY_ONLY_CLIPBOARD));
     terminal.loadAddon(
       new WebLinksAddon((event, uri) => {
         if (event.metaKey) linkRef.current?.(uri, event.shiftKey);
@@ -807,6 +818,9 @@ function SessionMenu({ client, session }: { client: CoreClient; session: Session
   // Onde o menu abre: fixo na janela, porque o cabeçalho do painel corta o que passa dele.
   const [open, setOpen] = useState<{ top: number; right: number } | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // A conversa, buscada ao abrir o menu: no WKWebView a escrita na área de transferência só vale
+  // dentro do clique, e um await de rede antes dela faz o clique "vencer" (a cópia é recusada).
+  const [conversation, setConversation] = useState<SessionContext | "buscando" | "erro">("buscando");
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -823,10 +837,15 @@ function SessionMenu({ client, session }: { client: CoreClient; session: Session
     };
   }, [open]);
 
+  const agent = session.kind === "claude" || session.kind === "codex";
+
   const toggle = (button: HTMLButtonElement) => {
     if (open) return setOpen(null);
     const rect = button.getBoundingClientRect();
     setOpen({ top: rect.bottom + 4, right: Math.max(8, window.innerWidth - rect.right) });
+    if (!agent) return;
+    setConversation("buscando");
+    client.sessionContext(session.id).then(setConversation, () => setConversation("erro"));
   };
 
   useEffect(() => {
@@ -835,23 +854,29 @@ function SessionMenu({ client, session }: { client: CoreClient; session: Session
     return () => window.clearTimeout(timer);
   }, [done]);
 
-  const copy = async (what: "id" | "transcript" | "texto" | "pasta") => {
+  // Sem await antes do writeText: a escrita sai ainda dentro do clique.
+  const copy = (what: "id" | "transcript" | "texto" | "pasta") => {
     setOpen(null);
+    if (what !== "pasta" && typeof conversation === "string") {
+      setDone(conversation === "buscando" ? "ainda buscando a conversa; tente de novo" : "não deu para ler a conversa");
+      return;
+    }
+    const context = typeof conversation === "string" ? null : conversation;
+    const text = what === "pasta" ? session.cwd : what === "id" ? context?.id_conversa : what === "transcript" ? context?.transcript : context?.texto;
+    if (!text) {
+      setDone(what === "id" ? "sem conversa ainda" : what === "transcript" ? "sem transcript" : "nada para copiar");
+      return;
+    }
     try {
-      const context = what === "pasta" ? null : await client.sessionContext(session.id);
-      const text = what === "pasta" ? session.cwd : what === "id" ? context?.id_conversa : what === "transcript" ? context?.transcript : context?.texto;
-      if (!text) {
-        setDone(what === "id" ? "sem conversa ainda" : what === "transcript" ? "sem transcript" : "nada para copiar");
-        return;
-      }
-      await navigator.clipboard.writeText(text);
-      setDone("copiado");
+      navigator.clipboard.writeText(text).then(
+        () => setDone("copiado"),
+        () => setDone("não deu para copiar"),
+      );
     } catch {
       setDone("não deu para copiar");
     }
   };
 
-  const agent = session.kind === "claude" || session.kind === "codex";
   return (
     <div className="session-menu" ref={box}>
       {done && <span className="small session-menu-done">{done}</span>}
@@ -862,18 +887,18 @@ function SessionMenu({ client, session }: { client: CoreClient; session: Session
         <div className="session-menu-pop" role="menu" style={{ top: open.top, right: open.right }} onMouseDown={(event) => event.stopPropagation()}>
           {agent && (
             <>
-              <button type="button" role="menuitem" onClick={() => void copy("id")}>
+              <button type="button" role="menuitem" onClick={() => copy("id")}>
                 Copiar o ID da conversa
               </button>
-              <button type="button" role="menuitem" onClick={() => void copy("transcript")}>
+              <button type="button" role="menuitem" onClick={() => copy("transcript")}>
                 Copiar o caminho do transcript
               </button>
-              <button type="button" role="menuitem" onClick={() => void copy("texto")}>
+              <button type="button" role="menuitem" onClick={() => copy("texto")}>
                 Copiar as últimas mensagens
               </button>
             </>
           )}
-          <button type="button" role="menuitem" onClick={() => void copy("pasta")}>
+          <button type="button" role="menuitem" onClick={() => copy("pasta")}>
             Copiar a pasta
           </button>
         </div>

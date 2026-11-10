@@ -1124,8 +1124,9 @@ export class CoreClient {
     return this.request("GET", `/sessions/${encodeURIComponent(id)}/barra`);
   }
 
+  /** A conversa da sessão (id, transcript e as últimas mensagens). v1.0: rota própria, fora do /contexto. */
   sessionContext(id: string): Promise<SessionContext> {
-    return this.request("GET", `/sessions/${encodeURIComponent(id)}/contexto`);
+    return this.request("GET", `/sessions/${encodeURIComponent(id)}/conversa`);
   }
 
   /** Acorda o agente hibernado (SIGCONT). */
