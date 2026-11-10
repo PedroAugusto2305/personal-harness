@@ -40,12 +40,14 @@ export function splitPatch(raw: string): FilePatch {
  * descartar), é o inverso. Devolve null se nada mudaria.
  */
 export function buildPatch(patch: FilePatch, pick: (hunk: number, line: number) => boolean, reverse: boolean): string | null {
-  const out = [...patch.header];
+  const out: string[] = [];
   let any = false;
+  let context = false;
   patch.hunks.forEach((hunk, h) => {
     const body: string[] = [];
     let changed = false;
     let lastKept = false;
+    let hunkContext = false;
     hunk.lines.forEach((line, i) => {
       const sign = line[0];
       const rest = line.slice(1);
@@ -56,6 +58,7 @@ export function buildPatch(patch: FilePatch, pick: (hunk: number, line: number) 
       if (sign === " ") {
         body.push(line);
         lastKept = true;
+        hunkContext = true;
         return;
       }
       const chosen = pick(h, i);
@@ -67,6 +70,7 @@ export function buildPatch(patch: FilePatch, pick: (hunk: number, line: number) 
       } else if (keepAsContext) {
         body.push(` ${rest}`);
         lastKept = true;
+        hunkContext = true;
       } else {
         lastKept = false;
       }
@@ -74,7 +78,23 @@ export function buildPatch(patch: FilePatch, pick: (hunk: number, line: number) 
     if (changed) {
       out.push(hunk.header, ...body);
       any = true;
+      context ||= hunkContext;
     }
   });
-  return any ? `${out.join("\n")}\n` : null;
+  if (!any) return null;
+  // Parte de um arquivo novo (ou apagado) deixa linhas de contexto: aí o patch não cria nem
+  // apaga o arquivo, só muda linhas dele, e com o cabeçalho de arquivo novo o git recusaria.
+  const header = context ? asModification(patch.header) : patch.header;
+  return `${[...header, ...out].join("\n")}\n`;
+}
+
+/** O cabeçalho de arquivo novo ou apagado como o de uma mudança: o lado /dev/null vira o próprio arquivo. */
+function asModification(header: string[]): string[] {
+  const oldName = header.find((line) => line.startsWith("--- "));
+  const newName = header.find((line) => line.startsWith("+++ "));
+  return header
+    .filter((line) => !line.startsWith("new file mode ") && !line.startsWith("deleted file mode "))
+    .map((line) =>
+      line === "--- /dev/null" && newName ? `--- ${newName.slice(4)}` : line === "+++ /dev/null" && oldName ? `+++ ${oldName.slice(4)}` : line,
+    );
 }
