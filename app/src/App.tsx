@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { Agents } from "./components/Agents";
 import { ICON, Icon } from "./icons";
 import { AgentSprite } from "./components/AgentSprite";
+import { AutomationsView } from "./components/AutomationsView";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
 import { Ribbon, THEME_LABEL, TitleBar } from "./components/Chrome";
@@ -799,6 +800,7 @@ export default function App() {
           { id: "brain-search", group: "Brain", label: "Buscar no Brain", hint: "decisões, incidentes, aprendizados, notas", run: () => openNote({ query: "" }) },
           { id: "kanban", group: "Brain", label: "Kanban de projetos", run: () => openTasks() },
           ...(contextPlace ? [{ id: "brain-panel", group: "Brain", label: "Precedentes desta worktree", hint: "painel da worktree → Brain", run: () => (setInspectorOpen(true), setInspectorTab("brain")) }] : []),
+          { id: "automations", group: "Automações", label: "Automações (protótipo)", hint: "o n8n da MÊTIS, com dados de exemplo", run: () => setView("automations") },
           { id: "agents", group: "Ajustes", label: "Agentes", run: () => setView("agents") },
           { id: "settings-accounts", group: "Ajustes", label: "Contas e uso", hint: "⌘,", run: () => (setSection("contas"), setView("settings")) },
           { id: "settings-voice", group: "Ajustes", label: "Voz", run: () => (setSection("voz"), setView("settings")) },
@@ -874,6 +876,7 @@ export default function App() {
             onError={setToast}
           />
         )}
+        {view === "automations" && <AutomationsView />}
         {view === "term" && (
           <Sidebar
             client={harness.client}

@@ -163,7 +163,7 @@ export type Connection = "connecting" | "online" | "offline";
 
 export type ThemeName = "dracula" | "grafite" | "claro";
 
-export type View = "term" | "agents" | "settings" | "brain" | "kanban";
+export type View = "term" | "agents" | "settings" | "brain" | "kanban" | "automations";
 
 // --- Brain e kanban (v0.5) ---------------------------------------------------------
 
