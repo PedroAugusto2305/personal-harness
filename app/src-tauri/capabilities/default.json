@@ -1,15 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões da janela principal: o básico e os controles da moldura própria.",
+  "description": "Permissões da janela principal: o básico e o arrasto pela barra de título.",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:default",
-    "core:window:allow-close",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
     "core:window:allow-start-dragging",
     "core:window:allow-set-badge-count",
     "dialog:allow-open"

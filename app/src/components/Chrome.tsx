@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { themeLabel } from "../lib/appearance";
-import { restartCore, windowAction } from "../lib/core";
+import { restartCore, watchFullscreen } from "../lib/core";
 import { ago } from "../lib/format";
 import type { Notice, NoticeKind } from "../lib/inbox";
 import { ICON, Icon, MetisMark } from "../icons";
@@ -29,18 +29,24 @@ export function TitleBar({
   /** Sino dos avisos (v0.9.2): o menu fica aberto pelo App, que esconde as páginas nativas por baixo. */
   bell?: BellProps;
 }) {
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let stop: (() => void) | undefined;
+    void watchFullscreen((full) => alive && setFullscreen(full)).then((unlisten) => {
+      if (alive) stop = unlisten;
+      else unlisten();
+    });
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []);
   return (
-    <header className="titlebar" data-tauri-drag-region>
-      <div className="traffic">
-        <button type="button" aria-label="Fechar janela" title="Fechar" onClick={() => windowAction("close")} />
-        <button type="button" aria-label="Minimizar janela" title="Minimizar" onClick={() => windowAction("minimize")} />
-        <button
-          type="button"
-          aria-label="Maximizar janela"
-          title="Maximizar"
-          onClick={() => windowAction("toggleMaximize")}
-        />
-      </div>
+    <header className="titlebar" data-tauri-drag-region data-fullscreen={fullscreen ? "true" : undefined}>
+      {/* Os botões da janela são os do macOS (fechar, minimizar e tela cheia), desenhados por cima da
+          barra pela moldura nativa transparente: este espaço é deles. */}
+      <div className="traffic-space" data-tauri-drag-region aria-hidden="true" />
       <span className="name" data-tauri-drag-region>
         <MetisMark size={15} />
         MÊTIS

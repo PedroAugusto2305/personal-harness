@@ -14,8 +14,13 @@ import { AgentSprite, type SpriteState } from "./AgentSprite";
  * cadeira atrás encaixa nela (as pernas de quem tem corpo inteiro ficam atrás do móvel), e se a mesa
  * tinha dono os dois trocam. O lugar fica guardado nesta janela.
  *
- * Os pontos são em % da largura e da altura do desenho (1536 × 1024): nas mesas, a linha de cima do
+ * Os pontos são em % da largura e da altura do desenho (3:2): nas mesas, a linha de cima do
  * móvel; na mesa do cristal, na mesa redonda, no piso e no lugar livre, os pés.
+ *
+ * O desenho final (2026-11-10) são os GIFs do Pedro `cenario_idle_loop_v3` (dia) e
+ * `cenario_idle_loop_noite` (1024 × 683, 60 quadros, 4 s), no mesmo enquadramento do anterior.
+ * Viraram H.264 a 15 qps com cada pixel dobrado sem suavizar (2048 × 1366), para o 4:2:0 do vídeo
+ * cair em blocos de um pixel só e as cores não vazarem entre pixels vizinhos.
  */
 
 export const SLOTS: { x: number; y: number; nome: string; mesa?: boolean }[] = [
@@ -92,8 +97,9 @@ export function placesFor(ids: string[], saved: Record<string, Place>): Record<s
   return out;
 }
 
-/** O desenho (1536 × 1024, a sala de ponta a ponta) é o vídeo inteiro; os lugares são em % dele.
- * O recorte fica para um desenho futuro que venha com margem. */
+/** O desenho (3:2, a sala de ponta a ponta) é o vídeo inteiro; os lugares são em % dele. As medidas
+ * aqui são unidades de um desenho de 1536 × 1024, qualquer que seja a resolução do vídeo (o ímã das
+ * mesas, MAGNET, é nelas). O recorte fica para um desenho futuro que venha com margem. */
 const FRAME = { w: 1536, h: 1024 };
 const CROP = { x: 0, y: 0, w: 1536, h: 1024 };
 const SCENE_W = CROP.w;

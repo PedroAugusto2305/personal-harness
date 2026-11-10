@@ -139,7 +139,8 @@ button:disabled {
   flex-direction: column;
 }
 
-/* Barra de título própria: arrasta a janela e tem os controles em cinza. */
+/* Barra de título própria sobre a moldura nativa transparente (titleBarStyle Overlay): arrasta a
+   janela, e os botões vermelho, amarelo e verde são os do macOS, com tela cheia no verde. */
 .titlebar {
   height: 40px;
   flex: 0 0 auto;
@@ -151,22 +152,16 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
-.traffic {
-  display: flex;
-  gap: 8px;
+/* Lugar dos três botões do macOS (trafficLightPosition x 14 no tauri.conf.json). */
+.traffic-space {
+  flex: 0 0 auto;
+  width: 60px;
+  align-self: stretch;
 }
 
-.traffic button {
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--line2);
-}
-
-.traffic button:hover {
-  background: var(--fnt);
+/* Em tela cheia o macOS esconde os botões: a barra começa na borda. */
+.titlebar[data-fullscreen] .traffic-space {
+  display: none;
 }
 
 .titlebar .name {
