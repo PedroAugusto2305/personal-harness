@@ -121,6 +121,43 @@ function JsonEditor({ value, onChange, rows = 6, object }: { value: unknown; onC
   );
 }
 
+/** Filtro do evento, uma linha campo=valor por vez. O texto fica no próprio campo enquanto você
+ *  digita (uma linha ainda sem "=" não some); o filtro salvo é só o das linhas completas. */
+function FilterEditor({ value, disabled, onChange }: { value: Record<string, unknown> | undefined; disabled: boolean; onChange: (filtro: Record<string, string> | undefined) => void }) {
+  const show = (v: Record<string, unknown> | undefined) =>
+    Object.entries(v ?? {})
+      .map(([k, x]) => `${k}=${x}`)
+      .join("\n");
+  const [text, setText] = useState(() => show(value));
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(show(value));
+  }, [value]);
+  return (
+    <textarea
+      className="af-input mono"
+      rows={3}
+      disabled={disabled}
+      value={text}
+      placeholder="projeto=Personal Harness"
+      onFocus={() => (focused.current = true)}
+      onBlur={() => {
+        focused.current = false;
+        setText(show(value));
+      }}
+      onChange={(event) => {
+        setText(event.target.value);
+        const filtro: Record<string, string> = {};
+        for (const line of event.target.value.split("\n")) {
+          const at = line.indexOf("=");
+          if (at > 0) filtro[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+        }
+        onChange(Object.keys(filtro).length ? filtro : undefined);
+      }}
+    />
+  );
+}
+
 function ExprPreview({ text }: { text: unknown }) {
   if (!hasExpr(text)) return null;
   return (
@@ -357,23 +394,7 @@ export function StepPanel(props: Props) {
               </select>
             </Field>
             <Field label="Só quando (opcional)" hint={EVENT_FIELDS[t.evento ?? "agente.terminou"]}>
-              <textarea
-                className="af-input mono"
-                rows={3}
-                disabled={!editing}
-                value={Object.entries(t.filtro ?? {})
-                  .map(([k, v]) => `${k}=${v}`)
-                  .join("\n")}
-                placeholder="projeto=Personal Harness"
-                onChange={(event) => {
-                  const filtro: Record<string, string> = {};
-                  for (const line of event.target.value.split("\n")) {
-                    const at = line.indexOf("=");
-                    if (at > 0) filtro[line.slice(0, at).trim()] = line.slice(at + 1).trim();
-                  }
-                  patchTrigger({ filtro: Object.keys(filtro).length ? filtro : undefined });
-                }}
-              />
+              <FilterEditor value={t.filtro} disabled={!editing} onChange={(filtro) => patchTrigger({ filtro })} />
             </Field>
             <p className="af-note">
               O que veio no evento chega em <Expr text="{{entrada}}" /> (ex.: <Expr text="{{entrada.previa}}" />). A mesma automação não dispara de novo para o mesmo evento em 30 s.
@@ -650,6 +671,10 @@ export function StepPanel(props: Props) {
         <Field label="Tempo limite (s)">
           <input className="af-input mono" inputMode="numeric" value={s.tempo_limite_s ?? ""} placeholder="30" onChange={(event) => patch({ tempo_limite_s: num(event.target.value) })} />
         </Field>
+        <label className="af-check">
+          <input type="checkbox" checked={!!s.escreve} disabled={!editing} onChange={(event) => patch({ escreve: event.target.checked || undefined })} />
+          Manda ou muda algo fora da MÊTIS (um POST, por exemplo): no teste não roda, e o que ele faria vai para a sua DM
+        </label>
         <p className="af-note">Roda neste Mac ({lang === "python" ? "python3" : "node"}), numa pasta temporária, sem gastar cota. O que o código imprime vira o log do passo.</p>
       </>
     );

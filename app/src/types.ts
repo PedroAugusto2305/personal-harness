@@ -670,6 +670,8 @@ export interface AutoStep {
   codigo?: string;
   descricao?: string;
   tempo_limite_s?: number;
+  /** Código que manda ou muda algo fora (um POST, por exemplo): no teste não roda, vai para a DM. */
+  escreve?: boolean;
   /** Agente: roda no outro provedor quando a janela de 5 h passa de 80% (padrão sim). */
   troca_cota?: boolean;
 }

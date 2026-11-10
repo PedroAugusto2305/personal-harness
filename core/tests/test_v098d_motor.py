@@ -369,7 +369,8 @@ def test_agent_without_output_shape_ends_on_stop_with_last_message(core, agent_s
     wait_waiter(engine, "ag1")
     spy = agent_spy[0]
     assert spy["prompt"].startswith("Faça o resumo de 2") and "`saida`" not in spy["prompt"]  # o pedido vai como está
-    assert spy["extra"] is None and "ag1" not in engine.hub.session_tools  # ["*"]: todas as ferramentas da central
+    # ["*"]: todas as ferramentas da central, que também não pedem licença (v1.0.0: o passo não trava)
+    assert spy["extra"] == ["--allowedTools", "mcp__metis"] and "ag1" not in engine.hub.session_tools
     response = client.post("/hooks/event?session=ag1&name=Stop", json={"last_assistant_message": "Resumo feito."}, headers=AUTH)
     assert response.status_code == 204
     run = wait_run(client, run_id)

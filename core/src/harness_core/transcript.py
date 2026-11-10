@@ -259,8 +259,9 @@ MESSAGE_LINE = re.compile(r'"type":\s*"(?:user|assistant|response_item)"')
 CODEX_NOISE = ("# AGENTS.md", "The following is the Codex agent history")
 
 
-def last_messages(transcript: str, count: int = 2, limit: int = 400) -> list[dict]:
-    """As últimas mensagens da conversa (você e o agente), lidas do fim do transcript."""
+def last_messages(transcript: str, count: int = 2, limit: int | None = 400, squash: bool = True) -> list[dict]:
+    """As últimas mensagens da conversa (você e o agente), lidas do fim do transcript. Com
+    squash=False o texto mantém as quebras de linha; limit=None não corta."""
     path = Path(transcript).expanduser()
     try:
         with open(path, "rb") as handle:
@@ -296,8 +297,9 @@ def last_messages(transcript: str, count: int = 2, limit: int = 400) -> list[dic
         else:
             text = " ".join(b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
             role = "agente"
-        text = " ".join(str(text).split())
+        text = " ".join(str(text).split()) if squash else str(text).strip()
         if not text or text.startswith("<") and text.endswith(">"):
             continue  # comandos e lembretes do Claude Code, não conversa
-        found.append({"role": role, "text": text[:limit] + ("…" if len(text) > limit else "")})
+        cut = limit is not None and len(text) > limit
+        found.append({"role": role, "text": text[:limit] + ("…" if cut else "")})
     return found[-count:]

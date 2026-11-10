@@ -12,6 +12,10 @@ v0.9.8: as rotinas passam a ser automações de um gatilho agendado e um agente 
 em ~/.harness/automacoes), com a mesma recuperação e o mesmo aviso. Na primeira subida, cada
 .md vira automação e fica como cópia (`ativa: não`, `migrada: rotina-<id>`). As rotas
 /rotinas continuam com o mesmo formato, agora por cima das automações (RoutineFlows).
+
+v1.0.0: a rotina conta como rodada assim que o terminal abre com o pedido (como na v0.7: quem
+conversa depois é o Pedro), sem vaga de agente e sem prazo. E rotina é a automação com o passo
+marcado `etiqueta: rotina`, não qualquer id que comece com rotina-.
 """
 
 from __future__ import annotations
@@ -322,7 +326,14 @@ class RoutineStore:
 
 PREFIX = "rotina-"
 RUN_OFFSET = 1_000_000  # execuções vindas das automações não colidem com as antigas da rotinas.db
-ROUTINE_AGENT_MINUTES = 120  # o primeiro turno de uma rotina pode ser longo; o terminal fica aberto
+#: A marca da rotina no passo de agente (`etiqueta: rotina`). O id `rotina-<id>` só endereça as
+#: rotas /rotinas: uma automação comum chamada "Rotina diária" também ganha o id rotina-diaria.
+MARK = "rotina"
+
+
+def routine_step(flow: dict) -> dict | None:
+    """O passo de agente marcado como rotina, ou None se a automação não é uma rotina."""
+    return next((s for s in flow.get("passos") or [] if s.get("tipo") == "agente" and s.get("etiqueta") == MARK), None)
 
 
 class RoutineFlows:
@@ -368,9 +379,8 @@ class RoutineFlows:
                     "onde": "visivel",
                     "saida": {},
                     "ferramentas": ["*"],
-                    "etiqueta": "rotina",
+                    "etiqueta": MARK,
                     "troca_cota": False,
-                    "tempo_limite_min": ROUTINE_AGENT_MINUTES,
                     "x": 260,
                     "y": 0,
                 }
@@ -385,16 +395,20 @@ class RoutineFlows:
             return False
 
     def is_flow(self, routine_id: str) -> bool:
-        return self._exists(self.automation_id(routine_id))
+        """A rotina é uma automação (a rotina-<id> existe e tem a marca de rotina)."""
+        return self.routine(self.automation_id(routine_id)) is not None
 
     def routine(self, automation_id: str) -> Routine | None:
-        """A rotina no formato de sempre, lida da automação (a publicada, ou o rascunho)."""
+        """A rotina no formato de sempre, lida da automação (a publicada, ou o rascunho). None
+        quando a automação não é uma rotina: sem o prefixo ou sem o passo marcado."""
+        if not automation_id.startswith(PREFIX):
+            return None
         try:
             flow = self.store.published(automation_id) or self.store.draft(automation_id)
         except ValueError:
             return None
         trigger = flow["gatilho"]
-        step = next((s for s in flow["passos"] if s["tipo"] == "agente"), None)
+        step = routine_step(flow)
         if trigger.get("tipo") != "agendado" or step is None:
             return None
         state = self.engine.state(automation_id)
@@ -442,7 +456,7 @@ class RoutineFlows:
             self.store.create(clean["name"], self.flow(clean, time.time()), automation_id=automation_id)
         else:
             automation_id = self.automation_id(routine_id)
-            if not self._exists(automation_id):
+            if not self.is_flow(routine_id):  # nunca troca o desenho de uma automação que não é rotina
                 raise RoutineError(f"rotina não encontrada: {routine_id}")
             created = self.store.draft(automation_id)["gatilho"].get("criada") or time.time()
             self.store.save(automation_id, self.flow(clean, float(created)))
@@ -454,7 +468,7 @@ class RoutineFlows:
 
     def delete(self, routine_id: str) -> None:
         automation_id = self.automation_id(routine_id)
-        if self._exists(automation_id):
+        if self.is_flow(routine_id):
             self.engine.set_active(automation_id, False)
             self.store.archive(automation_id)
             return
@@ -481,7 +495,10 @@ class RoutineFlows:
         }
 
     def runs(self, limit: int = 50, since: float = 0) -> list[dict]:
-        new = [self.run_view(r) for r in self.engine.runs_with_prefix(PREFIX, limit, since)]
+        # Execuções das automações rotina-* que não são rotina ficam de fora (as das rotinas
+        # apagadas, que já não estão na lista, continuam no histórico).
+        others = tuple(aid for aid in self.store.ids() if aid.startswith(PREFIX) and self.routine(aid) is None)
+        new = [self.run_view(r) for r in self.engine.runs_with_prefix(PREFIX, limit, since, exclude=others)]
         old = self.legacy.runs(limit, since)
         return sorted([*new, *old], key=lambda r: r["ts"], reverse=True)[:limit]
 
@@ -493,6 +510,8 @@ class RoutineFlows:
             if routine.migrated:
                 continue
             automation_id = self.automation_id(routine.id)
+            if self._exists(automation_id) and self.routine(automation_id) is None:
+                continue  # uma automação comum já usa este id: a rotina segue no .md (o agendador antigo cuida)
             try:
                 if not self._exists(automation_id):
                     self.store.create(routine.name, self.flow(routine.to_dict(), routine.created or time.time()), automation_id=automation_id)
