@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -81,6 +82,7 @@ EVENT_KEYS = {
     "captura": ("texto",),
 }
 POLL_KEEP = 2000  # itens vistos guardados por automação de sondagem
+POLL_WAIT = 5.0  # segundos que o agendador espera as sondagens; a que demora mais segue sozinha
 CODE_LOG_LINES = 5
 
 
@@ -156,6 +158,7 @@ class Engine:
         self._recent: dict[tuple, float] = {}
         self._lock = threading.Lock()
         self._tasks: set[asyncio.Future] = set()
+        self._polling: set[str] = set()  # automações com uma sondagem ainda em andamento
         hub.output_handler = self.receive_output
         home.mkdir(parents=True, exist_ok=True)
         with self._connect() as con:
@@ -440,6 +443,15 @@ class Engine:
                 value, note = inputs, "desligado: os dados passaram direto"
             elif state.mode == "teste" and step.get("fixado") is not None:
                 value, note = step["fixado"], "dados fixados (teste)"
+            elif step["tipo"] == "codigo" and state.mode == "teste" and step.get("escreve"):
+                # Código que fala com outras pessoas ou muda algo fora (um POST, por exemplo): no
+                # teste não roda, como a ferramenta que escreve; o que ele faria vai para a DM.
+                language = step.get("linguagem") or "python"
+                what = f" ({step['descricao']})" if step.get("descricao") else ""
+                sent = await asyncio.to_thread(
+                    self.notify, f"🧪 Ensaio de {state.flow['nome']} · {step['titulo']}: ia rodar o código em {language}{what} com a entrada {_json(inputs)[:600]}"
+                )
+                value, note = {"ensaio": True, "linguagem": language}, f"ensaio: o código não rodou ({sent or 'foi para a sua DM'})"
             elif step["tipo"] == "codigo":
                 titles = {TRIGGER_ID: "gatilho"} | {s["id"]: s["titulo"] for s in state.flow["passos"]}
                 passos = {titles.get(k, k): v for k, v in outputs.items()}
@@ -617,7 +629,9 @@ class Engine:
     # --- agente ----------------------------------------------------------------------------------------
 
     def _agent_prompt(self, state: RunState, step: dict, scope: dict) -> str:
-        request = str(render(step["pedido"], scope))
+        # O pedido da rotina vai exatamente como o Pedro escreveu, como sempre foi: um {{…}} no
+        # texto dela (um modelo de e-mail, por exemplo) não é expressão da automação.
+        request = str(step["pedido"]) if step.get("etiqueta") == "rotina" else str(render(step["pedido"], scope))
         shape = step.get("saida") or {}
         if not shape:
             # Sem saída combinada (as rotinas): o pedido vai como está e o passo termina no fim
@@ -653,7 +667,9 @@ class Engine:
         assert self._slots is not None
         prompt = self._agent_prompt(state, step, scope)
         routine = step.get("etiqueta") == "rotina"
-        async with self._slots:
+        # Rotina: abrir o terminal com o pedido é a execução inteira (quem conversa depois é o
+        # Pedro), então ela não ocupa vaga de agente nem espera o fim do turno.
+        async with contextlib.nullcontext() if routine else self._slots:
             if step.get("agente"):
                 agent = self.agents.get(str(step["agente"]))
                 if step.get("modelo"):
@@ -678,20 +694,25 @@ class Engine:
                 "agent": agent,
                 "prompt": prompt,
             }
-            # As ferramentas da central (já filtradas para o passo) não pedem licença no Claude:
-            # no modo manual, a pergunta travaria o passo à espera de alguém no terminal.
-            if restricted and cli == "claude":
+            # As ferramentas da central (as liberadas para o passo, ou todas com ["*"]) não pedem
+            # licença no Claude: no modo manual, a pergunta travaria o passo à espera de alguém no
+            # terminal. A rotina fica de fora: é uma conversa com o Pedro, como um terminal comum.
+            if cli == "claude" and not routine:
                 kwargs["extra_args"] = ["--allowedTools", "mcp__metis"]
             folder = str(Path(step["pasta"]).expanduser()) if step.get("pasta") else None
             session = self.manager.create(cli, folder, **kwargs)
             if restricted:
                 self.hub.session_tools[session.id] = {str(t) for t in tools or []}
+            note_open = f"terminal «{session.title}»" + (f" · {switch_note}" if switch_note else "")
+            self._save_step(state.id, step["id"], status="rodando", nota=note_open, sessao=session.id)
+            if routine:
+                # O pedido já foi como primeira mensagem: a rotina rodou. O terminal fica aberto para
+                # o Pedro, sem prazo, e uma conversa longa não vira erro nem aviso de falha.
+                return {"sessao": session.id, "terminal": session.title}, f"{note_open} · aberto com o pedido; a conversa segue com você"
             state.sessions.add(session.id)
             loop = asyncio.get_running_loop()
             waiter = Waiter(state.id, step["id"], dict(step.get("saida") or {}), loop.create_future())
             self.waiters[session.id] = waiter
-            note_open = f"terminal «{session.title}»" + (f" · {switch_note}" if switch_note else "")
-            self._save_step(state.id, step["id"], status="rodando", nota=note_open, sessao=session.id)
             minutes = float(step.get("tempo_limite_min") or DEFAULT_AGENT_MINUTES)
             started = time.time()
             try:
@@ -780,6 +801,7 @@ class Engine:
         now = now or datetime.now().astimezone()
         self._loop = self._loop or asyncio.get_running_loop()
         started = []
+        polls: list[tuple[str, dict, dict]] = []
         for automation_id in self.store.ids():
             st = self.state(automation_id)
             if not st["ativa"]:
@@ -791,9 +813,7 @@ class Engine:
             if flow is None:
                 continue
             if flow["gatilho"]["tipo"] == "sondagem":
-                run_id = await self._poll(automation_id, flow, st, now.timestamp())
-                if run_id is not None:
-                    started.append(run_id)
+                polls.append((automation_id, flow, st))
                 continue
             if flow["gatilho"]["tipo"] != "agendado":
                 continue
@@ -816,9 +836,37 @@ class Engine:
                 started.append(await self.start(automation_id, "producao", "agendado" if action == "rodar" else "recuperada", slot=slot.timestamp()))
             except AutomationError as exc:
                 self.publish({"type": "automation.error", "automation": automation_id, "error": str(exc)})
+        if polls:
+            started += await self._run_polls(polls, now.timestamp())
         return started
 
     # --- sondagem ----------------------------------------------------------------------------------
+
+    async def _run_polls(self, polls: list[tuple[str, dict, dict]], now: float) -> list[int]:
+        """As sondagens vencidas, depois das agendadas e todas juntas: um conector lento não atrasa
+        a hora de ninguém. O agendador espera no máximo POLL_WAIT s; a que demora segue sozinha."""
+        tasks = []
+        for automation_id, flow, st in polls:
+            if automation_id in self._polling:
+                continue  # a sondagem anterior desta automação ainda não voltou
+            self._polling.add(automation_id)
+            task = asyncio.ensure_future(self._poll_safe(automation_id, flow, st, now))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+            tasks.append(task)
+        if not tasks:
+            return []
+        done, _late = await asyncio.wait(tasks, timeout=POLL_WAIT)
+        return [task.result() for task in done if not task.cancelled() and task.result() is not None]
+
+    async def _poll_safe(self, automation_id: str, flow: dict, st: dict, now: float) -> int | None:
+        try:
+            return await self._poll(automation_id, flow, st, now)
+        except Exception as exc:  # noqa: BLE001 - a sondagem que roda sozinha nunca some calada
+            self.publish({"type": "automation.error", "automation": automation_id, "error": f"sondagem: {exc}"})
+            return None
+        finally:
+            self._polling.discard(automation_id)
 
     @staticmethod
     def _first_list(value: Any, path: str) -> list | None:
@@ -980,6 +1028,9 @@ class Engine:
 
     async def shutdown(self) -> None:
         """O núcleo vai desligar: as execuções em andamento param (voltam como interrompidas)."""
+        for task in list(self._tasks):  # sondagens e eventos que ainda não voltaram
+            if not task.done():
+                task.cancel()
         for state in list(self.runs.values()):
             if state.task is not None and not state.task.done():
                 state.task.cancel()
@@ -992,13 +1043,15 @@ class Engine:
 
     # --- execuções das rotinas (v0.9.8) -------------------------------------------------------------
 
-    def runs_with_prefix(self, prefix: str, limit: int = 60, since: float = 0) -> list[dict]:
-        """Execuções das automações cujo id começa com o prefixo, com a sessão do primeiro agente."""
+    def runs_with_prefix(self, prefix: str, limit: int = 60, since: float = 0, exclude: tuple[str, ...] = ()) -> list[dict]:
+        """Execuções das automações cujo id começa com o prefixo (menos as de `exclude`), com a
+        sessão do primeiro agente."""
+        skip = f" and r.automation not in ({', '.join('?' * len(exclude))})" if exclude else ""
         with self._connect() as con:
             rows = con.execute(
                 "select r.id, r.automation, r.mode, r.origem, r.status, r.started, r.ended, r.error, r.nota, r.slot, "
                 "(select s.sessao from steps s where s.run = r.id and s.sessao is not null limit 1) as sessao "
-                "from runs r where r.automation like ? and r.started >= ? order by r.id desc limit ?",
-                (prefix.replace("%", "") + "%", since, limit),
+                f"from runs r where r.automation like ? and r.started >= ?{skip} order by r.id desc limit ?",
+                (prefix.replace("%", "") + "%", since, *exclude, limit),
             ).fetchall()
         return [dict(r) for r in rows]

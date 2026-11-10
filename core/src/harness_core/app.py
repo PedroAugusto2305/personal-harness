@@ -2481,15 +2481,19 @@ def create_app(
     codex_rollouts: dict[str, tuple[str, str]] = {}
     previews: dict[str, tuple[tuple[int, int], str]] = {}
 
-    def last_agent_text(session, payload: dict | None = None) -> str:
-        """A última mensagem do agente, até 280 caracteres (prévia do painel e da Atividade)."""
+    def last_agent_text(session, payload: dict | None = None, limit: int | None = 280) -> str:
+        """A última mensagem do agente: até 280 caracteres numa linha (prévia do painel e da
+        Atividade) ou, com limit=None, inteira e com as quebras de linha (a saída do passo de
+        agente sem formato combinado, que segue para os próximos passos)."""
         payload = payload or {}
-        if isinstance(payload.get(PREVIEW_KEY), str):
-            return payload[PREVIEW_KEY]  # já lida numa thread pelo /hooks/event
+        if limit == 280 and isinstance(payload.get(PREVIEW_KEY), str):
+            # A prévia já lida numa thread pelo /hooks/event. Só serve à prévia: a saída inteira
+            # do passo de agente (limit=None) não pode sair dela, que vem cortada.
+            return payload[PREVIEW_KEY]
         for key in ("last_assistant_message", "last-assistant-message"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
-                return " ".join(value.split())[:280]
+                return value.strip() if limit is None else " ".join(value.split())[:limit]
         transcript = payload.get("transcript_path") if isinstance(payload.get("transcript_path"), str) else None
         try:
             if not transcript and session.kind == "claude":
@@ -2505,6 +2509,10 @@ def create_app(
                         codex_rollouts[session.id] = (session.conversa, transcript)
             if not transcript:
                 return ""
+            if limit != 280:
+                # A saída inteira (ou outro corte) não passa pelo cache da prévia.
+                messages = last_messages(transcript, 6, None if limit is None else 600, squash=limit is not None)
+                return next((m["text"][:limit] for m in reversed(messages) if m["role"] == "agente"), "")
             stat = os.stat(os.path.expanduser(transcript))
             key = (stat.st_mtime_ns, stat.st_size)
             cached = previews.get(transcript)
@@ -3580,7 +3588,7 @@ def create_app(
             ours = engine.owns(session)
             # Passo de automação: sem saída combinada termina aqui (com a última mensagem); com
             # saída e sem ter chamado `saida`, a MÊTIS pede de novo.
-            engine.on_stop(session, last_agent_text(live, data) if waiter is not None and not waiter.shape and live is not None else None)
+            engine.on_stop(session, last_agent_text(live, data, None) if waiter is not None and not waiter.shape and live is not None else None)
             # v0.9.8: gatilho agente.terminou (nunca para as sessões das próprias automações: seria um laço).
             if live is not None and live.kind in ("claude", "codex") and not ours and engine.listens("agente.terminou"):
                 engine.fire_event(

@@ -10,6 +10,7 @@ referência, e cabeçalho ou parâmetro com cara de segredo é trocado por um ma
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -65,6 +66,17 @@ class ImportError_(ValueError):
 
 def _short(node_type: str) -> str:
     return str(node_type or "").split(".")[-1]
+
+
+def _number(value: Any) -> float | None:
+    """O número de um parâmetro do n8n, ou None quando ele é uma expressão (={{ … }}) ou texto."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value) if isinstance(value, (int, float)) else float(str(value).strip().replace(",", "."))
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _clean_secrets(value: Any, key: str = "") -> Any:
@@ -200,6 +212,14 @@ def translate_if(params: dict, prev: str | None) -> str | None:
 
 
 def translate_schedule(node: dict) -> tuple[dict | None, str]:
+    """A agenda do n8n como gatilho agendado, ou (None, o motivo) quando não traduz."""
+    try:
+        return _translate_schedule(node)
+    except (ValueError, TypeError):  # hora, dia ou intervalo vindo de expressão, sem número fixo
+        return None, "a agenda do n8n usa expressão (ou valor que não é número) na hora, no dia ou no intervalo"
+
+
+def _translate_schedule(node: dict) -> tuple[dict | None, str]:
     params = node.get("parameters") or {}
     short = _short(node.get("type", "")).lower()
     if short == "cron":
@@ -290,6 +310,7 @@ def code_from_node(node: dict) -> tuple[str, str]:
         code = head + (
             "const resultado = [];\n"
             "for (const item of items) {\n  const $json = item.json;\n"
+            "  const $input = { all: () => items, first: () => items[0], last: () => items[items.length - 1], item };\n"
             "  const r = await (async () => {\n" + "\n".join("    " + line for line in body.splitlines()) + "\n  })();\n"
             "  resultado.push(r && r.json ? r.json : r ?? $json);\n}\n"
             "saida = resultado;\n"
@@ -539,7 +560,7 @@ def translate(workflow: Any, tools: list[dict] | None = None, accounts: dict[str
         if short == "stickynote":
             x, y = pos(node)
             text = str(params.get("content") or "")
-            notes.append({"id": f"n{len(notes) + 1}", "titulo": "Nota do n8n", "texto": SECRET_VALUE.sub(SECRET_MARK, text)[:2000], "x": x, "y": y, "w": int(params.get("width") or 240)})
+            notes.append({"id": f"n{len(notes) + 1}", "titulo": "Nota do n8n", "texto": SECRET_VALUE.sub(SECRET_MARK, text)[:2000], "x": x, "y": y, "w": int(_number(params.get("width")) or 240)})
             continue
         if short == "noop":
             passthrough.add(node_name)
@@ -593,14 +614,21 @@ def translate(workflow: Any, tools: list[dict] | None = None, accounts: dict[str
             step = new_step(node, "codigo", linguagem="javascript", descricao=f"Campos do nó {node_name} do n8n", codigo=code_from_set(node, prev), tempo_limite_s=30)
             continue
         if short == "httprequest":
-            step = new_step(node, "codigo", linguagem="javascript", descricao=f"Requisição HTTP do nó {node_name} do n8n", codigo=code_from_http(node), tempo_limite_s=60)
-            flag(step["titulo"], "HTTP do n8n virou código com fetch: confira a URL e a autenticação (as credenciais não vêm do n8n)")
+            method = str(params.get("method") or params.get("requestMethod") or "GET").upper()
+            # Requisição que manda ou muda algo fora (POST, PUT, DELETE…) fica marcada: no teste não roda.
+            writes = {"escreve": True} if method not in ("GET", "HEAD", "OPTIONS") else {}
+            step = new_step(node, "codigo", linguagem="javascript", descricao=f"Requisição HTTP do nó {node_name} do n8n", codigo=code_from_http(node), tempo_limite_s=60, **writes)
+            flag(step["titulo"], "HTTP do n8n virou código com fetch: confira a URL e a autenticação (as credenciais não vêm do n8n)"
+                 + (f"; como ele manda dados ({method}), no teste não roda e o que faria vai para a sua DM" if writes else ""))
             continue
         if short == "wait":
-            amount = float(params.get("amount") or params.get("value") or 1)
+            raw = params.get("amount") or params.get("value") or 1
+            amount = _number(raw)
             unit = str(params.get("unit") or "minutes")
             factor = {"seconds": 1 / 60, "minutes": 1, "hours": 60, "days": 1440}.get(unit, 1)
-            step = new_step(node, "esperar", minutos=round(min(amount * factor, 1440), 2))
+            step = new_step(node, "esperar", minutos=round(min((amount or 1) * factor, 1440), 2))
+            if amount is None:
+                flag(step["titulo"], f"o tempo da espera vinha de uma expressão do n8n ({str(raw)[:80]}): ficou um tempo fixo, ajuste")
             if params.get("resume") not in (None, "timeInterval"):
                 flag(step["titulo"], "a espera do n8n era por webhook ou data: ficou um tempo fixo")
             continue

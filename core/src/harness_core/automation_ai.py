@@ -51,7 +51,7 @@ STEP_CATALOG = """Tipos de passo (campos de cada um):
 - aprovacao: {mensagem: "texto para o Pedro", prazo_min: 60} — espera o sim do Pedro.
 - brain: {acao: "buscar"|"ler"|"precedentes"|"tarefas"|"diario", termos?, nota?, projeto?, texto?} — o vault do Pedro.
 - esperar: {minutos: número}.
-- codigo: {linguagem: "python"|"javascript", descricao: "o que o código faz", codigo: "<código>", tempo_limite_s: 30} — recebe `entrada` e `passos` (título → saída), devolve em `saida`; o JavaScript roda dentro de uma função async (await funciona).
+- codigo: {linguagem: "python"|"javascript", descricao: "o que o código faz", codigo: "<código>", tempo_limite_s: 30, escreve?: true (o código manda ou muda algo fora, como um POST: no teste não roda)} — recebe `entrada` e `passos` (título → saída), devolve em `saida`; o JavaScript roda dentro de uma função async (await funciona).
 
 Gatilho (um só, id "gatilho"):
 - manual: {tipo: "manual"}
