@@ -60,6 +60,15 @@ export const ICON = {
   inbox: "M3 13h5l1.5 3h5l1.5-3h5M5.5 5h13l2.5 8v6H3v-6z",
   sort: "M7 4v16M4 7l3-3 3 3M17 20V4M14 17l3 3 3-3",
   collapse: "M15 6l-6 6 6 6",
+  // v1.1: o cartão aberto do kanban
+  calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",
+  flag: "M5 21V4M5 4h11l-2 4 2 4H5",
+  tag: "M3 12V4h8l9 9-8 8zM7.5 7.5v.1",
+  status: "M12 3a9 9 0 0 1 0 18M12 21a9 9 0 0 1 0-18",
+  lines: "M4 6h16M4 10h16M4 14h10M4 18h7",
+  checklist: "M4 6l1.5 1.5L8 5M11 6.5h9M4 12l1.5 1.5L8 11M11 12.5h9M4 18h4M11 18.5h9",
+  more: "M6 12h.01M12 12h.01M18 12h.01",
+  arrowRight: "M5 12h14M13 6l6 6-6 6",
 } as const;
 
 export function Icon({ d, size = 18, strokeWidth = 1.7 }: { d: string; size?: number; strokeWidth?: number }) {

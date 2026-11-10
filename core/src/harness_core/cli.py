@@ -77,11 +77,15 @@ def _core_post(home, path: str, body: dict) -> None:
 def _core(home, method: str, path: str, body: dict | None = None):
     """Chamada ao núcleo em execução; devolve o JSON (ou o texto) da resposta."""
     info = json.loads((home / "runtime.json").read_text(encoding="utf-8"))
+    headers = {"X-Harness-Token": info["token"], "Content-Type": "application/json"}
+    if os.environ.get("HARNESS_SESSION_ID"):
+        # v1.1: num terminal da MÊTIS, a atividade da tarefa diz qual agente mexeu nela.
+        headers["X-Harness-Session"] = os.environ["HARNESS_SESSION_ID"]
     request = urllib.request.Request(
         f"{info['url']}{path}",
         data=json.dumps(body).encode() if body is not None else None,
         method=method,
-        headers={"X-Harness-Token": info["token"], "Content-Type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(request, timeout=15) as response:

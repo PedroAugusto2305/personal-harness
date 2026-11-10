@@ -71,6 +71,7 @@ import type {
   GithubIssue,
   HistoryItem,
   KanbanTask,
+  AutoSettings,
   Project,
   ReviewNote,
   SavedCommand,
@@ -901,14 +902,18 @@ export default function App() {
   /**
    * "Executar com agente": worktree nova com o nome da tarefa, Claude nela, a tarefa em
    * "Em andamento" e o pedido na barra de entrada para você revisar antes de mandar.
+   * v1.1: do cartão aberto vêm o agente, o modelo, o raciocínio, a permissão e o lugar
+   * (worktree ou pasta), e o pedido leva a descrição, o checklist, as datas e os anexos.
    */
-  const runTask = async (project: BoardProject, task: KanbanTask) => {
+  const runTask = async (project: BoardProject, task: KanbanTask, settings?: AutoSettings) => {
     const client = harness.client;
     if (!client || !project.directory) return;
     setView("term");
     let cwd = project.directory;
     let where = project.directory;
-    try {
+    const agent = settings?.agente ? harness.agents.find((a) => a.id === settings.agente) : undefined;
+    const kind: "claude" | "codex" = agent && agent.cli !== "outra" ? agent.cli : (settings?.cli ?? "claude");
+    if (settings?.onde !== "pasta") try {
       const repo = await client.addProject(project.directory);
       const name = `tarefa-${fold(task.text).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 36)}`.replace(/-+$/, "");
       const created = await client.createWorktree(repo.id, name, true);
@@ -923,8 +928,14 @@ export default function App() {
     // Cartão da coluna ClickUp (id clickup-…): não é tarefa do Brain, então não há o que mover
     // nem comando `metis tarefa mover` que funcione para ela.
     const fromBrain = !task.id.startsWith("clickup-");
+    const details = fromBrain ? await client.taskBrief(project.name, task.id).catch(() => "") : "";
     if (fromBrain) await client.moveTask(project.name, task.id, "em-andamento").catch(() => undefined);
-    const session = await create("claude", { cwd });
+    const session = await create(kind, {
+      cwd,
+      ...(settings
+        ? { agent: agent?.id, model: settings.modelo || undefined, effort: settings.esforco || undefined, permissao: settings.permissao }
+        : {}),
+    });
     if (!session) return;
     await whenReady(session.id);
     const prompt = (
@@ -932,6 +943,7 @@ export default function App() {
         ? [
             `Tarefa do kanban da MÊTIS · projeto ${project.name} · id ${task.id}`,
             task.text,
+            ...(details ? ["", details] : []),
             "",
             `Ela já está em "Em andamento". Quando estiver pronta para eu testar, rode \`metis tarefa mover ${task.id} em-teste\`. Se precisar de uma decisão minha, pergunte antes de seguir.`,
           ]
@@ -944,7 +956,7 @@ export default function App() {
     ).join("\n");
     setDockOverride(session.id);
     window.setTimeout(() => dock.current?.insert(prompt), 50);
-    setToast(`Claude aberto em ${where}. O pedido está na barra de entrada: revise e mande.`);
+    setToast(`${agent?.name ?? (kind === "codex" ? "Codex" : "Claude")} aberto em ${where}. O pedido está na barra de entrada: revise e mande.`);
   };
 
   /**
@@ -1071,6 +1083,11 @@ export default function App() {
   /** Arquivos soltos: no terminal, o caminho vai direto; na barra, entra no texto. */
   const deliverPaths = (target: string | null, paths: string[]) => {
     if (!paths.length) return;
+    if (target === "tarefa") {
+      // v1.1: solto no cartão aberto do kanban: os arquivos viram anexos da tarefa.
+      window.dispatchEvent(new CustomEvent("metis:anexar-tarefa", { detail: paths }));
+      return;
+    }
     const text = quotePaths(paths);
     if (target?.startsWith("dock:")) {
       const own = docks.current.get(target.slice(5));
@@ -2180,7 +2197,7 @@ export default function App() {
             request={kanbanRequest}
             onOpenNote={(title) => openNote({ title })}
             onOpenProject={(project) => void openBoardProject(project)}
-            onRunTask={(project, task) => void runTask(project, task)}
+            onRunTask={(project, task, settings) => void runTask(project, task, settings)}
             onRunIssue={(project, issue) => void runIssue(project, issue)}
             onOpenUrl={(url) => openWeb(url)}
             onError={setToast}

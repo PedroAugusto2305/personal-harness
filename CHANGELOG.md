@@ -2,6 +2,16 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.1.0 · o cartão do kanban abre inteiro, no jeito do ClickUp
+
+- **Clicar num cartão de tarefa abre o cartão inteiro,** no desenho do ClickUp: título, status (com o botão de passar para a próxima coluna e o de concluir), prioridade, datas de início e de entrega, projeto, etiquetas, descrição, checklist e anexos à esquerda; a atividade e os comentários à direita. O duplo clique que abria as subtarefas no próprio cartão saiu.
+- **O agente e o modelo ficam no cartão,** com o mesmo painel do raio: Claude Code, Codex ou um agente seu, modelo, raciocínio, permissão e worktree ou pasta do projeto. Dali dá para **Executar agora** (que agora respeita o agente e o modelo escolhidos) ou **Rodar sozinha** (a coluna Auto). O pedido leva a descrição, o checklist, as datas e os caminhos dos anexos, então o agente vê o print que você anexou.
+- **Tudo o que é da tarefa continua na nota do Brain.** Prioridade e datas são os campos do plugin Tasks no fim da linha (🔺 ⏫ 🔼 🔽, 🛫 início, 📅 entrega), a descrição são as linhas recuadas logo abaixo, antes das subtarefas. O Obsidian mostra igual, e os agentes leem tudo pela nota e pela ferramenta `tarefas`.
+- **Atividade, comentários e anexos** ficam no núcleo (`~/.harness/tarefas.db`, que entra no backup; os arquivos em `~/.harness/anexos`). A atividade diz quem mexeu: você, o Auto ou o agente do terminal que rodou `metis tarefa` ou a central de MCP. Trocar o título pelo app leva o histórico e a fila do Auto junto para o id novo.
+- **Anexar:** botão Anexar arquivo, arrastar do Finder para o cartão ou colar um print com ⌘V. Imagem aparece em miniatura; clicar abre no app padrão do Mac.
+- **Checklist editável:** clicar no texto de um item edita, o × tira o item.
+- **O cartão no quadro** mostra a prioridade, a data de entrega (em vermelho quando passou), e se tem descrição, anexos e comentários.
+
 ## v1.0.2 · print colado com ⌘V vira anexo
 
 - **Colar um print na barra de mensagem agora funciona.** Antes, ⌘V com uma imagem na área de transferência não fazia nada: a barra só aceitava texto, e o jeito era o botão de anexar ou arrastar o arquivo. Agora o print copiado (⌘⌃⇧4) ou uma imagem copiada do navegador vira anexo na hora, como no botão de anexar: o arquivo vai para `~/.harness/anexos`, com nome `print-<data>-<hora>.png`, e o caminho entra na mensagem para o agente abrir.

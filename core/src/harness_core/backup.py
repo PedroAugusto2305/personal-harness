@@ -40,6 +40,7 @@ FILES = (
     "navegador.json",
     "conectores.json",
     "estudo.db",
+    "tarefas.db",
 )
 FOLDERS = ("agentes", "automacoes", "rotinas", "temas")
 #: Nunca entram, nem dentro das pastas que entram.

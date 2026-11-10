@@ -12,6 +12,16 @@ export function labelHue(label: string): number {
   return hash;
 }
 
+/** Cor estável do projeto (a mesma letra sempre com a mesma cor). */
+export function ProjectChip({ name }: { name: string }) {
+  return (
+    <span className="kb2-project-chip" style={{ "--hue": labelHue(name) } as React.CSSProperties} title={name}>
+      <span className="kb2-project-letter">{name.trim()[0]?.toUpperCase() ?? "?"}</span>
+      <span className="kb2-project-name">{name}</span>
+    </span>
+  );
+}
+
 export function LabelChip({ label, active, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
   const style = { "--hue": labelHue(label) } as React.CSSProperties;
   return onClick ? (

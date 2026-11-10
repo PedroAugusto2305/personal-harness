@@ -387,6 +387,42 @@
   overflow: hidden;
 }
 
+/* v1.1: prioridade, entrega, descrição, anexos e comentários no cartão */
+
+.kb2-card:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+
+.kb2-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fnt);
+}
+
+.kb2-prio {
+  --pr: var(--fnt);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--pr);
+  font-weight: 600;
+}
+
+.kb2-due,
+.kb2-meta-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kb2-due[data-late="true"] {
+  color: var(--err);
+}
+
 .kb2-tags {
   display: flex;
   flex-wrap: wrap;

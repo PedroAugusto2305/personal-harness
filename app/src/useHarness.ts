@@ -244,6 +244,7 @@ export function useHarness() {
           setRoutineRun({ id: event.run.id, name: event.routine.name, status: event.run.status, session: event.session, detail: event.run.detail });
           break;
         case "brain.changed":
+        case "kanban.tarefa": // v1.1: comentário ou anexo numa tarefa
           setBrainTick((n) => n + 1);
           break;
         case "suggestions":

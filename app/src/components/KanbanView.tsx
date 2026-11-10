@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { KindIcon } from "./KindIcon";
 import { useCardDrag } from "../lib/cardDrag";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
@@ -19,9 +18,10 @@ import type {
   Stage,
   TaskState,
 } from "../types";
-import { AgentSprite } from "./AgentSprite";
 import { AgentsBoard } from "./AgentsBoard";
-import { ClickupColumn, LabelChip, labelHue } from "./KanbanParts";
+import { ClickupColumn, LabelChip, ProjectChip } from "./KanbanParts";
+import { RunSettingsPanel, saveRunSettings, useRunSettings } from "./KanbanRun";
+import { dayMonth, priorityLabel, TaskModal } from "./TaskModal";
 import "./kanban.css";
 
 export interface KanbanRequest {
@@ -39,7 +39,8 @@ interface Props {
   request: KanbanRequest | null;
   onOpenNote: (title: string) => void;
   onOpenProject: (project: BoardProject) => void;
-  onRunTask: (project: BoardProject, task: KanbanTask) => void;
+  /** v1.1: com `settings`, o agente, o modelo e o lugar escolhidos no cartão aberto. */
+  onRunTask: (project: BoardProject, task: KanbanTask, settings?: AutoSettings) => void;
   /** v0.9.6: issues e PRs do GitHub do projeto, na coluna GitHub das tarefas. */
   onRunIssue: (project: BoardProject, issue: GithubIssue) => void;
   onOpenUrl: (url: string) => void;
@@ -67,48 +68,6 @@ const DONE_SHOWN = 15;
 const ALL = "__todos__";
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 const plain = (text: string) => text.replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (_, a, b) => b || a).replace(/[*_`]/g, "");
-
-const AUTO_KEY = "harness.kanban.auto";
-const DEFAULT_AUTO: AutoSettings = { cli: "claude", agente: "", modelo: "", esforco: "", permissao: "auto", onde: "worktree" };
-
-function storedAuto(): AutoSettings {
-  try {
-    return { ...DEFAULT_AUTO, ...JSON.parse(localStorage.getItem(AUTO_KEY) || "{}") };
-  } catch {
-    return DEFAULT_AUTO;
-  }
-}
-
-const MODELS: Record<"claude" | "codex", [string, string][]> = {
-  claude: [
-    ["", "padrão da CLI"],
-    ["opus", "Opus"],
-    ["sonnet", "Sonnet"],
-    ["haiku", "Haiku"],
-  ],
-  codex: [
-    ["", "padrão da CLI"],
-    ["gpt-5.5", "GPT-5.5"],
-    ["gpt-5.5-codex", "GPT-5.5 Codex"],
-    ["gpt-5.5-mini", "GPT-5.5 mini"],
-  ],
-};
-const EFFORTS: [AutoSettings["esforco"], string][] = [
-  ["", "padrão"],
-  ["low", "baixo"],
-  ["medium", "médio"],
-  ["high", "alto"],
-  ["xhigh", "máximo"],
-];
-const PERMISSIONS: [AutoSettings["permissao"], string][] = [
-  ["auto", "Automático (a CLI decide o que é seguro)"],
-  ["manual", "Pedir aprovação (para no meio, à sua espera)"],
-  ["padrao", "Como está configurado na CLI"],
-  ["yolo", "Acesso total, sem perguntar"],
-];
-
-/** Cor estável do projeto (a mesma letra sempre com a mesma cor). */
-const projectStyle = (name: string) => ({ "--hue": labelHue(name) }) as React.CSSProperties;
 
 // --- pedaços ----------------------------------------------------------------------------
 
@@ -186,15 +145,6 @@ function EmptyState({ icon, text }: { icon: string; text: string }) {
   );
 }
 
-function ProjectChip({ name }: { name: string }) {
-  return (
-    <span className="kb2-project-chip" style={projectStyle(name)} title={name}>
-      <span className="kb2-project-letter">{name.trim()[0]?.toUpperCase() ?? "?"}</span>
-      <span className="kb2-project-name">{name}</span>
-    </span>
-  );
-}
-
 function TaskCard(props: {
   task: BoardTask;
   run: AutoItem | null;
@@ -203,6 +153,8 @@ function TaskCard(props: {
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   /** Devolve true quando o clique só encerrou um arrasto. */
   onClick: () => boolean;
+  /** v1.1: abre o cartão inteiro (modal). */
+  onOpen: () => void;
   onAuto: () => void;
   onRun: () => void;
   onNote: () => void;
@@ -239,14 +191,56 @@ function TaskCard(props: {
       data-open={open ? "true" : undefined}
       onPointerDown={props.onPointerDown}
       onDragStart={(event) => event.preventDefault()}
-      onClick={() => void props.onClick()}
-      onDoubleClick={() => setOpen((v) => !v)}
+      onClick={(event) => {
+        if (props.onClick()) return; // o clique só encerrou um arrasto
+        // Botões, links, rótulos, caixas e campos do próprio cartão fazem a coisa deles.
+        if ((event.target as HTMLElement).closest("button, a, input, textarea, select, label, form")) return;
+        props.onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && event.target === event.currentTarget) props.onOpen();
+      }}
+      tabIndex={0}
+      aria-label={`${plain(text)}. Enter abre o cartão`}
     >
       <div className="kb2-card-top">
         <ProjectChip name={task.projeto} />
         <span className="kb2-num mono">#{task.n}</span>
       </div>
       <div className="kb2-title" dangerouslySetInnerHTML={{ __html: renderInline(text) }} />
+      {!!(task.prioridade || task.entrega || task.descricao || task.anexos || task.comentarios) && (
+        <div className="kb2-meta">
+          {task.prioridade && (
+            <span className="kb2-prio" data-prio={task.prioridade} title={`Prioridade ${priorityLabel(task.prioridade).toLowerCase()}`}>
+              <Icon d={ICON.flag} size={11} strokeWidth={2} />
+              {priorityLabel(task.prioridade)}
+            </span>
+          )}
+          {task.entrega && (
+            <span className="kb2-due mono" data-late={!done && task.entrega < new Date().toISOString().slice(0, 10) ? "true" : undefined} title={`Entrega ${task.entrega.split("-").reverse().join("/")}`}>
+              <Icon d={ICON.calendar} size={11} />
+              {dayMonth(task.entrega)}
+            </span>
+          )}
+          {task.descricao && (
+            <span className="kb2-meta-icon" title="Tem descrição">
+              <Icon d={ICON.lines} size={12} />
+            </span>
+          )}
+          {!!task.anexos && (
+            <span className="kb2-meta-icon mono" title={`${task.anexos} anexo(s)`}>
+              <Icon d={ICON.clip} size={12} />
+              {task.anexos}
+            </span>
+          )}
+          {!!task.comentarios && (
+            <span className="kb2-meta-icon mono" title={`${task.comentarios} comentário(s)`}>
+              <Icon d={ICON.note} size={11} />
+              {task.comentarios}
+            </span>
+          )}
+        </div>
+      )}
       {(labels.length > 0 || task.subtasks_total > 0 || run) && editingLabels === null && (
         <div className="kb2-tags">
           {run && (
@@ -351,16 +345,8 @@ function AutoDialog(props: {
   onCancel: () => void;
   onQueue: (settings: AutoSettings) => void;
 }) {
-  // O agente guardado da última vez pode ter sido apagado: volta para a CLI, sem mandar um id morto.
-  const [s, setS] = useState<AutoSettings>(() => {
-    const saved = storedAuto();
-    return saved.agente && !props.agents.some((a) => a.id === saved.agente) ? { ...saved, agente: "", modelo: "" } : saved;
-  });
+  const run = useRunSettings(props.agents);
   const [open, setOpen] = useState(true);
-  const agent = props.agents.find((a) => a.id === s.agente) ?? null;
-  const cli = (agent && agent.cli !== "outra" ? agent.cli : s.cli) as "claude" | "codex";
-  const set = <K extends keyof AutoSettings>(key: K, value: AutoSettings[K]) => setS((cur) => ({ ...cur, [key]: value }));
-  const usable = props.agents.filter((a) => a.cli === "claude" || a.cli === "codex");
   return (
     <div className="kb2-modal-back" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && props.onCancel()}>
       <form
@@ -369,12 +355,8 @@ function AutoDialog(props: {
         aria-label="Rodar sozinha"
         onSubmit={(event) => {
           event.preventDefault();
-          try {
-            localStorage.setItem(AUTO_KEY, JSON.stringify(s));
-          } catch {
-            // sem armazenamento: só não lembra
-          }
-          props.onQueue({ ...s, cli });
+          saveRunSettings(run.settings);
+          props.onQueue(run.settings);
         }}
         onKeyDown={(event) => event.key === "Escape" && props.onCancel()}
       >
@@ -392,74 +374,7 @@ function AutoDialog(props: {
           <button type="button" className="kb2-modal-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             <Icon d={open ? ICON.down : ICON.chevron} size={12} /> Agente e lugar
           </button>
-          {open && (
-            <>
-              <div className="kb2-options" role="radiogroup" aria-label="Quem roda">
-                {(["claude", "codex"] as const).map((c) => (
-                  <button key={c} type="button" role="radio" aria-checked={!s.agente && s.cli === c} className="kb2-option" onClick={() => setS((cur) => ({ ...cur, cli: c, agente: "", modelo: "" }))}>
-                    <span className="kb2-glyph" data-cli={c}>
-                      <KindIcon kind={c} size={16} />
-                    </span>
-                    {c === "claude" ? "Claude Code" : "Codex"}
-                  </button>
-                ))}
-                {usable.map((a) => (
-                  <button key={a.id} type="button" role="radio" aria-checked={s.agente === a.id} className="kb2-option" onClick={() => setS((cur) => ({ ...cur, agente: a.id, modelo: "" }))} title={a.description}>
-                    <AgentSprite agent={a} client={props.client} size={16} />
-                    {a.name}
-                  </button>
-                ))}
-              </div>
-              <div className="kb2-fields">
-                <label>
-                  <span>Modelo</span>
-                  <select value={s.modelo} onChange={(e) => set("modelo", e.target.value)}>
-                    {MODELS[cli].map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {agent && !value && agent.model ? `o do agente (${agent.model})` : label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Raciocínio</span>
-                  <select value={s.esforco} onChange={(e) => set("esforco", e.target.value as AutoSettings["esforco"])}>
-                    {EFFORTS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="wide">
-                  <span>Permissões</span>
-                  <select value={s.permissao} onChange={(e) => set("permissao", e.target.value as AutoSettings["permissao"])}>
-                    {PERMISSIONS.map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="kb2-places" role="radiogroup" aria-label="Onde roda">
-                <button type="button" role="radio" aria-checked={s.onde === "worktree"} className="kb2-place" onClick={() => set("onde", "worktree")}>
-                  <span className="kb2-radio" />
-                  <span>
-                    <b>Worktree git</b>
-                    <small>cópia de trabalho separada</small>
-                  </span>
-                </button>
-                <button type="button" role="radio" aria-checked={s.onde === "pasta"} className="kb2-place" onClick={() => set("onde", "pasta")}>
-                  <span className="kb2-radio" />
-                  <span>
-                    <b>Pasta do projeto</b>
-                    <small>usa a pasta que já existe</small>
-                  </span>
-                </button>
-              </div>
-            </>
-          )}
+          {open && <RunSettingsPanel settings={run.settings} onChange={run.setSettings} agents={props.agents} client={props.client} />}
         </div>
         <div className="kb2-modal-actions">
           <button type="button" className="kb2-btn" onClick={props.onCancel}>
@@ -488,6 +403,8 @@ export function KanbanView(props: Props) {
   const [allDone, setAllDone] = useState(false);
   const [composer, setComposer] = useState<{ text: string; project: string } | null>(null);
   const [dialog, setDialog] = useState<BoardTask | null>(null);
+  /** v1.1: o cartão aberto (projeto e id; o id muda quando o título muda). */
+  const [opened, setOpened] = useState<{ projeto: string; id: string } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [reload, setReload] = useState(0);
   const [github, setGithub] = useState<{ issues: GithubIssue[]; prs: GithubPr[] } | null>(null);
@@ -651,6 +568,13 @@ export function KanbanView(props: Props) {
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
   }, [tasks, current]);
 
+  const openedTask = opened ? (tasks.find((t) => t.projeto === opened.projeto && t.id === opened.id) ?? null) : null;
+  const knownLabels = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) if (!opened || t.projeto === opened.projeto) for (const label of t.rotulos ?? []) set.add(label);
+    return [...set].sort();
+  }, [tasks, opened]);
+
   const toggleLabel = (label: string) => setLabelFilter((cur) => (cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]));
 
   // [[links]] dentro dos cartões abrem a nota no Brain, sem disparar o clique do cartão.
@@ -675,6 +599,7 @@ export function KanbanView(props: Props) {
         canRun={!!p?.directory}
         onPointerDown={(event) => cardDrag.start(event, key, plain(task.texto ?? task.text).slice(0, 70))}
         onClick={cardDrag.consumeClick}
+        onOpen={() => setOpened({ projeto: task.projeto, id: task.id })}
         onAuto={() => setDialog(task)}
         onRun={() => p && onRunTask(p, task)}
         onNote={() => onOpenNote(task.projeto)}
@@ -940,7 +865,13 @@ export function KanbanView(props: Props) {
             {autoCards.map((task) => {
               const item = runOf.get(`${task.projeto}::${task.id}`)!;
               return (
-                <article key={item.id} className="kb2-card kb2-queued">
+                <article
+                  key={item.id}
+                  className="kb2-card kb2-queued"
+                  tabIndex={0}
+                  onClick={(event) => !(event.target as HTMLElement).closest("button, a") && setOpened({ projeto: task.projeto, id: task.id })}
+                  onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && setOpened({ projeto: task.projeto, id: task.id })}
+                >
                   <div className="kb2-card-top">
                     <ProjectChip name={task.projeto} />
                     <span className="kb2-num mono">#{task.n}</span>
@@ -1086,6 +1017,32 @@ export function KanbanView(props: Props) {
         </div>
       )}
       {dialog && <AutoDialog task={dialog} agents={agents} client={client} onCancel={() => setDialog(null)} onQueue={(settings) => void queue(dialog, settings)} />}
+      {client && openedTask && (
+        <TaskModal
+          client={client}
+          task={openedTask}
+          project={projectOf(openedTask.projeto)}
+          tick={tick}
+          run={runOf.get(`${openedTask.projeto}::${openedTask.id}`) ?? null}
+          agents={agents}
+          knownLabels={knownLabels}
+          onClose={() => setOpened(null)}
+          onRefresh={async (id) => {
+            if (id) setOpened({ projeto: openedTask.projeto, id });
+            setTasks(await client.allTasks());
+          }}
+          onMove={(state) => moveTask(openedTask, state)}
+          onQueue={(settings) => queue(openedTask, settings)}
+          onRunNow={(settings) => {
+            const p = projectOf(openedTask.projeto);
+            if (p) onRunTask(p, openedTask, settings);
+          }}
+          onOpenNote={onOpenNote}
+          onOpenUrl={onOpenUrl}
+          onOpenSession={onOpenSession}
+          onError={onError}
+        />
+      )}
     </div>
   );
 }

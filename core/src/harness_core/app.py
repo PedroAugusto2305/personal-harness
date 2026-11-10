@@ -47,7 +47,8 @@ from . import app_themes, barra_lateral
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
 from .kanban_auto import AutoError, AutoItem, AutoQueue, auto_prompt
-from .kanban import Kanban
+from .kanban import Kanban, task_brief
+from .task_log import TaskLog, TaskLogError
 from .clickup_rest import ClickupBoard, ClickupError
 from .vault import Vault, VaultError, link_target, split_frontmatter, write_atomic
 from .sprites import SpriteStudio, model_image
@@ -288,6 +289,24 @@ class ClickupStatus(BaseModel):
 
 class TaskMove(BaseModel):
     state: str = Field(pattern="^(pendente|em-andamento|em-teste|concluida)$")
+
+
+class TaskPatch(BaseModel):
+    """v1.1: o que o cartão aberto edita. Campo ausente fica como está; texto vazio limpa."""
+
+    titulo: str | None = Field(default=None, max_length=2000)
+    descricao: str | None = Field(default=None, max_length=20000)
+    prioridade: str | None = Field(default=None, pattern="^(|urgente|alta|media|normal|baixa|minima)$")
+    inicio: str | None = Field(default=None, pattern=r"^(|\d{4}-\d{2}-\d{2})$")
+    entrega: str | None = Field(default=None, pattern=r"^(|\d{4}-\d{2}-\d{2})$")
+
+
+class TaskComment(BaseModel):
+    texto: str = Field(min_length=1, max_length=20000)
+
+
+class AttachPath(BaseModel):
+    caminho: str = Field(min_length=1, max_length=4096)
 
 
 class AutoEnqueue(BaseModel):
@@ -653,6 +672,8 @@ def create_app(
 
     suggestions = Suggestions(settings.home, brain, vault, judge=judge, publish=lambda event: manager.events.publish(event))
     kanban = Kanban(vault)
+    task_log = TaskLog(settings.home / "tarefas.db")  # v1.1: atividade, comentários e anexos das tarefas
+    kanban.log = task_log
     connectors = ConnectorStore(settings.home, keychain or Keychain(keychain_service(settings.profile)), http)
     activity = ActivityLog(settings.home / "atividade.db")
 
@@ -1990,6 +2011,11 @@ def create_app(
     def brain_changed(project: str) -> None:
         manager.events.publish({"type": "brain.changed", "project": project})
 
+    def quem_of(session: str | None) -> str:
+        """v1.1: quem mexeu na tarefa. O comando metis manda a sessão do terminal; a janela não manda, e é o Pedro."""
+        info = session_info(session) if session else None
+        return str(info["who"]) if info else "Pedro"
+
     def cwd_of(session: str | None, cwd: str | None) -> str | None:
         found = manager.get(session) if session else None
         return found.cwd if found else cwd
@@ -2235,15 +2261,18 @@ def create_app(
 
     @app.get("/kanban/tarefas", dependencies=[Depends(require_token)])
     def all_tasks() -> list[dict]:
-        """v0.9.9: as tarefas de todos os projetos do Brain, com o projeto e o número de cada uma."""
+        """v0.9.9: as tarefas de todos os projetos do Brain, com o projeto e o número de cada uma.
+        v1.1: e quantos comentários e anexos cada uma tem."""
         out: list[dict] = []
+        counts = task_log.counts()
         for project in kanban.projects():
             try:
                 tasks = kanban.tasks(project["name"])
             except VaultError:
                 continue
             for n, task in enumerate(tasks, start=1):
-                out.append({**task, "projeto": project["name"], "n": n})
+                extra = counts.get((project["name"], task["id"]), {"comentarios": 0, "anexos": 0})
+                out.append({**task, "projeto": project["name"], "n": n, **extra})
         return out
 
     # --- coluna Auto (v0.9.9) ---
@@ -2287,7 +2316,8 @@ def create_app(
             cwd = created["path"]
         try:
             session = manager.create(kind, cwd, title=f"Auto · {item.texto[:40]}", agent=agent, permission=item.permissao,
-                                     prompt=auto_prompt(item), model=item.modelo or None, effort=item.esforco or None)  # fmt: skip
+                                     prompt=auto_prompt(item, await asyncio.to_thread(brief_of, item.projeto, item.tarefa)),
+                                     model=item.modelo or None, effort=item.esforco or None)  # fmt: skip
         except Exception as exc:
             # O agente não abriu: a worktree que acabou de nascer sai junto (branch sem commit nenhum).
             if created is not None and project is not None:
@@ -2300,11 +2330,36 @@ def create_app(
         return session.id, cwd
 
     def auto_move(projeto: str, tarefa: str, state: str) -> None:
-        kanban.move(projeto, tarefa, state)
+        kanban.move(projeto, tarefa, state, quem="Auto")
         brain_changed(projeto)
 
-    auto = AutoQueue(settings.home / "kanban-auto.json", start=auto_start, move=auto_move, publish=manager.events.publish)
+    def brief_of(projeto: str, tarefa: str) -> str:
+        """v1.1: descrição, checklist, datas e anexos da tarefa, lidos na hora (vazio se ela sumiu)."""
+        try:
+            task = next((t for t in kanban.tasks(projeto) if t["id"] == tarefa), None)
+        except VaultError:
+            return ""
+        return task_brief(task, task_log.attachments(projeto, tarefa)) if task else ""
+
+    # v1.1: cada passo de um item do Auto (fila, rodando, feito, erro, tirado) vai para a atividade da tarefa.
+    auto_seen: dict[str, str] = {}
+
+    def auto_publish(event: dict) -> None:
+        for item in event.get("itens") or []:
+            if auto_seen.get(item["id"]) == item["status"]:
+                continue
+            auto_seen[item["id"]] = item["status"]
+            dados = {k: item[k] for k in ("id", "status", "cli", "agente", "modelo", "esforco", "onde", "sessao", "erro")}
+            try:
+                task_log.add(item["projeto"], item["tarefa"], "Auto", "auto", dados=dados)
+            except Exception:  # noqa: BLE001 - a atividade nunca segura a fila
+                pass
+        manager.events.publish(event)
+
+    auto = AutoQueue(settings.home / "kanban-auto.json", start=auto_start, move=auto_move, publish=auto_publish)
+    auto_seen.update({i.id: i.status for i in auto.items})  # o que já estava no arquivo não vira evento de novo
     auto.update_task_ids(kanban.current_ids)  # fila gravada antes da v1.0, com o id que contava os rótulos
+    kanban.on_rename = auto.rename_task
     manager.events.listen(auto.on_bus_event)
     app.state.auto = auto
 
@@ -2359,18 +2414,18 @@ def create_app(
             raise brain_fail(exc) from exc
 
     @app.post("/brain/projects/{name}/tasks", dependencies=[Depends(require_token)], status_code=201)
-    def brain_add_task(name: str, body: TaskBody) -> dict:
+    def brain_add_task(name: str, body: TaskBody, x_harness_session: str | None = Header(default=None)) -> dict:
         try:
-            task = kanban.add(name, body.text, body.state, labels=body.rotulos, subtasks=body.subtarefas)
+            task = kanban.add(name, body.text, body.state, labels=body.rotulos, subtasks=body.subtarefas, quem=quem_of(x_harness_session))
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)
         return task
 
     @app.put("/brain/projects/{name}/tasks/{task_id}", dependencies=[Depends(require_token)])
-    def brain_move_task(name: str, task_id: str, body: TaskMove) -> dict:
+    def brain_move_task(name: str, task_id: str, body: TaskMove, x_harness_session: str | None = Header(default=None)) -> dict:
         try:
-            task = kanban.move(name, task_id, body.state)
+            task = kanban.move(name, task_id, body.state, quem=quem_of(x_harness_session))
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)
@@ -2379,31 +2434,155 @@ def create_app(
     # --- v0.9.8 parte 3: rótulos, subtarefas, ClickUp no kanban, painel e eventos dos agentes ---
 
     @app.put("/brain/projects/{name}/tasks/{task_id}/rotulos", dependencies=[Depends(require_token)])
-    def brain_task_labels(name: str, task_id: str, body: TaskLabels) -> dict:
+    def brain_task_labels(name: str, task_id: str, body: TaskLabels, x_harness_session: str | None = Header(default=None)) -> dict:
         try:
-            task = kanban.set_labels(name, task_id, body.rotulos)
+            task = kanban.set_labels(name, task_id, body.rotulos, quem=quem_of(x_harness_session))
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)
         return task
 
     @app.post("/brain/projects/{name}/tasks/{task_id}/subtarefas", dependencies=[Depends(require_token)], status_code=201)
-    def brain_add_subtask(name: str, task_id: str, body: NewSubtask) -> dict:
+    def brain_add_subtask(name: str, task_id: str, body: NewSubtask, x_harness_session: str | None = Header(default=None)) -> dict:
         try:
-            task = kanban.add_subtask(name, task_id, body.texto)
+            task = kanban.add_subtask(name, task_id, body.texto, quem=quem_of(x_harness_session))
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)
         return task
 
     @app.put("/brain/projects/{name}/tasks/{task_id}/subtarefas/{index}", dependencies=[Depends(require_token)])
-    def brain_mark_subtask(name: str, task_id: str, index: int, body: MarkSubtask) -> dict:
+    def brain_mark_subtask(name: str, task_id: str, index: int, body: MarkSubtask, x_harness_session: str | None = Header(default=None)) -> dict:
         try:
-            task = kanban.mark_subtask(name, task_id, index, body.feita)
+            task = kanban.mark_subtask(name, task_id, index, body.feita, quem=quem_of(x_harness_session))
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)
         return task
+
+    # --- v1.1: o cartão aberto (título, descrição, prioridade, datas, checklist, atividade, anexos) ---
+
+    @app.patch("/brain/projects/{name}/tasks/{task_id}", dependencies=[Depends(require_token)])
+    def brain_edit_task(name: str, task_id: str, body: TaskPatch, x_harness_session: str | None = Header(default=None)) -> dict:
+        try:
+            task = kanban.update(name, task_id, **body.model_dump(exclude_unset=True), quem=quem_of(x_harness_session))
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    @app.put("/brain/projects/{name}/tasks/{task_id}/subtarefas/{index}/texto", dependencies=[Depends(require_token)])
+    def brain_edit_subtask(name: str, task_id: str, index: int, body: NewSubtask, x_harness_session: str | None = Header(default=None)) -> dict:
+        try:
+            task = kanban.edit_subtask(name, task_id, index, body.texto, quem=quem_of(x_harness_session))
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    @app.delete("/brain/projects/{name}/tasks/{task_id}/subtarefas/{index}", dependencies=[Depends(require_token)])
+    def brain_remove_subtask(name: str, task_id: str, index: int, x_harness_session: str | None = Header(default=None)) -> dict:
+        try:
+            task = kanban.remove_subtask(name, task_id, index, quem=quem_of(x_harness_session))
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        brain_changed(name)
+        return task
+
+    def known_task(name: str, task_id: str) -> dict:
+        try:
+            task = next((t for t in kanban.tasks(name) if t["id"] == task_id), None)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        if task is None:
+            raise HTTPException(status_code=404, detail="tarefa não encontrada (a nota mudou?)")
+        return task
+
+    def task_changed(name: str, task_id: str) -> None:
+        manager.events.publish({"type": "kanban.tarefa", "project": name, "task": task_id})
+
+    @app.get("/brain/projects/{name}/tasks/{task_id}/atividade", dependencies=[Depends(require_token)])
+    def brain_task_activity(name: str, task_id: str) -> dict:
+        known_task(name, task_id)
+        return {"eventos": task_log.events(name, task_id), "anexos": task_log.attachments(name, task_id)}
+
+    @app.get("/brain/projects/{name}/tasks/{task_id}/pedido", dependencies=[Depends(require_token)])
+    def brain_task_brief(name: str, task_id: str) -> dict:
+        """O resto do cartão para o pedido do Executar agora (o do Auto é montado no núcleo)."""
+        return {"detalhes": task_brief(known_task(name, task_id), task_log.attachments(name, task_id))}
+
+    @app.post("/brain/projects/{name}/tasks/{task_id}/comentarios", dependencies=[Depends(require_token)], status_code=201)
+    def brain_task_comment(name: str, task_id: str, body: TaskComment, x_harness_session: str | None = Header(default=None)) -> dict:
+        known_task(name, task_id)
+        try:
+            event = task_log.comment(name, task_id, quem_of(x_harness_session), body.texto)
+        except TaskLogError as exc:
+            raise fail(exc) from exc
+        task_changed(name, task_id)
+        return event
+
+    @app.delete("/brain/projects/{name}/tasks/{task_id}/comentarios/{event_id}", dependencies=[Depends(require_token)], status_code=204)
+    def brain_task_uncomment(name: str, task_id: str, event_id: int) -> None:
+        try:
+            task_log.delete_comment(name, task_id, event_id)
+        except TaskLogError as exc:
+            raise fail(exc, 404) from exc
+        task_changed(name, task_id)
+
+    @app.post("/brain/projects/{name}/tasks/{task_id}/anexos", dependencies=[Depends(require_token)], status_code=201)
+    async def brain_task_attach(name: str, task_id: str, request: Request, nome: str = Query(min_length=1, max_length=255),
+                                x_harness_session: str | None = Header(default=None)) -> dict:  # fmt: skip
+        await asyncio.to_thread(known_task, name, task_id)
+        data = await request.body()
+        if len(data) > MAX_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=413, detail="anexo grande demais (máximo 50 MB)")
+        path = await asyncio.to_thread(save_attachment, settings.home, nome, data)
+        item = await asyncio.to_thread(task_log.attach, name, task_id, quem_of(x_harness_session), nome, str(path), len(data))
+        task_changed(name, task_id)
+        return item
+
+    @app.post("/brain/projects/{name}/tasks/{task_id}/anexos/caminho", dependencies=[Depends(require_token)], status_code=201)
+    def brain_task_attach_path(name: str, task_id: str, body: AttachPath, x_harness_session: str | None = Header(default=None)) -> dict:
+        """Arquivo solto do Finder na janela: a MÊTIS recebe o caminho e guarda uma cópia nos anexos."""
+        known_task(name, task_id)
+        source = Path(body.caminho).expanduser()
+        if not source.is_file():
+            raise HTTPException(status_code=400, detail=f"só arquivos (não pastas): {source.name}")
+        if source.stat().st_size > MAX_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=413, detail="anexo grande demais (máximo 50 MB)")
+        data = source.read_bytes()
+        path = save_attachment(settings.home, source.name, data)
+        item = task_log.attach(name, task_id, quem_of(x_harness_session), source.name, str(path), len(data))
+        task_changed(name, task_id)
+        return item
+
+    @app.delete("/brain/projects/{name}/tasks/{task_id}/anexos/{attachment_id}", dependencies=[Depends(require_token)], status_code=204)
+    def brain_task_detach(name: str, task_id: str, attachment_id: str, x_harness_session: str | None = Header(default=None)) -> None:
+        try:
+            found = task_log.detach(name, task_id, attachment_id, quem_of(x_harness_session))
+        except TaskLogError as exc:
+            raise fail(exc, 404) from exc
+        # O arquivo só sai se foi a MÊTIS que guardou (fica na pasta de anexos dela).
+        path = Path(found["caminho"])
+        if (settings.home / "anexos").resolve() in path.resolve().parents:
+            path.unlink(missing_ok=True)
+        task_changed(name, task_id)
+
+    def attachment_file(attachment_id: str) -> Path:
+        found = task_log.attachment(attachment_id)
+        if found is None or not Path(found["caminho"]).is_file():
+            raise HTTPException(status_code=404, detail="anexo não encontrado")
+        return Path(found["caminho"])
+
+    @app.get("/kanban/anexos/{attachment_id}", dependencies=[Depends(require_token_or_query)])
+    def task_attachment_raw(attachment_id: str) -> FileResponse:
+        target = attachment_file(attachment_id)
+        return FileResponse(target, media_type=fs.media_type(target), headers={"Cache-Control": "no-store"})
+
+    @app.post("/kanban/anexos/{attachment_id}/abrir", dependencies=[Depends(require_token)], status_code=204)
+    def task_attachment_open(attachment_id: str) -> None:
+        """Abre no app padrão do Mac (Pré-Visualização, editor…)."""
+        subprocess.run(["open", str(attachment_file(attachment_id))], check=False, timeout=10)
 
     @app.get("/brain/projects/{name}/rotulos", dependencies=[Depends(require_token)])
     def brain_labels(name: str) -> dict:
@@ -3301,7 +3480,7 @@ def create_app(
             if item.kind == "lembrete" and reminder_account():
                 message = await asyncio.to_thread(hub.remind, reminder_account(), item.text, item.when.isoformat())
             elif item.kind == "tarefa" and item.project:
-                task = await asyncio.to_thread(kanban.add, item.project, item.text)
+                task = await asyncio.to_thread(kanban.add, item.project, item.text)  # quem: o Pedro, pela captura
                 manager.events.publish({"type": "brain.changed", "project": item.project})
                 message = f"Tarefa {task['id']} nas Próximas ações de {item.project}."
             elif item.kind in ("tarefa", "nota"):
