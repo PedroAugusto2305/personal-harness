@@ -252,15 +252,20 @@ class Hub:
                 return f"Nenhuma tarefa aberta em {project}."
             def line(t: dict) -> str:
                 labels = " ".join(f"#{label}" for label in t.get("rotulos") or [])
-                head = f"- [{t['state']}] {t['id']}: {t.get('texto') or t['text']}" + (f" ({labels})" if labels else "")
+                # v1.1: prioridade, datas e descrição do cartão.
+                meta = [labels] if labels else []
+                meta += [f"prioridade {t['prioridade']}"] if t.get("prioridade") else []
+                meta += [f"entrega {t['entrega']}"] if t.get("entrega") else []
+                head = f"- [{t['state']}] {t['id']}: {t.get('texto') or t['text']}" + (f" ({'; '.join(meta)})" if meta else "")
+                desc = [f"    > {row}" for row in (t.get("descricao") or "").splitlines()[:12]]
                 subs = [f"    {s['indice']}. [{'x' if s['feita'] else ' '}] {s['texto']}" for s in t.get("subtarefas") or []]
-                return "\n".join([head, *subs])
+                return "\n".join([head, *desc, *subs])
 
             return f"Próximas ações de {project}:\n" + "\n".join(line(t) for t in items)
 
         def mover(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
-            task = self.kanban.move(project, str(args["id"]), str(args["estado"]))
+            task = self.kanban.move(project, str(args["id"]), str(args["estado"]), quem=ctx.who)
             self.on_brain_change(project)
             return f"{task['id']} agora está em {task['state']}: {task['text']}"
 
@@ -272,6 +277,7 @@ class Hub:
                 str(args.get("estado") or "pendente"),
                 labels=[str(x) for x in args.get("rotulos") or []],
                 subtasks=[str(x) for x in args.get("subtarefas") or []],
+                quem=ctx.who,
             )
             self.on_brain_change(project)
             extra = f"; rótulos: {', '.join(task['rotulos'])}" if task.get("rotulos") else ""
@@ -280,7 +286,7 @@ class Hub:
 
         def rotulos(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
-            task = self.kanban.set_labels(project, str(args["id"]), [str(x) for x in args.get("rotulos") or []])
+            task = self.kanban.set_labels(project, str(args["id"]), [str(x) for x in args.get("rotulos") or []], quem=ctx.who)
             self.on_brain_change(project)
             labels = ", ".join(task["rotulos"]) or "nenhum"
             return f"Rótulos de {task['texto']}: {labels}. Id da tarefa: {task['id']}."
@@ -288,10 +294,10 @@ class Hub:
         def subtarefa(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
             if args.get("texto"):
-                task = self.kanban.add_subtask(project, str(args["id"]), str(args["texto"]))
+                task = self.kanban.add_subtask(project, str(args["id"]), str(args["texto"]), quem=ctx.who)
                 verb = "criada"
             elif args.get("indice") is not None:
-                task = self.kanban.mark_subtask(project, str(args["id"]), int(args["indice"]), bool(args.get("feita", True)))
+                task = self.kanban.mark_subtask(project, str(args["id"]), int(args["indice"]), bool(args.get("feita", True)), quem=ctx.who)
                 verb = "marcada" if args.get("feita", True) else "desmarcada"
             else:
                 raise ToolError("diga texto (para criar) ou indice (para marcar)")

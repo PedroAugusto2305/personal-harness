@@ -201,6 +201,7 @@ export type CoreEvent =
   | { type: "estudo.mudou" }
   | { type: "codigo.grafo"; root: string; status: string; detalhe?: string }
   | { type: "brain.changed"; project: string }
+  | { type: "kanban.tarefa"; project: string; task: string }
   | { type: "connectors"; accounts: ConnectorAccount[] }
   | { type: "approval"; approval: Approval }
   | { type: "approval.done"; id: string }
@@ -461,6 +462,45 @@ export interface KanbanTask {
   rotulos?: string[];
   texto?: string;
   subtarefas?: Subtask[];
+  /** v1.1: campos do plugin Tasks na linha (AAAA-MM-DD) e a descrição (linhas recuadas). */
+  prioridade?: TaskPriority;
+  inicio?: string;
+  entrega?: string;
+  criada?: string;
+  descricao?: string;
+}
+
+/** v1.1: "" é a Normal (sem emoji na linha). */
+export type TaskPriority = "" | "urgente" | "alta" | "media" | "baixa" | "minima";
+
+export interface TaskPatch {
+  titulo?: string;
+  descricao?: string;
+  prioridade?: TaskPriority;
+  inicio?: string;
+  entrega?: string;
+}
+
+export interface TaskEvent {
+  id: number;
+  ts: number;
+  projeto: string;
+  tarefa: string;
+  quem: string;
+  tipo: "criou" | "moveu" | "rotulos" | "subtarefa" | "titulo" | "descricao" | "prioridade" | "data" | "comentario" | "anexo" | "auto";
+  texto: string;
+  dados: Record<string, unknown>;
+}
+
+export interface TaskAttachment {
+  id: string;
+  ts: number;
+  projeto: string;
+  tarefa: string;
+  quem: string;
+  nome: string;
+  caminho: string;
+  tamanho: number;
 }
 
 /** v0.9.9: pasta ou nota do vault, para a árvore do Brain e do Estudo. */
@@ -472,7 +512,7 @@ export interface VaultNode {
 }
 
 /** v0.9.9: tarefa de qualquer projeto, com o projeto e o número dela na nota. */
-export type BoardTask = KanbanTask & { projeto: string; n: number };
+export type BoardTask = KanbanTask & { projeto: string; n: number; comentarios?: number; anexos?: number };
 
 export interface AutoItem {
   id: string;

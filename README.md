@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.0.2)
+## O que já faz (v1.1.0)
+
+**Na 1.1.0:** clicar num cartão do kanban abre o cartão inteiro, no jeito do ClickUp: status, prioridade, datas, etiquetas, descrição, checklist, anexos, o agente e o modelo que rodam a tarefa (o mesmo painel do raio, com Executar agora e Rodar sozinha) e, ao lado, a atividade e os comentários. O que é da tarefa continua na nota do Brain.
 
 **Na 1.0.2:** um print colado com ⌘V na barra de mensagem (ou no terminal) vira anexo, como no botão de anexar.
 

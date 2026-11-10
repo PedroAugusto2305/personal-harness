@@ -37,6 +37,9 @@ import type {
   KanbanTask,
   Stage,
   TaskState,
+  TaskAttachment,
+  TaskEvent,
+  TaskPatch,
   Accounts,
   Account,
   Agent,
@@ -887,6 +890,64 @@ export class CoreClient {
 
   moveTask(project: string, id: string, state: TaskState): Promise<KanbanTask> {
     return this.request("PUT", `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}`, { state });
+  }
+
+  // --- v1.1: o cartão aberto
+
+  private taskPath(project: string, id: string): string {
+    return `/brain/projects/${encodeURIComponent(project)}/tasks/${encodeURIComponent(id)}`;
+  }
+
+  /** Título, descrição, prioridade e datas. Mudar o título muda o id: a resposta traz o novo. */
+  editTask(project: string, id: string, patch: TaskPatch): Promise<KanbanTask & { id_antes: string }> {
+    return this.request("PATCH", this.taskPath(project, id), patch);
+  }
+
+  editSubtask(project: string, id: string, indice: number, texto: string): Promise<KanbanTask> {
+    return this.request("PUT", `${this.taskPath(project, id)}/subtarefas/${indice}/texto`, { texto });
+  }
+
+  removeSubtask(project: string, id: string, indice: number): Promise<KanbanTask> {
+    return this.request("DELETE", `${this.taskPath(project, id)}/subtarefas/${indice}`);
+  }
+
+  taskActivity(project: string, id: string): Promise<{ eventos: TaskEvent[]; anexos: TaskAttachment[] }> {
+    return this.request("GET", `${this.taskPath(project, id)}/atividade`);
+  }
+
+  /** Descrição, checklist, datas e anexos, para o pedido do Executar agora. */
+  async taskBrief(project: string, id: string): Promise<string> {
+    return (await this.request<{ detalhes: string }>("GET", `${this.taskPath(project, id)}/pedido`)).detalhes;
+  }
+
+  commentTask(project: string, id: string, texto: string): Promise<TaskEvent> {
+    return this.request("POST", `${this.taskPath(project, id)}/comentarios`, { texto });
+  }
+
+  uncommentTask(project: string, id: string, eventId: number): Promise<void> {
+    return this.request("DELETE", `${this.taskPath(project, id)}/comentarios/${eventId}`);
+  }
+
+  attachToTask(project: string, id: string, file: Blob, name: string): Promise<TaskAttachment> {
+    return this.send("POST", `${this.taskPath(project, id)}/anexos?nome=${encodeURIComponent(name)}`, file, "application/octet-stream");
+  }
+
+  /** Arquivo solto do Finder: o núcleo guarda uma cópia. */
+  attachPathToTask(project: string, id: string, caminho: string): Promise<TaskAttachment> {
+    return this.request("POST", `${this.taskPath(project, id)}/anexos/caminho`, { caminho });
+  }
+
+  detachFromTask(project: string, id: string, attachment: string): Promise<void> {
+    return this.request("DELETE", `${this.taskPath(project, id)}/anexos/${encodeURIComponent(attachment)}`);
+  }
+
+  /** Para <img>, que não manda cabeçalho. */
+  attachmentUrl(attachment: string): string {
+    return `${this.info.url}/kanban/anexos/${encodeURIComponent(attachment)}?${new URLSearchParams({ token: this.info.token })}`;
+  }
+
+  openAttachment(attachment: string): Promise<void> {
+    return this.request("POST", `/kanban/anexos/${encodeURIComponent(attachment)}/abrir`);
   }
 
   // --- conectores, lembretes, aprovações ---------------------------------------

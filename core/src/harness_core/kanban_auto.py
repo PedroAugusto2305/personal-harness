@@ -193,6 +193,16 @@ class AutoQueue:
         if changed:
             self._changed()
 
+    def rename_task(self, projeto: str, antes: str, depois: str) -> None:
+        """v1.1: o título da tarefa mudou no cartão e, com ele, o id."""
+        changed = False
+        with self._lock:
+            for item in self.items:
+                if item.projeto == projeto and item.tarefa == antes:
+                    item.tarefa, changed = depois, True
+        if changed:
+            self._changed()
+
     def clear_done(self) -> None:
         with self._lock:
             self.items = [i for i in self.items if i.status in ("fila", "rodando")]
@@ -289,13 +299,15 @@ class AutoQueue:
         self.kick()
 
 
-def auto_prompt(item: AutoItem) -> str:
-    """O pedido que entra no agente."""
+def auto_prompt(item: AutoItem, detalhes: str = "") -> str:
+    """O pedido que entra no agente. `detalhes` (v1.1) é o resto do cartão: descrição,
+    checklist, datas e anexos, lido da nota na hora de começar."""
     return "\n".join(
         [
             f"Tarefa do kanban da MÊTIS (coluna Auto) · projeto {item.projeto} · id {item.tarefa}",
             "",
             item.texto,
+            *(["", detalhes] if detalhes.strip() else []),
             "",
             "Você está rodando sozinho, sem o Pedro olhando: faça a tarefa de ponta a ponta nesta pasta, rode os testes que houver e "
             "deixe tudo pronto para ele revisar. Não faça push nem abra PR. Quando terminar, resuma em poucas linhas o que mudou e "
