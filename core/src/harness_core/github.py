@@ -3,8 +3,8 @@ e os PRs abertos do repositório para o kanban.
 
 A MÊTIS não guarda token: usa o login do próprio `gh` (`gh auth login`, feito pelo Pedro).
 Tudo passa pela função `gh()`, que os testes trocam; sem `gh` ou sem login, as consultas
-voltam vazias e nunca derrubam a tela. Listas e estado ficam 60 s em cache por pasta, porque
-o painel pergunta a cada poucos segundos e o GitHub tem limite de chamadas.
+voltam vazias e nunca derrubam a tela. Listas e estado ficam 60 s em cache por pasta (o PR,
+por pasta e branch), porque o painel pergunta a cada poucos segundos e o GitHub tem limite de chamadas.
 """
 
 from __future__ import annotations
@@ -123,6 +123,15 @@ def current_pr(cwd: str) -> dict | None:
     return pr_from(data) if isinstance(data, dict) and data.get("number") else None
 
 
+def _branch(cwd: str) -> str:
+    """O branch atual da pasta ("HEAD" se estiver solto; vazio se o git falhar)."""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
 def state(cwd: str) -> dict:
     """O que o painel de Mudanças mostra: há gh logado, qual o repositório e o PR do branch."""
     if not logged_in(cwd):
@@ -130,7 +139,9 @@ def state(cwd: str) -> dict:
     repo = repo_name(cwd)
     if not repo:
         return {"gh": True, "repo": None, "pr": None}
-    pr = _cached(cwd, "pr", lambda: current_pr(cwd))
+    # O PR é do branch, não da pasta: trocar de branch na mesma worktree não pode mostrar
+    # (nem juntar) o PR do branch anterior enquanto o cache vale.
+    pr = _cached(cwd, f"pr:{_branch(cwd)}", lambda: current_pr(cwd))
     return {"gh": True, "repo": repo, "pr": pr}
 
 

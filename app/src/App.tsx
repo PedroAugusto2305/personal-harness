@@ -590,9 +590,10 @@ export default function App() {
     const key = `doc:${doc.type}:${doc.root}:${doc.path}${doc.mode === "ref" && doc.ref ? `@${doc.ref}` : ""}`;
     setDocs((all) =>
       all.some((d) => d.key === key)
-        ? // Pedida de novo com outro modo: a aba segue o pedido.
+        ? // Pedida de novo com outro modo: a aba segue o pedido (e o arquivo pode ter deixado de
+          // ser não rastreado, depois de marcado).
           doc.mode
-          ? all.map((d) => (d.key === key ? { ...d, mode: doc.mode, ref: doc.ref, seq: (d.seq ?? 0) + 1 } : d))
+          ? all.map((d) => (d.key === key ? { ...d, mode: doc.mode, ref: doc.ref, untracked: doc.untracked, seq: (d.seq ?? 0) + 1 } : d))
           : all
         : [...all, { ...doc, key }],
     );

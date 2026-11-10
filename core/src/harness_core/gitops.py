@@ -352,33 +352,37 @@ async def operation(path: str | Path) -> str | None:
     return None
 
 
-async def last_commit(path: str | Path, upstream: str | None) -> dict | None:
-    """O último commit e se ele já subiu (está no upstream)."""
-    try:
-        raw = await git(path, "log", "-1", "--format=%h%x00%s")
-    except GitError:
+_subjects: dict[str, tuple[str, str]] = {}
+
+
+async def last_commit(path: str | Path, oid: str | None) -> tuple[str, str] | None:
+    """O SHA curto e o assunto do commit `oid`. Um commit nunca muda, então fica guardado:
+    o painel pergunta o status a cada 3 s e só precisa do `git log` quando o HEAD anda."""
+    if not oid:
         return None  # repositório sem commit
-    sha, _, subject = raw.strip().partition("\0")
-    if not sha:
-        return None
-    pushed = bool(upstream) and await _is_ancestor(path)
-    return {"sha": sha, "assunto": subject, "subiu": pushed}
-
-
-async def _is_ancestor(path: str | Path) -> bool:
-    try:
-        await git(path, "merge-base", "--is-ancestor", "HEAD", "@{u}")
-        return True
-    except GitError:
-        return False
+    if oid not in _subjects:
+        try:
+            raw = await git(path, "log", "-1", "--format=%h%x00%s", oid)
+        except GitError:
+            return None
+        sha, _, subject = raw.strip().partition("\0")
+        if not sha:
+            return None
+        if len(_subjects) > 2000:
+            _subjects.clear()
+        _subjects[oid] = (sha, subject)
+    return _subjects[oid]
 
 
 async def status(path: str | Path) -> dict:
     raw = await git(path, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all")
     info = parse_status(raw)
-    op, last = await asyncio.gather(operation(path), last_commit(path, info["upstream"]))
+    op, last = await asyncio.gather(operation(path), last_commit(path, info["head"]))
     info["operacao"] = op
-    info["ultimo_commit"] = last
+    # Já subiu = o HEAD está no upstream, ou seja, nada à frente dele. Sem a linha branch.ab
+    # (o branch remoto sumiu), não dá para saber, e conta como não subiu.
+    pushed = bool(info["upstream"]) and "# branch.ab " in raw and info["ahead"] == 0
+    info["ultimo_commit"] = {"sha": last[0], "assunto": last[1], "subiu": pushed} if last else None
     return info
 
 
@@ -464,7 +468,12 @@ async def diff(path: str | Path, file: str, mode: str = "head", untracked: bool 
         return await git(path, "diff", "--no-color", "--no-index", "--", "/dev/null", file, ok_codes=(0, 1))
     if mode == "ref":
         base = await merge_base(path, ref or "")
-        return await git(path, "diff", "--no-color", base, "--", file)
+        out = await git(path, "diff", "--no-color", base, "--", file)
+        # O `git diff <ref>` não vê arquivo não rastreado, mas o comparar lista esses como
+        # novos (A): o diff deles é o arquivo inteiro.
+        if not out and (await git(path, "ls-files", "--others", "--exclude-standard", "--", file)).strip():
+            return await git(path, "diff", "--no-color", "--no-index", "--", "/dev/null", file, ok_codes=(0, 1))
+        return out
     if mode == "staged":
         return await git(path, "diff", "--no-color", "--cached", "--", file)
     if mode == "worktree":
@@ -510,8 +519,13 @@ async def _upstream(path: str | Path) -> str | None:
 
 
 async def push(path: str | Path, force: bool = False) -> str:
-    """Sobe o branch; sem upstream, publica (`-u origin HEAD`). `force` é sempre o com garantia."""
-    lease = ["--force-with-lease"] if force else []
+    """Sobe o branch; sem upstream, publica (`-u origin HEAD`). `force` é sempre o com garantia.
+
+    O `--force-with-lease` sozinho compara o remoto com o origin/<branch> local, que o fetch
+    automático do painel atualiza sem o Pedro ver: a garantia sumiria. O `--force-if-includes`
+    só deixa forçar se o que está no origin/<branch> já passou por este branch (pelo reflog),
+    então um commit de outra pessoa trazido só pelo fetch faz a subida ser recusada."""
+    lease = ["--force-with-lease", "--force-if-includes"] if force else []
     if await _upstream(path) is None:
         return await git(path, "push", *lease, "-u", "origin", "HEAD", timeout=120, full_output=True)
     return await git(path, "push", *lease, timeout=120, full_output=True)
@@ -663,9 +677,24 @@ def parse_conflicts(text: str) -> list[dict]:
     return blocks
 
 
-def resolve_conflicts(text: str, choices: list[str]) -> str:
+def _swapped(block: dict) -> dict:
+    """No rebase o git chama de "ours" o branch de cima (onde os commits são reaplicados) e de
+    "theirs" o commit deste branch. A tela fala sempre do ponto de vista deste branch: nosso é
+    o que o Pedro fez aqui, deles é o que está entrando."""
+    return {
+        **block,
+        "nosso": block["deles"],
+        "deles": block["nosso"],
+        "rotulo_nosso": block["rotulo_deles"],
+        "rotulo_deles": block["rotulo_nosso"],
+    }
+
+
+def resolve_conflicts(text: str, choices: list[str], rebase: bool = False) -> str:
     """O texto com cada bloco trocado pela escolha: nosso, deles, ambos (o nosso e depois o deles) ou base."""
     blocks = parse_conflicts(text)
+    if rebase:
+        blocks = [_swapped(b) for b in blocks]
     if len(choices) != len(blocks):
         raise GitError(f"são {len(blocks)} conflito(s) e vieram {len(choices)} escolha(s)", 400)
     lines = text.splitlines(keepends=True)
@@ -695,7 +724,10 @@ async def conflict(path: str | Path, file: str) -> dict:
 
     target = fs.inside(str(path), file)
     text = target.read_text(encoding="utf-8", errors="replace")
-    blocks = [{k: v for k, v in b.items() if k not in ("inicio", "fim")} for b in parse_conflicts(text)]
+    blocks = parse_conflicts(text)
+    if await operation(path) == "rebase":
+        blocks = [_swapped(b) for b in blocks]
+    blocks = [{k: v for k, v in b.items() if k not in ("inicio", "fim")} for b in blocks]
     return {"blocos": blocks, "texto": text}
 
 
@@ -704,15 +736,20 @@ async def resolve(path: str | Path, file: str, choices: list[str] | None = None,
     from . import files as fs
 
     target = fs.inside(str(path), file)
+    rebase = await operation(path) == "rebase"
     if side is not None:
         if side not in ("nosso", "deles"):
             raise GitError(f"lado inválido: {side}", 400)
-        await git(path, "checkout", "--ours" if side == "nosso" else "--theirs", "--", file)
+        # No rebase o --ours é o branch de cima e o --theirs é o commit deste branch (veja _swapped).
+        ours = (side == "nosso") != rebase
+        await git(path, "checkout", "--ours" if ours else "--theirs", "--", file)
         await git(path, "add", "--", file)
         return True
-    text = target.read_text(encoding="utf-8", errors="replace")
-    fixed = resolve_conflicts(text, choices or [])
-    target.write_text(fixed, encoding="utf-8")
+    # Em bytes e sem traduzir o fim de linha: fora dos blocos o arquivo volta exatamente como
+    # estava (CRLF continua CRLF, e o que não é UTF-8 não vira "�").
+    text = target.read_bytes().decode("utf-8", "surrogateescape")
+    fixed = resolve_conflicts(text, choices or [], rebase=rebase)
+    target.write_bytes(fixed.encode("utf-8", "surrogateescape"))
     if parse_conflicts(fixed):
         return False
     await git(path, "add", "--", file)

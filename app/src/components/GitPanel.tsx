@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ICON, Icon } from "../icons";
 import { CoreError, type CoreClient } from "../lib/core";
 import type { ChangedFile, DiffMode, GitFile, GitStatus, GithubState, Prefs, PullRequest, ReviewNote, Session } from "../types";
@@ -320,7 +320,7 @@ export function GitPanel(props: GitPanelProps) {
               type="button"
               className="pill ghost danger"
               disabled={!!busy}
-              title="Sobrescreve o remoto, mas só se ninguém subiu nada desde o seu último fetch"
+              title="Sobrescreve o remoto, mas só se lá não houver commit que você ainda não puxou para este branch"
               onClick={() => (armed === "force" ? void forcePush() : arm("force"))}
             >
               {armed === "force" ? "Confirmar: forçar a subida" : "Forçar (--force-with-lease)"}
@@ -550,6 +550,8 @@ function PrBox({
 }) {
   const [state, setState] = useState<GithubState | null>(null);
   const [base, setBase] = useState("");
+  /** O branch padrão do repositório: sem PR, a caixa não oferece abrir um a partir dele. */
+  const [padrao, setPadrao] = useState("");
   const [branches, setBranches] = useState<string[]>([]);
   const [form, setForm] = useState<{ titulo: string; corpo: string; rascunho: boolean } | null>(null);
   const [method, setMethod] = useState<"rebase" | "squash" | "merge">("rebase");
@@ -568,25 +570,49 @@ function PrBox({
     }
   }, [client, path]);
 
+  const seenBranch = useRef<string | null>(null);
   useEffect(() => {
     setState(null);
     setForm(null);
     setError(null);
+    seenBranch.current = null;
     void load();
     const timer = window.setInterval(() => void load(), 60_000);
     return () => window.clearInterval(timer);
   }, [load]);
 
+  // Trocou de branch na mesma pasta: o PR mostrado era o do branch anterior. Status que falhou
+  // ou HEAD solto (no meio de um rebase) não contam como troca.
+  const currentBranch = status?.branch ?? null;
   useEffect(() => {
-    if (!client || !form) return;
+    if (!currentBranch) return;
+    if (seenBranch.current && seenBranch.current !== currentBranch) {
+      setState(null);
+      setForm(null);
+      setError(null);
+      void load();
+    }
+    seenBranch.current = currentBranch;
+  }, [currentBranch, load]);
+
+  // Os branches e o padrão vêm já ao abrir (não só com o formulário): o {base} da receita
+  // e a regra de não oferecer PR no branch padrão dependem deles.
+  const formOpen = form !== null;
+  useEffect(() => {
+    setBase("");
+    setPadrao("");
+  }, [path]);
+  useEffect(() => {
+    if (!client) return;
     void client
       .gitRefs(path)
       .then((refs) => {
         setBranches(refs.branches.filter((b) => b !== refs.atual));
+        setPadrao(refs.padrao);
         setBase((current) => current || refs.padrao);
       })
       .catch(() => undefined);
-  }, [client, path, form]);
+  }, [client, path, formOpen]);
 
   if (!state?.gh || !state.repo) return null;
   const pr = state.pr;
@@ -712,9 +738,10 @@ function PrBox({
     );
   }
 
-  // Sem PR: só oferece quando o branch tem algo que o padrão não tem (commits à frente ou já subiu).
+  // Sem PR: só oferece fora do branch padrão (o PR sai dele para outro) e com algum commit.
   const branch = status?.branch;
-  if (!branch || (!status?.upstream && !(status?.ahead ?? 0) && !(status?.ultimo_commit ?? null))) return null;
+  if (!branch || !padrao || branch === padrao) return null;
+  if (!status?.upstream && !(status?.ahead ?? 0) && !(status?.ultimo_commit ?? null)) return null;
   return (
     <div className="pr-box">
       {!form ? (
