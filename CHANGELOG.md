@@ -2,6 +2,10 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.0.1 · o aviso de núcleo antigo some ao reiniciar
+
+- **O aviso "o núcleo em execução é a v0.9.9" não sumia na 1.0.0,** nem depois de reiniciar o núcleo. O núcleo já era o da 1.0.0, mas continuava dizendo que era o 0.9.9, porque o número dele estava escrito num segundo lugar que ficou para trás no lançamento. Agora o núcleo lê a própria versão do mesmo lugar que o lançamento atualiza, e um teste falha se o núcleo e o app ficarem com números diferentes.
+
 ## v1.0.0 · a MÊTIS no lugar do Orca e do Maestri
 
 A primeira versão estável. Antes dela, tudo o que entrou da v0.9.6 à v0.9.8 (git e GitHub, editores, agentes e terminal, navegador, conectores e kanban, automações, perfis, backup, Skills e estudo) passou por uma revisão de código, PR por PR, e o que ela achou foi corrigido. Ficaram 72 testes novos, 463 no total.

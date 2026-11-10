@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.0.0)
+## O que já faz (v1.0.1)
+
+**Na 1.0.1:** o aviso de que o núcleo é de outra versão some depois de reiniciar (na 1.0.0 o núcleo continuava se dizendo 0.9.9).
 
 **Na 1.0, a versão estável:** a revisão de código de tudo o que entrou da v0.9.6 à v0.9.8, com o que ela achou corrigido (dados, git, editores, aprovações e terminal; a lista está no [`CHANGELOG.md`](CHANGELOG.md)), a janela com os botões vermelho, amarelo e verde do macOS e tela cheia, o escritório final da Sala dos agentes e as rotinas voltando a só abrir o agente com o pedido.
 
