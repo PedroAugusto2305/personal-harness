@@ -6,7 +6,14 @@ export interface TerminalHandle {
   paste(text: string): void;
   /** Bytes crus para o processo, como teclas. */
   send(data: string): void;
+  /** Foca o painel. Num terminal de agente (só para ler), quem recebe o foco é a barra dele. */
   focus(): void;
+  /**
+   * Foca o próprio terminal, sem passar pela barra (v1.1.1). É o que a barra usa quando o
+   * painel não tem barra (agente encerrado): com o `focus` de cima, um mandava o foco para o
+   * outro sem fim, e no WebKit (que faz tail call de verdade) a janela travava.
+   */
+  focusTerminal(): void;
 }
 
 export const terminals = new Map<string, TerminalHandle>();

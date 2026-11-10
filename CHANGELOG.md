@@ -2,6 +2,10 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.1.1 · a janela não trava mais com um agente encerrado em foco
+
+- **A janela abria vazia e parada** (sem projetos, sem terminais, sem uso, só "núcleo conectado") quando a aba em foco era um agente que já tinha terminado. O terminal de agente manda o foco para a barra de baixo, e o agente encerrado não tem barra: a barra devolvia o foco ao terminal, que mandava de volta, sem fim. No WebKit da janela isso não estourava a pilha, girava para sempre e a tela congelava antes de mostrar os dados. Agora, sem barra, o foco vai direto ao terminal. O defeito vinha da 0.9.9 e só aparecia nesse caso.
+
 ## v1.1.0 · o cartão do kanban abre inteiro, no jeito do ClickUp
 
 - **Clicar num cartão de tarefa abre o cartão inteiro,** no desenho do ClickUp: título, status (com o botão de passar para a próxima coluna e o de concluir), prioridade, datas de início e de entrega, projeto, etiquetas, descrição, checklist e anexos à esquerda; a atividade e os comentários à direita. O duplo clique que abria as subtarefas no próprio cartão saiu.
