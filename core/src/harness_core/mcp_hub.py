@@ -121,21 +121,13 @@ def _text(value: str) -> dict:
     return {"content": [{"type": "text", "text": value}]}
 
 
-_READ_VERBS = ("get", "list", "search", "read", "fetch", "query", "find", "view", "describe", "lookup")
-
-
 def _is_read(item: dict) -> bool:
-    """Ferramenta de MCP de fora que só lê (não pede aprovação). A anotação manda; sem ela,
-    o nome: get/list/search/read/fetch/query… é leitura, o resto é escrita (v0.9.8)."""
-    annotations = item.get("annotations") or {}
-    if "readOnlyHint" in annotations:
-        return bool(annotations.get("readOnlyHint"))
-    words = [w for w in str(item.get("name", "")).lower().replace("-", "_").replace(".", "_").split("_") if w]
-    # "notion-search", "get_issue", "list_pull_requests"; "search_and_update" já não é só leitura.
-    if not words:
-        return False
-    head = words[0]
-    return head in _READ_VERBS or (len(words) > 1 and words[1] in _READ_VERBS and head in ("notion", "github", "clickup"))
+    """Ferramenta de MCP de fora que só lê: só com a anotação readOnlyHint verdadeira. Sem
+    ela, conta como escrita e pede aprovação (o padrão seguro: pelo nome não dá para saber,
+    um `query` de banco roda DELETE). Para deixar uma ferramenta livre, o Pedro escolhe o
+    modo dela na tela (v0.9.9), e esse modo vale antes desta regra."""
+    annotations = item.get("annotations")
+    return isinstance(annotations, dict) and annotations.get("readOnlyHint") is True
 
 
 class Hub:
@@ -291,7 +283,7 @@ class Hub:
             task = self.kanban.set_labels(project, str(args["id"]), [str(x) for x in args.get("rotulos") or []])
             self.on_brain_change(project)
             labels = ", ".join(task["rotulos"]) or "nenhum"
-            return f"Rótulos de {task['texto']}: {labels}. O id agora é {task['id']}."
+            return f"Rótulos de {task['texto']}: {labels}. Id da tarefa: {task['id']}."
 
         def subtarefa(args: dict, ctx: Context) -> str:
             project = self._project(ctx, args)
@@ -333,7 +325,7 @@ class Hub:
                  _schema({"texto": {"type": "string"}, "estado": estado, "projeto": projeto,
                           "rotulos": {"type": "array", "items": {"type": "string"}, "description": "rótulos sem o #, ex.: [\"urgente\", \"front\"]"},
                           "subtarefas": {"type": "array", "items": {"type": "string"}, "description": "passos da tarefa, na ordem"}}, ["texto"]), nova),
-            Tool("tarefa_rotulos", "Troca os rótulos de uma tarefa do kanban (a lista inteira; vazia tira todos). O id da tarefa muda: use o que voltar.",
+            Tool("tarefa_rotulos", "Troca os rótulos de uma tarefa do kanban (a lista inteira; vazia tira todos). O id da tarefa não muda.",
                  _schema({"id": {"type": "string"}, "rotulos": {"type": "array", "items": {"type": "string"}}, "projeto": projeto}, ["id", "rotulos"]), rotulos),
             Tool("tarefa_subtarefa", "Subtarefa de uma tarefa do kanban: com texto cria uma nova; com indice (0, 1…) marca ou desmarca (feita).",
                  _schema({"id": {"type": "string"}, "texto": {"type": "string"}, "indice": {"type": "integer", "minimum": 0},

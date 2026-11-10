@@ -82,6 +82,8 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:1420",
 ]
 MAX_AUDIO_BYTES = 20 * 1024 * 1024  # ~10 min de WAV 16 kHz mono
+#: Prévia do agente já lida pelo /hooks/event (numa thread), guardada no payload do Stop.
+PREVIEW_KEY = "_previa_metis"
 
 
 class NewSession(BaseModel):
@@ -330,7 +332,8 @@ class ConnectorPatch(BaseModel):
 # v0.9.8 parte 3: corpos das rotas novas de conectores
 class GithubConnect(BaseModel):
     nome: str = Field(default="", max_length=40)
-    token: str = Field(default="", max_length=400)
+    #: Vazio ou null: usa o login do gh (a tela da v0.9.8 mandava null com o campo vazio).
+    token: str | None = Field(default="", max_length=400)
 
 class GoogleClient(BaseModel):
     client_id: str = Field(max_length=300)
@@ -2301,6 +2304,7 @@ def create_app(
         brain_changed(projeto)
 
     auto = AutoQueue(settings.home / "kanban-auto.json", start=auto_start, move=auto_move, publish=manager.events.publish)
+    auto.update_task_ids(kanban.current_ids)  # fila gravada antes da v1.0, com o id que contava os rótulos
     manager.events.listen(auto.on_bus_event)
     app.state.auto = auto
 
@@ -2470,9 +2474,18 @@ def create_app(
     def kanban_clickup_unlink(projeto: str) -> None:
         clickup.drop_link(projeto)
 
+    #: v1.0: o rollout do Codex de cada sessão (achado uma vez, sem varrer as pastas a cada 4 s)
+    #: e a prévia de cada transcript pela data e pelo tamanho (só relê quando ele muda). O rollout
+    #: só fica guardado depois que a conversa da sessão é conhecida (o thread-id do notify), junto
+    #: com ela: antes disso, o palpite pela pasta pode mudar.
+    codex_rollouts: dict[str, tuple[str, str]] = {}
+    previews: dict[str, tuple[tuple[int, int], str]] = {}
+
     def last_agent_text(session, payload: dict | None = None) -> str:
         """A última mensagem do agente, até 280 caracteres (prévia do painel e da Atividade)."""
         payload = payload or {}
+        if isinstance(payload.get(PREVIEW_KEY), str):
+            return payload[PREVIEW_KEY]  # já lida numa thread pelo /hooks/event
         for key in ("last_assistant_message", "last-assistant-message"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
@@ -2482,16 +2495,26 @@ def create_app(
             if not transcript and session.kind == "claude":
                 transcript = (session.statusline or {}).get("transcript")
             if not transcript and session.kind == "codex":
-                found = codex_rollout_of(session)
-                transcript = found["arquivo"] if found else None
+                cached_rollout = codex_rollouts.get(session.id)
+                if cached_rollout and cached_rollout[0] == session.conversa and os.path.exists(cached_rollout[1]):
+                    transcript = cached_rollout[1]
+                else:
+                    found = codex_rollout_of(session)
+                    transcript = found["arquivo"] if found else None
+                    if transcript and session.conversa:
+                        codex_rollouts[session.id] = (session.conversa, transcript)
             if not transcript:
                 return ""
-            for message in reversed(last_messages(transcript, 6, 600)):
-                if message["role"] == "agente":
-                    return message["text"][:280]
+            stat = os.stat(os.path.expanduser(transcript))
+            key = (stat.st_mtime_ns, stat.st_size)
+            cached = previews.get(transcript)
+            if cached is not None and cached[0] == key:
+                return cached[1]
+            text = next((m["text"][:280] for m in reversed(last_messages(transcript, 6, 600)) if m["role"] == "agente"), "")
+            previews[transcript] = (key, text)
+            return text
         except Exception:  # transcript ilegível: sem prévia
             return ""
-        return ""
 
     EVENT_TITLE = {"inicio": "começou", "terminou": "terminou o turno", "pergunta": "precisa de você", "hibernou": "hibernou", "acordou": "acordou"}
 
@@ -2536,9 +2559,10 @@ def create_app(
         """Painel de agentes (v0.9.8): cada Claude e Codex aberto, na coluna do que espera de você."""
         now = time.time()
         out = []
-        for session in list(manager.sessions.values()):
-            if session.kind not in ("claude", "codex"):
-                continue
+        agents = [s for s in list(manager.sessions.values()) if s.kind in ("claude", "codex")]
+        # As prévias ao mesmo tempo, cada uma numa thread (antes, uma depois da outra).
+        texts = await asyncio.gather(*(asyncio.to_thread(last_agent_text, s) for s in agents))
+        for session, preview in zip(agents, texts):
             line = session.statusline or {}
             out.append(
                 {
@@ -2549,7 +2573,7 @@ def create_app(
                     "cwd": session.cwd,
                     "coluna": board_column(session),
                     "desde": session.status_desde,
-                    "previa": await asyncio.to_thread(last_agent_text, session),
+                    "previa": preview,
                     "custo_usd": line.get("cost_usd") if session.kind == "claude" else None,
                     "duracao_s": round(now - session.created_at),
                     "tag": session.tag,
@@ -2676,7 +2700,7 @@ def create_app(
     @app.post("/conectores/github", dependencies=[Depends(require_token)], status_code=201)
     def connect_github(body: GithubConnect) -> dict:
         try:
-            account = connectors.add_github(body.nome, body.token)
+            account = connectors.add_github(body.nome, body.token or "")
         except ConnectorError as exc:
             raise fail(exc) from exc
         connectors_changed()
@@ -3531,9 +3555,23 @@ def create_app(
         parsed = manager.record_statusline(session, payload)
         return render_statusline(parsed) if parsed else ""
 
+    hook_order: dict[str, asyncio.Lock] = {}
+
     @app.post("/hooks/event", dependencies=[Depends(require_token)], status_code=204)
     async def hook_event(request: Request, session: str = Query(...), name: str = Query(...)) -> None:
         payload = await _json(request)
+        # Um hook por vez em cada sessão, na ordem de chegada: o Stop espera a prévia numa
+        # thread, e um hook que chegue nesse meio tempo não passa na frente dele.
+        async with hook_order.setdefault(session, asyncio.Lock()):
+            await record_hook_event(session, name, payload)
+
+    async def record_hook_event(session: str, name: str, payload) -> None:
+        if name == "Stop" and (live := manager.get(session)) is not None and live.kind in ("claude", "codex"):
+            # A prévia (transcript e, no Codex, a busca do rollout) é lida uma vez, numa thread,
+            # antes de registrar o hook: o loop não trava e os eventos saem na mesma ordem. A
+            # Atividade, a automação e o gatilho usam a mesma, pela chave PREVIEW_KEY.
+            base = payload if isinstance(payload, dict) else {}
+            payload = {**base, PREVIEW_KEY: await asyncio.to_thread(last_agent_text, live, base)}
         manager.record_hook(session, name, payload if isinstance(payload, dict) else None)
         if name == "Stop":
             data = payload if isinstance(payload, dict) else None

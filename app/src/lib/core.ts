@@ -1233,7 +1233,7 @@ export class CoreClient {
   // --- conectores, kanban, painel e Atividade (v0.9.8, parte 3) ---
 
   connectGithub(nome: string, token = ""): Promise<ConnectorAccount> {
-    return this.request("POST", "/conectores/github", { nome, token: token || null });
+    return this.request("POST", "/conectores/github", { nome, token });
   }
 
   googleClient(): Promise<{ configurado: boolean; client_id_fim: string }> {

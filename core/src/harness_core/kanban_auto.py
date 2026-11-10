@@ -173,6 +173,26 @@ class AutoQueue:
         self._changed()
         return item
 
+    def update_task_ids(self, ids_of: Callable[[str], dict[str, str]]) -> None:
+        """v1.0: o id da tarefa deixou de contar os rótulos. Os itens gravados com o id de
+        antes passam para o de agora, e a tela volta a achar o cartão de cada um. `ids_of`
+        dá, para um projeto, id (de agora ou de antes) → id de agora; a nota de cada projeto
+        é lida uma vez. Projeto ou tarefa que sumiu fica como estava."""
+        changed = False
+        known: dict[str, dict[str, str]] = {}
+        with self._lock:
+            for item in self.items:
+                if item.projeto not in known:
+                    try:
+                        known[item.projeto] = ids_of(item.projeto)
+                    except Exception:  # noqa: BLE001 - o projeto saiu do Brain: os itens dele ficam
+                        known[item.projeto] = {}
+                task_id = known[item.projeto].get(item.tarefa)
+                if task_id and task_id != item.tarefa:
+                    item.tarefa, changed = task_id, True
+        if changed:
+            self._changed()
+
     def clear_done(self) -> None:
         with self._lock:
             self.items = [i for i in self.items if i.status in ("fila", "rodando")]

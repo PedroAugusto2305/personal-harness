@@ -919,16 +919,28 @@ export default function App() {
     } catch (cause) {
       setToast(`Sem worktree (${cause instanceof Error ? cause.message : String(cause)}); o agente abre na pasta do projeto.`);
     }
-    await client.moveTask(project.name, task.id, "em-andamento").catch(() => undefined);
+    // Cartão da coluna ClickUp (id clickup-…): não é tarefa do Brain, então não há o que mover
+    // nem comando `metis tarefa mover` que funcione para ela.
+    const fromBrain = !task.id.startsWith("clickup-");
+    if (fromBrain) await client.moveTask(project.name, task.id, "em-andamento").catch(() => undefined);
     const session = await create("claude", { cwd });
     if (!session) return;
     await whenReady(session.id);
-    const prompt = [
-      `Tarefa do kanban da MÊTIS · projeto ${project.name} · id ${task.id}`,
-      task.text,
-      "",
-      `Ela já está em "Em andamento". Quando estiver pronta para eu testar, rode \`metis tarefa mover ${task.id} em-teste\`. Se precisar de uma decisão minha, pergunte antes de seguir.`,
-    ].join("\n");
+    const prompt = (
+      fromBrain
+        ? [
+            `Tarefa do kanban da MÊTIS · projeto ${project.name} · id ${task.id}`,
+            task.text,
+            "",
+            `Ela já está em "Em andamento". Quando estiver pronta para eu testar, rode \`metis tarefa mover ${task.id} em-teste\`. Se precisar de uma decisão minha, pergunte antes de seguir.`,
+          ]
+        : [
+            `Tarefa do ClickUp · projeto ${project.name}`,
+            task.text,
+            "",
+            "Quando estiver pronta para eu testar, me avise com um resumo do que mudou. Se precisar de uma decisão minha, pergunte antes de seguir.",
+          ]
+    ).join("\n");
     setDockOverride(session.id);
     window.setTimeout(() => dock.current?.insert(prompt), 50);
     setToast(`Claude aberto em ${where}. O pedido está na barra de entrada: revise e mande.`);

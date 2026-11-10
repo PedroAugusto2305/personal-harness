@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -129,14 +130,27 @@ class ClickupBoard:
         cached = self._lists.get(account_id)
         if cached and time.time() - cached[0] < LISTS_TTL:
             return cached[1]
-        out: list[dict] = []
-        for team in self._get(account_id, "/team").get("teams") or []:
-            for space in self._get(account_id, f"/team/{team['id']}/space", archived="false").get("spaces") or []:
-                for folder in self._get(account_id, f"/space/{space['id']}/folder", archived="false").get("folders") or []:
-                    for item in folder.get("lists") or []:
-                        out.append({"id": str(item["id"]), "nome": item.get("name", ""), "workspace": team.get("name", ""), "espaco": space.get("name", ""), "pasta": folder.get("name", "")})
-                for item in self._get(account_id, f"/space/{space['id']}/list", archived="false").get("lists") or []:
-                    out.append({"id": str(item["id"]), "nome": item.get("name", ""), "workspace": team.get("name", ""), "espaco": space.get("name", ""), "pasta": ""})
+        token, personal = self._token(account_id)
+
+        def get(path: str) -> dict:
+            return self._call("GET", path, token, personal, params={"archived": "false"})
+
+        teams = self._call("GET", "/team", token, personal).get("teams") or []
+        spaces = [(team, space) for team in teams for space in get(f"/team/{team['id']}/space").get("spaces") or []]
+
+        def of_space(pair: tuple[dict, dict]) -> list[dict]:
+            team, space = pair
+            found: list[dict] = []
+            for folder in get(f"/space/{space['id']}/folder").get("folders") or []:
+                for item in folder.get("lists") or []:
+                    found.append({"id": str(item["id"]), "nome": item.get("name", ""), "workspace": team.get("name", ""), "espaco": space.get("name", ""), "pasta": folder.get("name", "")})
+            for item in get(f"/space/{space['id']}/list").get("lists") or []:
+                found.append({"id": str(item["id"]), "nome": item.get("name", ""), "workspace": team.get("name", ""), "espaco": space.get("name", ""), "pasta": ""})
+            return found
+
+        # Os espaços ao mesmo tempo (antes, uma requisição depois da outra); a ordem fica a mesma.
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            out = [item for found in pool.map(of_space, spaces) for item in found]
         self._lists[account_id] = (time.time(), out)
         return out
 

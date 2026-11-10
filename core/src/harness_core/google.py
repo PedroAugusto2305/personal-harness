@@ -10,9 +10,10 @@ from __future__ import annotations
 import base64
 import html
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from typing import Callable
+from urllib.parse import quote
 
 import httpx
 
@@ -31,6 +32,14 @@ CALENDAR = "https://www.googleapis.com/calendar/v3"
 DRIVE = "https://www.googleapis.com/drive/v3"
 USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 LIMIT = 20000
+#: Busca do Drive já escrita na sintaxe dele: campo, operador e valor ("name = 'x'",
+#: "mimeType != 'y'", "trashed = false") ou "'id' in parents". Texto solto (até com a
+#: palavra contains no meio) vira busca por nome e conteúdo.
+_DRIVE_QUERY = re.compile(
+    r"\b(?:name|fullText|mimeType|modifiedTime|viewedByMeTime|createdTime|trashed|starred|sharedWithMe|visibility|properties|appProperties)"
+    r"\s*(?:contains|!=|<=|>=|=|<|>|has)\s*(?:'|\{|true\b|false\b)"
+    r"|'[^']*'\s+in\s+(?:parents|owners|writers|readers)\b"
+)
 
 
 class GoogleError(RuntimeError):
@@ -73,6 +82,11 @@ def _body(payload: dict) -> str:
     return _strip_html("\n".join(rich))
 
 
+def _part(value: str) -> str:
+    """Id dentro do endereço, codificado: o das agendas de feriados tem # (que cortaria a URL)."""
+    return quote(str(value).strip(), safe="")
+
+
 def _headers(message: dict) -> dict[str, str]:
     return {h.get("name", "").lower(): h.get("value", "") for h in (message.get("payload") or {}).get("headers", [])}
 
@@ -91,15 +105,20 @@ def _when(value: str) -> dict:
     return {"dateTime": moment.isoformat(timespec="seconds")}
 
 
-def _rfc3339(value: str | None, fallback: datetime) -> str:
+def _rfc3339(value: str | None, fallback: datetime, end: bool = False) -> str:
+    """Instante para a API. Só a data, como fim (end), vale até o fim daquele dia: "até
+    2026-11-10" inclui o dia 10 (o Google trata o fim como exclusivo)."""
     if value:
         value = value.strip()
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        day_only = re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) is not None
+        if day_only:
             value += "T00:00:00"
         try:
             moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as exc:
             raise GoogleError(f"data inválida: {value}") from exc
+        if day_only and end:
+            moment += timedelta(days=1)
     else:
         moment = fallback
     if moment.tzinfo is None:
@@ -112,6 +131,9 @@ class Google:
         self._token = token
         self._refresh = refresh
         self.http = http
+
+    def close(self) -> None:
+        self.http.close()
 
     def _send(self, method: str, url: str, **kwargs) -> httpx.Response:
         token = self._token()
@@ -161,7 +183,7 @@ class Google:
         for item in found.get("messages", []):
             message = self._json(
                 "GET",
-                f"{GMAIL}/messages/{item['id']}",
+                f"{GMAIL}/messages/{_part(item['id'])}",
                 params=[("format", "metadata"), ("metadataHeaders", "From"), ("metadataHeaders", "Subject"), ("metadataHeaders", "Date")],
             )
             head = _headers(message)
@@ -169,7 +191,7 @@ class Google:
         return out
 
     def gmail_read(self, message_id: str) -> str:
-        message = self._json("GET", f"{GMAIL}/messages/{message_id}", params={"format": "full"})
+        message = self._json("GET", f"{GMAIL}/messages/{_part(message_id)}", params={"format": "full"})
         head = _headers(message)
         top = "\n".join(f"{label}: {head.get(key, '')}" for label, key in (("De", "from"), ("Para", "to"), ("Assunto", "subject"), ("Data", "date")) if head.get(key))
         return _cut(f"{top}\n\n{_body(message.get('payload') or {})}")
@@ -188,12 +210,12 @@ class Google:
         today = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
             "timeMin": _rfc3339(start, today),
-            "timeMax": _rfc3339(end, today + timedelta(days=7)),
+            "timeMax": _rfc3339(end, today + timedelta(days=7), end=True),
             "singleEvents": "true",
             "orderBy": "startTime",
             "maxResults": max(1, min(int(limit), 100)),
         }
-        data = self._json("GET", f"{CALENDAR}/calendars/{calendar or 'primary'}/events", params=params)
+        data = self._json("GET", f"{CALENDAR}/calendars/{_part(calendar or 'primary')}/events", params=params)
         out = []
         for item in data.get("items", []):
             start_at = item.get("start") or {}
@@ -213,17 +235,21 @@ class Google:
 
     def create_event(self, title: str, start: str, end: str, description: str = "", guests: list[str] | None = None, calendar: str = "primary") -> dict:
         body: dict = {"summary": title, "start": _when(start), "end": _when(end)}
+        # Dia inteiro: o Google quer o fim no dia seguinte ao último. Fim igual ao início (ou
+        # antes dele) seria recusado; vira um dia só.
+        if "date" in body["start"] and "date" in body["end"] and body["end"]["date"] <= body["start"]["date"]:
+            body["end"] = {"date": (date.fromisoformat(body["start"]["date"]) + timedelta(days=1)).isoformat()}
         if description:
             body["description"] = description
         if guests:
             body["attendees"] = [{"email": g} for g in guests]
-        return self._json("POST", f"{CALENDAR}/calendars/{calendar or 'primary'}/events", json=body)
+        return self._json("POST", f"{CALENDAR}/calendars/{_part(calendar or 'primary')}/events", json=body)
 
     # --- Drive ---------------------------------------------------------------------
 
     def drive_search(self, query: str, limit: int = 10) -> list[dict]:
         query = query.strip()
-        if not re.search(r"\b(contains|=|in parents|mimeType)\b", query):
+        if not _DRIVE_QUERY.search(query):
             safe = query.replace("\\", "\\\\").replace("'", "\\'")
             query = f"(name contains '{safe}' or fullText contains '{safe}') and trashed = false"
         data = self._json(
@@ -237,6 +263,7 @@ class Google:
         ]
 
     def drive_read(self, file_id: str) -> str:
+        file_id = _part(file_id)
         meta = self._json("GET", f"{DRIVE}/files/{file_id}", params={"fields": "id,name,mimeType,modifiedTime,webViewLink,size"})
         mime = meta.get("mimeType", "")
         exports = {

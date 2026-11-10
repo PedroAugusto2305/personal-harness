@@ -92,7 +92,8 @@ def test_set_labels_rewrites_only_that_line_and_keeps_the_state(settings):
     changed = [i for i, (a, b) in enumerate(zip(before, after)) if a != b]
     assert len(before) == len(after) and len(changed) == 1
     assert after[changed[0]] == "- [ ] Revisar o PR #back-end #urgente #em-andamento"
-    # O id é o hash do texto com os rótulos: a resposta já traz o novo, e ele acha a tarefa.
+    # v1.0: o id é o hash do texto sem os rótulos, então trocar os rótulos não o muda.
+    assert task["id"] == revisar["id"]
     assert kanban.move("Alfa", task["id"], "em-teste")["rotulos"] == ["back-end", "urgente"]
     cleared = kanban.set_labels("Alfa", kanban.tasks("Alfa")[1]["id"], [])
     assert cleared["rotulos"] == [] and cleared["state"] == "em-teste"

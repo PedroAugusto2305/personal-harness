@@ -56,8 +56,11 @@ class StdioClient:
 
     def _start(self) -> None:
         self.close()
-        self._lines = queue.Queue()
-        self._stderr.clear()
+        # Fila e stderr novos, presos a este processo: o que o processo anterior ainda soltar
+        # (linhas atrasadas, o fim do stdout) vai para as dele e não confunde o novo.
+        lines: queue.Queue[str | None] = queue.Queue()
+        errors: deque[str] = deque(maxlen=40)
+        self._lines, self._stderr = lines, errors
         try:
             self._proc = subprocess.Popen(
                 self.argv,
@@ -78,19 +81,25 @@ class StdioClient:
         def read_out() -> None:
             assert proc.stdout is not None
             for line in proc.stdout:
-                self._lines.put(line)
-            self._lines.put(None)
+                lines.put(line)
+            lines.put(None)
 
         def read_err() -> None:
             assert proc.stderr is not None
             for line in proc.stderr:
-                self._stderr.append(line.rstrip())
+                errors.append(line.rstrip())
 
         threading.Thread(target=read_out, daemon=True).start()
         threading.Thread(target=read_err, daemon=True).start()
-        result = self._request("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": self.name, "version": "1"}})
-        self.server = result.get("serverInfo", {}) if isinstance(result, dict) else {}
-        self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        try:
+            result = self._request("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": self.name, "version": "1"}})
+            self.server = result.get("serverInfo", {}) if isinstance(result, dict) else {}
+            self._write({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except McpError:
+            # Sem o aperto de mão o processo não serve: fecha, e a próxima chamada sobe outro
+            # (senão ela pularia o initialize e falaria com um servidor que nunca começou).
+            self.close()
+            raise
 
     def close(self) -> None:
         proc, self._proc = self._proc, None
