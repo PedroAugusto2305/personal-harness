@@ -7,7 +7,7 @@ import { ClipboardAddon, type IClipboardProvider } from "@xterm/addon-clipboard"
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { CoreError, type CoreClient } from "../lib/core";
 import { KIND_LABEL, STATUS_COLOR, STATUS_LABEL, shortPath } from "../lib/format";
-import { terminals } from "../lib/terminals";
+import { pastedFiles, terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { Session, SessionContext, TerminalColors, ThemeName } from "../types";
 import { DEFAULT_APPEARANCE, monoFamily, themeIsLight, type Appearance } from "../lib/appearance";
@@ -164,6 +164,8 @@ interface Props {
   readOnly?: boolean;
   /** Texto digitado ou colado num terminal só para ler: vai para a barra. */
   onTyped?: (text: string) => void;
+  /** Print (ou outro arquivo) colado com ⌘V no terminal: vira anexo. */
+  onPasteFiles?: (files: File[]) => void;
   /** Leva o foco para a barra de baixo. */
   onFocusInput?: () => void;
   onFocus: () => void;
@@ -210,6 +212,7 @@ export function TerminalView({
   corner,
   readOnly = false,
   onTyped,
+  onPasteFiles,
   onFocusInput,
   onRestart,
   onHandOff,
@@ -228,8 +231,8 @@ export function TerminalView({
   focusRef.current = onFocus;
   const linkRef = useRef(onLink);
   linkRef.current = onLink;
-  const live = useRef({ readOnly, onTyped, onFocusInput });
-  live.current = { readOnly, onTyped, onFocusInput };
+  const live = useRef({ readOnly, onTyped, onPasteFiles, onFocusInput });
+  live.current = { readOnly, onTyped, onPasteFiles, onFocusInput };
   /** Caixa vazia do Claude coberta: a partir de que linha, e o status que estava abaixo dela. */
   const [cover, setCover] = useState<{ top: number; rows: number; status: string } | null>(null);
 
@@ -335,10 +338,18 @@ export function TerminalView({
       if (disposed || !host.current) return;
       terminal.open(host.current);
       terminal.textarea?.addEventListener("focus", () => focusRef.current());
-      // Colar no terminal só para ler: o texto vai para a barra.
+      // Colar no terminal só para ler: o texto vai para a barra. Um print colado (em qualquer
+      // terminal) vira anexo; no shell, o xterm sozinho não faria nada com ele.
       terminal.textarea?.addEventListener(
         "paste",
         (event) => {
+          const files = pastedFiles(event.clipboardData);
+          if (files.length && live.current.onPasteFiles) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            live.current.onPasteFiles(files);
+            return;
+          }
           if (!live.current.readOnly) return;
           event.preventDefault();
           event.stopImmediatePropagation();

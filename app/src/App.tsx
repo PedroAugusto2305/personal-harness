@@ -253,6 +253,7 @@ export default function App() {
       type: (text) => (handle() ? handle()!.type(text) : fallback(text)),
       focus: () => (handle() ? handle()!.focus() : terminals.get(target() ?? "")?.focus()),
       toggleVoice: () => handle()?.toggleVoice(),
+      attach: (files) => handle()?.attach(files),
     };
     return { current: proxy };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2289,6 +2290,16 @@ export default function App() {
                       onTyped={(text) => {
                         focusSlot(session.id);
                         window.setTimeout(() => dock.current?.type(text), 0);
+                      }}
+                      onPasteFiles={(files) => {
+                        focusSlot(session.id);
+                        // Agente: o print vira anexo na barra do próprio painel. Shell: o caminho
+                        // é colado no terminal, como no arrastar.
+                        const own = docks.current.get(session.id);
+                        if (own) return own.attach(files);
+                        void harness
+                          .run((core) => Promise.all(files.map((file) => core.upload(file, file.name))))
+                          .then((paths) => paths && deliverPaths(session.id, paths));
                       }}
                       onFocusInput={() => dock.current?.focus()}
                       corner={
