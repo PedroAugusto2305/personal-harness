@@ -9,6 +9,10 @@ segredo: tokens ficam no Keychain e não saem dele, as variáveis de ambiente do
 sem valor e qualquer texto com cara de token vira <SEGREDO REMOVIDO>.
 
 Importar grava antes um backup automático do estado atual e nunca apaga o que não está no zip.
+Esse backup de antes também sai sem segredo, então importar nunca apaga um segredo que está
+aqui: o arquivo que o zip traz igual ao atual (só sem os segredos) fica como está, o agente
+que já existe mantém o valor das variáveis que o zip traz vazias, e o arquivo cujo segredo o
+zip não traz fica como está (o importar avisa em "mantidos").
 """
 
 from __future__ import annotations
@@ -56,8 +60,10 @@ LEFT_OUT = {
     "rotinas.db": "execuções das rotinas",
 }
 SECRET_MARK = "<SEGREDO REMOVIDO>"
+# O \b no começo: o prefixo só vale no início de uma palavra, senão "task-1234567890" e
+# "risk-assessment" (sk- no meio) virariam segredo e a configuração sairia estragada.
 SECRET_VALUE = re.compile(
-    r"(sk-[A-Za-z0-9_-]{10,}|xox[abpr]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|pk_[A-Za-z0-9_]{10,}"
+    r"\b(sk-[A-Za-z0-9_-]{10,}|xox[abpr]-[A-Za-z0-9-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|pk_[A-Za-z0-9_]{10,}"
     r"|GOCSPX-[A-Za-z0-9_-]{10,}|AIza[A-Za-z0-9_-]{30,}"
     # Bearer de qualquer tamanho: num cabeçalho, nem um token curto deve sair do Mac.
     r"|Bearer\s+[A-Za-z0-9._~+/=-]{3,})"
@@ -169,6 +175,77 @@ def _payload(home: Path, path: Path) -> tuple[bytes, list[str]]:
     return cleaned.encode("utf-8"), notes
 
 
+def _is_agent(name: str) -> bool:
+    return name.startswith("agentes/") and name.endswith(".md")
+
+
+def _agent_env(text: str) -> dict[str, str]:
+    """As variáveis do agente (CHAVE=valor), lidas sem rigor: aqui só importa achar o valor."""
+    from .agents import parse_agent
+
+    meta, _body = parse_agent(text)
+    env: dict[str, str] = {}
+    for line in str(meta.get("env") or "").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip():
+            env[key.strip()] = value.strip()
+    return env
+
+
+def _secrets(name: str, raw: bytes) -> set[str]:
+    """Os valores que a limpeza do backup tiraria deste arquivo: o env dos agentes e os textos
+    com cara de token."""
+    if PurePosixPath(name).suffix.lower() not in TEXT_SUFFIXES:
+        return set()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return set()
+    found = {match.group(0) for match in SECRET_VALUE.finditer(text)}
+    if _is_agent(name):
+        found |= {f"{key}={value}" for key, value in _agent_env(text).items() if value}
+    return found
+
+
+def _keep_env(current: bytes, incoming: bytes) -> bytes:
+    """Agente que já existe: a variável que vem sem valor no zip fica com o valor de agora."""
+    from .agents import parse_agent, render_agent
+
+    try:
+        have = _agent_env(current.decode("utf-8"))
+        meta, body = parse_agent(incoming.decode("utf-8"))
+    except UnicodeDecodeError:
+        return incoming
+    lines, changed = [], False
+    for line in str(meta.get("env") or "").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and not value.strip() and have.get(key.strip()):
+            line, changed = f"{key.strip()}={have[key.strip()]}", True
+        lines.append(line)
+    if not changed:
+        return incoming
+    meta["env"] = "\n".join(lines)
+    return render_agent(meta, body).encode("utf-8")
+
+
+def _incoming(home: Path, name: str, data: bytes) -> tuple[str, bytes]:
+    """O que fazer com um arquivo do zip e o conteúdo que fica no disco:
+    "novo"; "igual" (o zip traz o atual, só que sem os segredos: fica o atual, com eles);
+    "manter" (gravar o do zip apagaria um segredo daqui, que o backup de antes também não
+    guarda: fica o atual); ou "substituir"."""
+    target = home / name
+    if not target.is_file():
+        return "novo", data
+    current = target.read_bytes()
+    if data == current or data == _payload(home, target)[0]:
+        return "igual", current
+    if _is_agent(name):
+        data = _keep_env(current, data)
+    if _secrets(name, current) - _secrets(name, data):
+        return "manter", current
+    return "substituir", data
+
+
 # --- exportar ------------------------------------------------------------------------------
 
 
@@ -268,13 +345,15 @@ def check(home: Path, path: Path) -> dict:
     """O que mudaria se importar, sem gravar nada."""
     archive, manifest, files = _open(path)
     with archive:
-        new, replaced = [], []
+        new, replaced, kept = [], [], []
         for name in files:
-            target = home / name
-            if not target.exists():
+            action, _data = _incoming(home, name, archive.read(name))
+            if action == "novo":
                 new.append(name)
-            elif target.read_bytes() != archive.read(name):
+            elif action == "substituir":
                 replaced.append(name)
+            elif action == "manter":
+                kept.append(name)
         accounts: list[str] = []
         if "conectores.json" in files:
             try:
@@ -288,6 +367,7 @@ def check(home: Path, path: Path) -> dict:
         "perfil": manifest.get("perfil", ""),
         "novos": new,
         "substituidos": replaced,
+        "mantidos": kept,
         "contas_para_reconectar": accounts,
         "avisos": manifest.get("avisos") or [],
     }
@@ -303,7 +383,8 @@ def _commit_automations(home: Path) -> None:
 
 def restore(home: Path, profile: str, path: Path) -> dict:
     """Grava antes um backup do estado atual; depois restaura os arquivos do zip (substitui os
-    que existem, cria os novos e não apaga o que o zip não traz)."""
+    que existem, cria os novos e não apaga o que o zip não traz). Como o backup de antes sai
+    sem segredo, nenhum segredo daqui é apagado: veja `_incoming`."""
     archive, _manifest, files = _open(path)
     with archive:
         before_dir = home / "backups"
@@ -311,16 +392,21 @@ def restore(home: Path, profile: str, path: Path) -> dict:
         data, _ = build_zip(home, profile)
         before = _free_name(before_dir, f"antes-de-importar-{_now():%Y-%m-%d-%H%M}.zip")
         before.write_bytes(data)
-        restored = []
+        restored, kept = [], []
         for name in files:
-            target = home / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            tmp = target.with_name(target.name + ".importando")
-            tmp.write_bytes(archive.read(name))
-            tmp.replace(target)
+            action, content = _incoming(home, name, archive.read(name))
+            if action == "manter":
+                kept.append(name)
+                continue
+            if action != "igual":
+                target = home / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                tmp = target.with_name(target.name + ".importando")
+                tmp.write_bytes(content)
+                tmp.replace(target)
             restored.append(name)
     _commit_automations(home)
-    return {"restaurados": restored, "backup_anterior": str(before), "reiniciar": True}
+    return {"restaurados": restored, "mantidos": kept, "backup_anterior": str(before), "reiniciar": True}
 
 
 def copy_config(source: Path, target: Path, profile: str) -> list[str]:

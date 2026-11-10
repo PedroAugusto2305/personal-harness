@@ -320,6 +320,8 @@ export interface BackupCheck {
   perfil: string;
   novos: string[];
   substituidos: string[];
+  /** Ficam como estão: o do zip apagaria um segredo daqui (o env de um agente, um token). */
+  mantidos: string[];
   contas_para_reconectar: string[];
 }
 

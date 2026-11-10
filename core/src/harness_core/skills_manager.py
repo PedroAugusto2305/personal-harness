@@ -85,6 +85,18 @@ def skill_name(folder: Path, fallback: str = "", use_folder: bool = True) -> str
     return ""
 
 
+def skill_folder(target_dir: Path, name: str) -> Path:
+    """A pasta de uma skill que já está em `target_dir`. O nome é o de uma pasta só: com "/",
+    "." ou ".." ele sairia da pasta skills (DELETE /skills/.. mandaria a ~/.claude inteira
+    para a Lixeira, e exportar compactaria a pasta com as credenciais)."""
+    if name in ("", ".", "..") or any(c in name for c in "/\\\0"):
+        raise SkillError(f"nome de skill inválido: {name!r}")
+    folder = target_dir / name
+    if not folder.is_dir():
+        raise SkillMissing(f"a skill {name} não está em {target_dir}")
+    return folder
+
+
 def read_origin(folder: Path) -> dict | None:
     try:
         data = json.loads((folder / ORIGIN_FILE).read_text(encoding="utf-8"))
@@ -216,9 +228,7 @@ def install(origem: str, target_dir: Path, replace: bool = False, git: Git = run
 
 def update(name: str, target_dir: Path, git: Git = run_git) -> dict:
     """Busca de novo no git de onde a skill veio e substitui."""
-    folder = target_dir / name
-    if not folder.is_dir():
-        raise SkillMissing(f"a skill {name} não está em {target_dir}")
+    folder = skill_folder(target_dir, name)
     origin = read_origin(folder)
     if not origin or origin.get("tipo") != "git":
         raise SkillError(f"{name} não veio de um repositório git: instale de novo para atualizar")
@@ -238,9 +248,7 @@ def update(name: str, target_dir: Path, git: Git = run_git) -> dict:
 
 def export(name: str, target_dir: Path, downloads: Path | None = None) -> Path:
     """Grava `<nome>-skill.zip` em ~/Downloads (sem sobrescrever) com a pasta da skill."""
-    folder = target_dir / name
-    if not folder.is_dir():
-        raise SkillMissing(f"a skill {name} não está em {target_dir}")
+    folder = skill_folder(target_dir, name)
     out_dir = downloads or Path.home() / "Downloads"
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"{name}-skill.zip"
@@ -259,9 +267,7 @@ def export(name: str, target_dir: Path, downloads: Path | None = None) -> Path:
 
 
 def copy(name: str, source_dir: Path, target_dir: Path) -> Path:
-    folder = source_dir / name
-    if not folder.is_dir():
-        raise SkillMissing(f"a skill {name} não está em {source_dir}")
+    folder = skill_folder(source_dir, name)
     target = target_dir / name
     if target.exists():
         raise SkillConflict(f"já existe {name} em {target_dir}")
@@ -275,9 +281,7 @@ TRASH = Path.home() / ".Trash"
 
 def trash(name: str, target_dir: Path, bin_dir: Path | None = None) -> Path:
     """Manda a pasta da skill para a Lixeira (com número se já houver uma de mesmo nome)."""
-    folder = target_dir / name
-    if not folder.is_dir():
-        raise SkillMissing(f"a skill {name} não está em {target_dir}")
+    folder = skill_folder(target_dir, name)
     trash_dir = bin_dir or TRASH
     trash_dir.mkdir(parents=True, exist_ok=True)
     target = trash_dir / name

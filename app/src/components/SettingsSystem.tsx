@@ -340,6 +340,9 @@ function ShutdownCard({ client, openSessions }: { client: CoreClient | null; ope
 
 const TARGET_LABEL: Record<SkillTarget, string> = { claude: "Claude", codex: "Codex", projeto: "este projeto" };
 
+/** O núcleo acha a skill pela pasta, não pelo `name` do SKILL.md (que pode ser "Brain Registrar"). */
+const skillFolder = (skill: SkillInfo) => skill.pasta.split("/").filter(Boolean).pop() ?? skill.nome;
+
 export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | null; cwd: string; cwdLabel: string | null }) {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -482,7 +485,7 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
                     title={`Busca de novo em ${skill.fonte.origem}`}
                     onClick={() =>
                       void act(`atualizar:${skill.arquivo}`, async () => {
-                        const answer = await client!.updateSkill(skill.nome, skill.destino!, cwd);
+                        const answer = await client!.updateSkill(skillFolder(skill), skill.destino!, cwd);
                         return answer.antes === answer.commit ? `${skill.nome} já estava em dia.` : `${skill.nome} atualizada.`;
                       })
                     }
@@ -496,7 +499,7 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
                     className="pill ghost"
                     disabled={!!busy}
                     title="Um .zip em Downloads para mandar a quem quiser"
-                    onClick={() => void act(`exportar:${skill.arquivo}`, async () => `Zip em ${shortPath((await client!.exportSkill(skill.nome, skill.destino!, cwd)).arquivo)}.`)}
+                    onClick={() => void act(`exportar:${skill.arquivo}`, async () => `Zip em ${shortPath((await client!.exportSkill(skillFolder(skill), skill.destino!, cwd)).arquivo)}.`)}
                   >
                     Exportar
                   </button>
@@ -511,7 +514,7 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
                         type="button"
                         className="pill ghost"
                         disabled={!!busy}
-                        onClick={() => void act(`copiar:${skill.arquivo}`, async () => (await client!.copySkill(skill.nome, skill.destino!, t, cwd), `${skill.nome} copiada para o ${TARGET_LABEL[t]}.`))}
+                        onClick={() => void act(`copiar:${skill.arquivo}`, async () => (await client!.copySkill(skillFolder(skill), skill.destino!, t, cwd), `${skill.nome} copiada para o ${TARGET_LABEL[t]}.`))}
                       >
                         Copiar para o {TARGET_LABEL[t]}
                       </button>
@@ -531,7 +534,7 @@ export function SkillsSection({ client, cwd, cwdLabel }: { client: CoreClient | 
                         return;
                       }
                       setArmedDelete(null);
-                      void act(`apagar:${skill.arquivo}`, async () => (await client!.deleteSkill(skill.nome, skill.destino!, cwd), `${skill.nome} foi para a Lixeira.`));
+                      void act(`apagar:${skill.arquivo}`, async () => (await client!.deleteSkill(skillFolder(skill), skill.destino!, cwd), `${skill.nome} foi para a Lixeira.`));
                     }}
                   >
                     {armedDelete === skill.arquivo ? "Confirmar" : "Lixeira"}

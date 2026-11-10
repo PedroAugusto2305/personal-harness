@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CoreClient } from "../lib/core";
-import type { CodeGraph as Graph } from "../types";
+import type { CodeGraph as Graph, CoreEvent } from "../types";
+
+export type CodeGraphEvent = Extract<CoreEvent, { type: "codigo.grafo" }>;
 
 function age(epoch: number): string {
   const minutes = Math.max(0, Math.round((Date.now() / 1000 - epoch) / 60));
@@ -13,9 +15,23 @@ function age(epoch: number): string {
  * Grafo do código (v0.9.8): o graphify desta worktree. Com o grafo, os agentes daqui ganham
  * as ferramentas codigo_grafo_* na central; atualizar não usa IA, gerar do zero é com o Claude.
  */
-export function CodeGraphLine({ client, root, onAgent }: { client: CoreClient; root: string; onAgent: (prompt: string) => void }) {
+export function CodeGraphLine({
+  client,
+  root,
+  onAgent,
+  event,
+}: {
+  client: CoreClient;
+  root: string;
+  onAgent: (prompt: string) => void;
+  /** O aviso codigo.grafo do núcleo: é ele que diz que o `graphify update` acabou ou deu erro. */
+  event: CodeGraphEvent | null;
+}) {
   const [graph, setGraph] = useState<Graph | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  /** O último aviso que já existia no clique: só um aviso novo encerra o "atualizando". */
+  const before = useRef<CodeGraphEvent | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +54,13 @@ export function CodeGraphLine({ client, root, onAgent }: { client: CoreClient; r
     if (Date.now() / 1000 - graph.atualizado < 30) setUpdating(false);
   }, [graph, updating]);
 
+  // O fim de verdade vem do núcleo: com erro, o graph.json não muda e a data nunca serviria.
+  useEffect(() => {
+    if (!updating || !event || event === before.current || event.root !== root) return;
+    setUpdating(false);
+    setFailure(event.status === "erro" ? event.detalhe || "o graphify update falhou" : null);
+  }, [event, root, updating]);
+
   if (!graph || !graph.graphify) return null;
   return (
     <div className="code-graph small">
@@ -52,12 +75,15 @@ export function CodeGraphLine({ client, root, onAgent }: { client: CoreClient; r
             disabled={updating}
             title="Reextrai o código mudado (sem IA)"
             onClick={() => {
+              before.current = event;
               setUpdating(true);
+              setFailure(null);
               void client.updateCodeGraph(root).catch(() => setUpdating(false));
             }}
           >
             {updating ? "atualizando…" : "atualizar"}
           </button>
+          {failure && <span className="error-text">Não atualizou: {failure}</span>}
         </>
       ) : (
         <>

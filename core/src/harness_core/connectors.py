@@ -17,7 +17,7 @@ import re
 import subprocess
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -207,10 +207,13 @@ class ConnectorStore:
         except (OSError, json.JSONDecodeError):
             return []
         out = []
+        # Campo que a conta não conhece (o "reconectar" que o backup marca, ou um de versão mais
+        # nova) fica de fora; antes, ele fazia a conta inteira sumir da lista.
+        known = {f.name for f in fields(ConnectorAccount)}
         for item in data if isinstance(data, list) else []:
             try:
-                out.append(ConnectorAccount(**item))
-            except TypeError:
+                out.append(ConnectorAccount(**{k: v for k, v in item.items() if k in known}))
+            except (TypeError, AttributeError):
                 continue
         return [a for a in out if a.kind in CATALOG]
 
