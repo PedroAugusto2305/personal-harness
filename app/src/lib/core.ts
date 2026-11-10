@@ -995,7 +995,8 @@ export class CoreClient {
   }
 
   addConcept(nome: string, relacionados: string[] = [], resumo = ""): Promise<StudyConcept> {
-    return this.request("POST", "/estudo/conceitos", { nome, relacionados, resumo: resumo || null });
+    // resumo é texto no núcleo (vazio quando não há): null daria 422.
+    return this.request("POST", "/estudo/conceitos", { nome, relacionados, resumo });
   }
 
   patchConcept(titulo: string, changes: { dominio?: number; semana?: string | number | null }): Promise<StudyConcept> {
@@ -1027,7 +1028,7 @@ export class CoreClient {
     return this.request("POST", `/perfis/${encodeURIComponent(id)}/ativar`);
   }
 
-  backupContents(): Promise<{ itens: { caminho: string; tamanho: number; tipo: string }[]; fora: string[] }> {
+  backupContents(): Promise<{ itens: { caminho: string; tamanho: number; tipo: string }[]; fora: { caminho: string; motivo: string }[] }> {
     return this.request("GET", "/backup");
   }
 
@@ -1039,7 +1040,7 @@ export class CoreClient {
     return this.request("POST", "/backup/conferir", { arquivo });
   }
 
-  importBackup(arquivo: string): Promise<{ restaurados: string[]; backup_anterior: string; reiniciar: boolean }> {
+  importBackup(arquivo: string): Promise<{ restaurados: string[]; mantidos: string[]; backup_anterior: string; reiniciar: boolean }> {
     return this.request("POST", "/backup/importar", { arquivo });
   }
 

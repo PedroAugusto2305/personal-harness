@@ -2497,6 +2497,7 @@ export default function App() {
                 onError={(message) => harness.setError(message)}
                 onClose={() => setInspectorOpen(false)}
                 brainTick={harness.brainTick}
+                codeGraphEvent={harness.codeGraphEvent}
                 onOpenNote={(title) => openNote({ title })}
                 onOpenTasks={(project) => openTasks(project)}
                 suggestionsTick={harness.suggestionsTick}

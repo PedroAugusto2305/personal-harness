@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KindIcon } from "./KindIcon";
-import { CodeGraphLine } from "./CodeGraph";
+import { CodeGraphLine, type CodeGraphEvent } from "./CodeGraph";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { fold } from "../lib/format";
@@ -49,6 +49,8 @@ interface Props {
   /** v0.9.9: aprovações pedidas pelos agentes, na aba do Brain (mockup). */
   approvals?: Approval[];
   onDecide?: (id: string, approve: boolean) => void;
+  /** v0.9.8: o último aviso do `graphify update` (fim ou erro), para o grafo do código. */
+  codeGraphEvent?: CodeGraphEvent | null;
 }
 
 const TAB_ICON: Record<InspectorTab, [string, string]> = {
@@ -137,7 +139,7 @@ export function Inspector(props: Props) {
         />
       ) : tab === "files" ? (
         <>
-          {client && <CodeGraphLine client={client} root={place.worktree.path} onAgent={props.onAgent} />}
+          {client && <CodeGraphLine client={client} root={place.worktree.path} onAgent={props.onAgent} event={props.codeGraphEvent ?? null} />}
           <Files client={client} root={place.worktree.path} status={status} onOpenFile={props.onOpenFile} />
         </>
       ) : tab === "brain" ? (

@@ -31,7 +31,6 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 MAIN_ID = "principal"
 MAIN_NAME = "Principal"
@@ -92,11 +91,6 @@ class Profile:
 
     def to_dict(self) -> dict:
         return asdict(self)
-
-
-def keychain_service(profile_id: str, base: str) -> str:
-    """O principal usa o serviço de sempre; os outros, um serviço com o id no fim."""
-    return base if profile_id in ("", MAIN_ID) else f"{base}.{profile_id}"
 
 
 class ProfileRegistry:
@@ -206,6 +200,9 @@ class ProfileRegistry:
 
     def create(self, nome: str, vault: str | None = None) -> Profile:
         name = self._name(nome)
+        # O Brain é conferido antes de a pasta existir: um vault inválido não deixa pasta órfã
+        # (que faria a próxima tentativa virar "seller-pro-2").
+        brain = self._vault(vault)
         with self._lock:
             state = self._read()
             if any(p.nome.lower() == name.lower() for p in state["perfis"]):
@@ -224,7 +221,7 @@ class ProfileRegistry:
                 nome=name,
                 pasta=short_home(folder),
                 porta=self._next_port({p.porta for p in state["perfis"]}),
-                vault=self._vault(vault),
+                vault=brain,
                 criado=datetime.now().isoformat(timespec="minutes"),
             )
             state["perfis"].append(profile)
@@ -264,10 +261,13 @@ class ProfileRegistry:
             folder = target.folder
             if folder.exists():
                 self.trash.mkdir(parents=True, exist_ok=True)
-                dest = self.trash / f"MÊTIS perfil {target.nome}"
+                # O nome pode ter "/" ("Casa/Trabalho"): na Lixeira ele vira "-", senão o
+                # destino seria uma subpasta que não existe.
+                label = target.nome.replace("/", "-")
+                dest = self.trash / f"MÊTIS perfil {label}"
                 n = 2
                 while dest.exists():
-                    dest = self.trash / f"MÊTIS perfil {target.nome} {n}"
+                    dest = self.trash / f"MÊTIS perfil {label} {n}"
                     n += 1
                 shutil.move(str(folder), str(dest))
                 moved = str(dest)
@@ -298,7 +298,3 @@ def resolve(profile_id: str | None, default_port: int) -> tuple[str, Profile | N
             print(f"perfil {wanted!r} não existe no registro; abrindo o principal", flush=True)
         return MAIN_ID, registry.find(MAIN_ID)
     return wanted, found
-
-
-def public(profile: Profile) -> dict[str, Any]:
-    return profile.to_dict()

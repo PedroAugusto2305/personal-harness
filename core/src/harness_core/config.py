@@ -59,8 +59,14 @@ def load_settings() -> Settings:
     port = int(os.environ.get("HARNESS_PORT") or (profile.porta if profile is not None and profile_id != profiles.MAIN_ID else DEFAULT_PORT))
     token = os.environ.get("HARNESS_TOKEN") or secrets.token_urlsafe(32)
     worktrees = Path(os.environ.get("HARNESS_WORKTREES_DIR") or DEFAULT_WORKTREES).expanduser()
-    # O Brain do perfil (quando ele tem um) vale mais que o padrão do ambiente.
-    brain = (profile.brain if profile is not None and profile.brain else None) or Path(os.environ.get("BRAIN_VAULT") or DEFAULT_BRAIN).expanduser()
+    # BRAIN_VAULT do ambiente vale por cima, como diz a docstring: o app já passa nele o Brain
+    # do perfil, e o app de desenvolvimento e os testes passam um vault de mentira, que não
+    # pode perder para o vault real gravado no registro. Sem ele, vale o do perfil ou o padrão.
+    env_brain = os.environ.get("BRAIN_VAULT")
+    if env_brain:
+        brain = Path(env_brain).expanduser()
+    else:
+        brain = (profile.brain if profile is not None and profile.brain else None) or DEFAULT_BRAIN
     claude_json = Path(os.environ.get("HARNESS_CLAUDE_JSON") or DEFAULT_CLAUDE_JSON).expanduser()
     return Settings(
         home=home,

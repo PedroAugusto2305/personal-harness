@@ -50,9 +50,17 @@ export function ProfilesSection({ client, openSessions }: { client: CoreClient |
 
   const switchTo = (id: string) =>
     act("trocar", async () => {
+      const before = state?.ativo;
       await client!.activateProfile(id);
-      if (await switchProfile()) window.location.reload();
-      else return "Perfil gravado como ativo; ele abre na próxima vez que a MÊTIS subir o núcleo.";
+      try {
+        if (await switchProfile()) window.location.reload();
+        else return "Perfil gravado como ativo; ele abre na próxima vez que a MÊTIS subir o núcleo.";
+      } catch (cause) {
+        // O app recusou a troca (ligado a um núcleo de fora, por exemplo): o registro volta ao
+        // perfil de antes, para a próxima abertura não subir outro sem o Pedro ter confirmado.
+        if (before && before !== id) await client!.activateProfile(before).catch(() => undefined);
+        throw cause;
+      }
     });
 
   if (!client) return null;
@@ -198,8 +206,9 @@ export function ProfilesSection({ client, openSessions }: { client: CoreClient |
           <div className="backup-check small">
             <p>
               Backup de <b>{check.perfil}</b>, {check.data} (MÊTIS {check.versao}): {check.novos.length} arquivo(s) novo(s), {check.substituidos.length} substituído(s).
-              {check.contas_para_reconectar.length > 0 && ` Para conectar de novo depois: ${check.contas_para_reconectar.join(", ")}.`} Antes de importar, a MÊTIS guarda um
-              backup automático de agora.
+              {check.contas_para_reconectar.length > 0 && ` Para conectar de novo depois: ${check.contas_para_reconectar.join(", ")}.`}
+              {check.mantidos.length > 0 && ` Ficam como estão, porque o do zip apagaria um segredo daqui: ${check.mantidos.join(", ")}.`} Antes de importar, a MÊTIS
+              guarda um backup automático de agora.
             </p>
             <button
               type="button"
@@ -209,7 +218,8 @@ export function ProfilesSection({ client, openSessions }: { client: CoreClient |
                 void act("importar", async () => {
                   const answer = await client.importBackup(file.trim());
                   setCheck(null);
-                  return `${answer.restaurados.length} arquivo(s) restaurado(s); o estado de antes ficou em ${shortPath(answer.backup_anterior)}. Reinicie o núcleo para tudo valer.`;
+                  const kept = answer.mantidos.length ? ` Ficaram como estavam (o do zip apagaria um segredo daqui): ${answer.mantidos.join(", ")}.` : "";
+                  return `${answer.restaurados.length} arquivo(s) restaurado(s); o estado de antes ficou em ${shortPath(answer.backup_anterior)}.${kept} Reinicie o núcleo para tudo valer.`;
                 })
               }
             >

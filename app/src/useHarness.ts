@@ -74,6 +74,8 @@ export function useHarness() {
   /** Automações (v0.9): sobe a cada evento do motor; o último evento diz qual execução mudou. */
   const [automationTick, setAutomationTick] = useState(0);
   const [automationEvent, setAutomationEvent] = useState<Extract<CoreEvent, { type: `automation.${string}` }> | null>(null);
+  /** v0.9.8: o fim (ou o erro) do `graphify update` pedido pela tela do grafo do código. */
+  const [codeGraphEvent, setCodeGraphEvent] = useState<Extract<CoreEvent, { type: "codigo.grafo" }> | null>(null);
   /** Último pedido de aba do navegador vindo do núcleo (`metis web`). */
   const [webRequest, setWebRequest] = useState<{ id: number; url: string; cwd: string | null } | null>(null);
   /** v0.9.8 (parte 2): quem atende os pedidos do agente ao navegador (o App registra). */
@@ -277,6 +279,9 @@ export function useHarness() {
           break;
         case "estudo.mudou":
           setBrainTick((n) => n + 1);
+          break;
+        case "codigo.grafo":
+          setCodeGraphEvent(event);
           break;
         case "kanban.auto":
           setKanbanAuto({ limite: event.limite, rodando: event.rodando, na_fila: event.na_fila, itens: event.itens });
@@ -497,6 +502,7 @@ export function useHarness() {
     sessionMapTicks,
     automationTick,
     automationEvent,
+    codeGraphEvent,
     webRequest,
     browserHandler,
     agentEvents,
