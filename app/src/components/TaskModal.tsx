@@ -422,6 +422,7 @@ export function TaskModal(props: Props) {
                 <div className="tm-prop-value">
                   <label className="tm-pill" style={{ "--st": STATE_INFO[task.state].color } as React.CSSProperties}>
                     <span className="tm-state-dot" />
+                    <span>{STATE_INFO[task.state].label}</span>
                     <select value={task.state} onChange={(e) => void props.onMove(e.target.value as TaskState)} aria-label="Status">
                       {ORDER.map((s) => (
                         <option key={s} value={s}>
@@ -456,6 +457,7 @@ export function TaskModal(props: Props) {
                 <div className="tm-prop-value">
                   <label className="tm-pill tm-prio" data-prio={task.prioridade || "normal"}>
                     <Icon d={ICON.flag} size={12} />
+                    <span>{priorityLabel(task.prioridade)}</span>
                     <select value={task.prioridade ?? ""} onChange={(e) => void edit({ prioridade: e.target.value as TaskPriority })} aria-label="Prioridade">
                       {PRIORITIES.filter(([key]) => key !== "minima" || task.prioridade === "minima").map(([key, label]) => (
                         <option key={key || "normal"} value={key}>
@@ -870,26 +872,123 @@ function FeedItem({ event, agents, onDelete, children }: { event: TaskEvent; age
   );
 }
 
+/**
+ * v1.1.3: o calendário é nosso, não o do `<input type="date">`. O do WebKit, aberto pelo
+ * `showPicker()` num campo escondido que nunca recebe o foco, não fechava ao clicar fora na
+ * janela da MÊTIS (ao que tudo indica, ele só fecha quando o campo perde o foco). Aqui ele fecha ao escolher o dia, ao clicar
+ * fora e no Esc (sem fechar o cartão junto), e sai em português e nas cores do tema.
+ */
 function DateField({ label, value, late, onChange }: { label: string; value: string; late?: boolean; onChange: (value: string) => void }) {
-  const input = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    // Na captura, antes do Esc do cartão, que desiste quando o evento chega com defaultPrevented.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
   return (
-    <span className="tm-date" data-set={value ? "true" : undefined} data-late={late ? "true" : undefined}>
-      <button type="button" className="tm-date-btn" onClick={() => {
-          try {
-            input.current?.showPicker();
-          } catch {
-            input.current?.focus(); // WebKit antigo, sem showPicker
-          }
-        }} title={value ? `${label}: ${value.split("-").reverse().join("/")}` : `Escolher a data de ${label.toLowerCase()}`}>
+    <span ref={box} className="tm-date" data-set={value ? "true" : undefined} data-late={late ? "true" : undefined}>
+      <button
+        type="button"
+        className="tm-date-btn"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+        title={value ? `${label}: ${value.split("-").reverse().join("/")}` : `Escolher a data de ${label.toLowerCase()}`}
+      >
         <Icon d={ICON.calendar} size={12} />
         {value ? dayMonth(value) : label}
       </button>
-      <input ref={input} type="date" value={value} onChange={(e) => onChange(e.target.value)} aria-label={`Data de ${label.toLowerCase()}`} tabIndex={-1} />
+      {open && (
+        <Calendar
+          label={label}
+          value={value}
+          onPick={(iso) => {
+            setOpen(false);
+            if (iso !== value) onChange(iso);
+          }}
+        />
+      )}
       {value && (
         <button type="button" className="tm-x" onClick={() => onChange("")} aria-label={`Tirar a data de ${label.toLowerCase()}`} title="Tirar">
           <Icon d={ICON.close} size={10} strokeWidth={2.2} />
         </button>
       )}
     </span>
+  );
+}
+
+const MONTHS = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const WEEKDAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** O mês da data (ou de hoje) em seis semanas fixas, de domingo a sábado, para a altura não pular. */
+function Calendar({ label, value, onPick }: { label: string; value: string; onPick: (iso: string) => void }) {
+  const today = isoDay(new Date());
+  const [month, setMonth] = useState(() => {
+    const [y, m] = (/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : today).split("-").map(Number);
+    return new Date(y, m - 1, 1);
+  });
+  const start = new Date(month.getFullYear(), month.getMonth(), 1 - month.getDay());
+  const days = Array.from({ length: 42 }, (_, i) => new Date(start.getFullYear(), start.getMonth(), start.getDate() + i));
+  const shift = (n: number) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + n, 1));
+  return (
+    <div className="tm-cal" role="dialog" aria-label={`Data de ${label.toLowerCase()}`}>
+      <div className="tm-cal-head">
+        <span className="tm-cal-title">
+          {MONTHS[month.getMonth()]} de {month.getFullYear()}
+        </span>
+        <button type="button" className="tm-x" onClick={() => shift(-1)} aria-label="Mês anterior" title="Mês anterior">
+          <Icon d={ICON.collapse} size={12} strokeWidth={2} />
+        </button>
+        <button type="button" className="tm-x" onClick={() => shift(1)} aria-label="Próximo mês" title="Próximo mês">
+          <Icon d={ICON.chevron} size={12} strokeWidth={2} />
+        </button>
+      </div>
+      <div className="tm-cal-grid">
+        {WEEKDAYS.map((name, i) => (
+          <span key={i} className="tm-cal-wd">
+            {name}
+          </span>
+        ))}
+        {days.map((day) => {
+          const iso = isoDay(day);
+          return (
+            <button
+              key={iso}
+              type="button"
+              className="tm-cal-day"
+              data-out={day.getMonth() !== month.getMonth() ? "true" : undefined}
+              data-today={iso === today ? "true" : undefined}
+              aria-pressed={iso === value}
+              aria-label={`${day.getDate()} de ${MONTHS[day.getMonth()]} de ${day.getFullYear()}`}
+              onClick={() => onPick(iso)}
+            >
+              {day.getDate()}
+            </button>
+          );
+        })}
+      </div>
+      <div className="tm-cal-foot">
+        <button type="button" className="tm-ghost" onClick={() => onPick(today)}>
+          Hoje
+        </button>
+      </div>
+    </div>
   );
 }

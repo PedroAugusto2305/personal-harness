@@ -426,7 +426,11 @@ class Kanban:
         return moved
 
     def add(self, name: str, text: str, state: str = "pendente", labels: list[str] | None = None, subtasks: list[str] | None = None,
-            quem: str = "Pedro") -> dict:  # fmt: skip
+            quem: str = "Pedro", *, descricao: str | None = None, prioridade: str | None = None, inicio: str | None = None,
+            entrega: str | None = None) -> dict:  # fmt: skip
+        """v1.1.3: a tarefa já nasce inteira, como o cartão aberto a deixaria: prioridade e datas
+        na linha (campos do plugin Tasks) e a descrição nas linhas recuadas logo abaixo. Tudo é
+        conferido antes de gravar, para um campo errado não deixar meia tarefa na nota."""
         body = " ".join(text.split()).strip()
         body = re.sub(r"^- \[.\]\s*", "", body)
         if labels:
@@ -437,6 +441,27 @@ class Kanban:
             raise KanbanError("a tarefa está vazia")
         if state not in STATES:
             raise KanbanError(f"estado desconhecido: {state}")
+        asked: dict[str, str] = {}
+        if prioridade is not None and prioridade.strip().lower() not in ("", "normal"):
+            wanted = prioridade.strip().lower().replace("média", "media").replace("mínima", "minima")
+            if wanted not in PRIORITY_EMOJI:
+                raise KanbanError(f"prioridade desconhecida: {prioridade} (urgente, alta, media, normal, baixa ou minima)")
+            asked["prioridade"] = wanted
+        for key, value in (("inicio", inicio), ("entrega", entrega)):
+            if value is not None and value.strip():
+                if not _ISO_DATE.match(value.strip()):
+                    raise KanbanError(f"data inválida em {key}: {value} (use AAAA-MM-DD)")
+                asked[key] = value.strip()
+        if asked:
+            rest, typed = split_fields(body)
+            body = " ".join([rest, *_fields_text({**typed, **asked})])
+        desc_lines: list[str] = []
+        if descricao is not None and descricao.strip():
+            wanted_desc = _dedent(str(descricao).replace("\r\n", "\n").split("\n"))
+            if any(_TASK.match(line) for line in wanted_desc.split("\n")):
+                # Uma linha "- [ ]" recuada vira subtarefa e corta a descrição ao meio.
+                raise KanbanError("a descrição não pode ter linhas '- [ ]': as etapas vão em subtarefas")
+            desc_lines = [f"  {line}" if line.strip() else "" for line in wanted_desc.split("\n")]
         note = self.vault.project(name)
         raw = note.path.read_text(encoding="utf-8")
         nl = _newline(raw)
@@ -447,7 +472,7 @@ class Kanban:
             # Nota sem a seção: ela nasce no fim, no formato das outras.
             while lines and not lines[-1].strip():
                 lines.pop()
-            lines += ["", "## ✅ Próximas ações", "", line]
+            lines += ["", "## ✅ Próximas ações", "", line, *desc_lines]
         else:
             tasks = parse_tasks(raw)
             anchor = next((t for t in reversed(tasks) if t.state != "concluida"), None) or (tasks[-1] if tasks else None)
@@ -460,7 +485,7 @@ class Kanban:
                     at += 1
             else:
                 at = anchor.end_line + 1  # depois da descrição e das subtarefas da âncora
-            lines.insert(at, line)
+            lines[at:at] = [line, *desc_lines]
         write_atomic(note.path, nl.join(lines) + nl)
         added = parse_tasks(nl.join(lines))
         digest = _digest(strip_labels(split_fields(_clean(body))[0]))

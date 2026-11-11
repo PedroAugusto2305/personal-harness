@@ -12,7 +12,8 @@
     metis brain mcp                    servidor MCP do Brain por stdio (para sessões fora da MÊTIS)
     metis brain contexto               hook SessionStart fora da MÊTIS (lê o JSON do Claude no stdin)
     metis tarefas                      as Próximas ações do projeto desta pasta, com o id
-    metis tarefa nova "<texto>"        acrescenta uma tarefa
+    metis tarefa nova "<texto>"        acrescenta uma tarefa (--descricao, --prioridade, --entrega,
+                                       --inicio, --rotulo e --subtarefa, estes dois repetíveis)
     metis tarefa mover <id> <estado>   pendente, em-andamento, em-teste ou concluida
     metis lembrete "<texto>" <quando>  o bot da MÊTIS avisa no Slack na hora (ex.: sexta 9h, em 20 min)
     metis desligar                     desliga a MÊTIS de vez (fecha os terminais dos agentes)
@@ -231,7 +232,11 @@ def _tasks_command(home, args) -> int:
     base = f"/brain/projects/{urllib.parse.quote(project, safe='')}/tasks"
     if args.acao == "nova":
         state = STATE_ALIASES.get(args.estado, args.estado)
-        task = _core(home, "POST", base, {"text": " ".join(args.resto), "state": state})
+        payload = {"text": " ".join(args.resto), "state": state, "rotulos": args.rotulo, "subtarefas": args.subtarefa}
+        for key in ("descricao", "prioridade", "inicio", "entrega"):
+            if getattr(args, key):
+                payload[key] = getattr(args, key)
+        task = _core(home, "POST", base, payload)
         print(f"tarefa {task['id']} criada em {project} ({STATE_LABEL[task['state']]})")
         return 0
     if len(args.resto) != 2:
@@ -345,6 +350,12 @@ def main(argv: list[str] | None = None) -> int:
     task.add_argument("resto", nargs="+", help='nova: "texto"; mover: <id> <estado>')
     task.add_argument("--projeto", default="")
     task.add_argument("--estado", default="pendente", help="estado inicial de uma tarefa nova")
+    task.add_argument("--descricao", default="", help="nova: Markdown do corpo do cartão")
+    task.add_argument("--prioridade", default="", help="nova: urgente, alta, media, normal, baixa ou minima")
+    task.add_argument("--inicio", default="", help="nova: data de início, AAAA-MM-DD")
+    task.add_argument("--entrega", default="", help="nova: prazo, AAAA-MM-DD")
+    task.add_argument("--rotulo", action="append", default=[], help="nova: rótulo sem o # (repetível)")
+    task.add_argument("--subtarefa", action="append", default=[], help="nova: etapa, na ordem (repetível)")
     reminder = sub.add_parser("lembrete", help="agenda um lembrete no Slack (toca no iPhone)")
     reminder.add_argument("texto")
     reminder.add_argument("quando", nargs="+", help="ex.: sexta 9h, amanhã 14:30, em 20 min, 13/11 9h")

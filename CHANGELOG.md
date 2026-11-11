@@ -2,6 +2,13 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.1.3 · o calendário das datas fecha ao clicar fora, a prioridade troca e o agente cria a tarefa inteira
+
+- **O calendário do cartão não fechava quando você clicava fora,** nem depois de escolher a data. Era o calendário nativo do WebKit, aberto por um campo escondido que nunca recebia o foco; tudo indica que esse calendário só fecha quando o campo perde o foco, e sem foco não havia o que perder. Agora o calendário é do próprio cartão: fecha ao escolher o dia, ao clicar fora ou no Esc (o Esc fecha só o calendário, o cartão fica aberto), e abrir o do Início fecha o da Entrega.
+- **De quebra, sai em português e nas cores do tema** ("novembro de 2026", D S T Q Q S S), com hoje destacado, a data escolhida marcada, setas para trocar o mês e o botão Hoje.
+- **A prioridade não trocava, e ficava em Normal.** Na pílula "⚑ Normal ↓", só a palavra era o seletor; a bandeira, a seta e a borda eram a moldura dele, e no WebKit da janela clicar na moldura não abre o menu. Agora a pílula inteira abre o menu. A pílula do Status tinha o mesmo defeito e saiu junto.
+- **O agente cria a tarefa já inteira no kanban.** A ferramenta `tarefa_nova` da central (e o `metis tarefa nova`) só levava título, rótulos e subtarefas; a descrição, a prioridade e o prazo ficavam de fora. Agora ela aceita também `descricao` (Markdown, o corpo do cartão), `prioridade` (urgente, alta, media, normal, baixa ou minima), `inicio` e `entrega` (AAAA-MM-DD), e a tarefa nasce como o cartão aberto a deixaria. Campo errado é recusado antes de gravar, sem deixar meia tarefa na nota. No `metis tarefa nova`: `--descricao`, `--prioridade`, `--inicio`, `--entrega`, `--rotulo` e `--subtarefa`.
+
 ## v1.1.2 · o editor de código abre com tema personalizado
 
 - **O editor de código ficava em "carregando o editor…" e nunca abria** quando o tema da MÊTIS era um tema criado por prompt ou importado (como o Noite em Atenas). O Monaco só aceita letras, números e hífen no nome do tema, e o nome levava o `tema:` do id. Agora o nome vai limpo e o editor abre na hora, com as cores do tema.

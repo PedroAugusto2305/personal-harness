@@ -278,9 +278,17 @@ class Hub:
                 labels=[str(x) for x in args.get("rotulos") or []],
                 subtasks=[str(x) for x in args.get("subtarefas") or []],
                 quem=ctx.who,
+                descricao=str(args["descricao"]) if args.get("descricao") else None,
+                prioridade=str(args["prioridade"]) if args.get("prioridade") else None,
+                inicio=str(args["inicio"]) if args.get("inicio") else None,
+                entrega=str(args["entrega"]) if args.get("entrega") else None,
             )
             self.on_brain_change(project)
             extra = f"; rótulos: {', '.join(task['rotulos'])}" if task.get("rotulos") else ""
+            extra += f"; prioridade {task['prioridade']}" if task.get("prioridade") else ""
+            extra += f"; início {task['inicio']}" if task.get("inicio") else ""
+            extra += f"; entrega {task['entrega']}" if task.get("entrega") else ""
+            extra += "; com descrição" if task.get("descricao") else ""
             extra += f"; {task['subtasks_total']} subtarefa(s)" if task.get("subtasks_total") else ""
             return f"Tarefa {task['id']} criada em {project} ({task['state']}{extra})."
 
@@ -327,8 +335,12 @@ class Hub:
                  _schema({"projeto": projeto, "todas": {"type": "boolean", "description": "inclui as concluídas"}}, []), tarefas),
             Tool("tarefa_mover", "Move uma tarefa do kanban: pendente, em-andamento, em-teste ou concluida. Mova a sua tarefa para em-teste quando terminar.",
                  _schema({"id": {"type": "string"}, "estado": estado, "projeto": projeto}, ["id", "estado"]), mover),
-            Tool("tarefa_nova", "Acrescenta uma tarefa às Próximas ações do projeto, com rótulos e subtarefas se quiser.",
-                 _schema({"texto": {"type": "string"}, "estado": estado, "projeto": projeto,
+            Tool("tarefa_nova", "Acrescenta uma tarefa às Próximas ações do projeto, já inteira se quiser: descrição, prioridade, datas, rótulos e subtarefas.",
+                 _schema({"texto": {"type": "string", "description": "o título da tarefa"}, "estado": estado, "projeto": projeto,
+                          "descricao": {"type": "string", "description": "Markdown do corpo do cartão (contexto, objetivo, escopo, critérios). Sem linhas '- [ ]': as etapas vão em subtarefas."},
+                          "prioridade": {"type": "string", "enum": ["urgente", "alta", "media", "normal", "baixa", "minima"]},
+                          "inicio": {"type": "string", "description": "data de início, AAAA-MM-DD"},
+                          "entrega": {"type": "string", "description": "prazo (deadline), AAAA-MM-DD"},
                           "rotulos": {"type": "array", "items": {"type": "string"}, "description": "rótulos sem o #, ex.: [\"urgente\", \"front\"]"},
                           "subtarefas": {"type": "array", "items": {"type": "string"}, "description": "passos da tarefa, na ordem"}}, ["texto"]), nova),
             Tool("tarefa_rotulos", "Troca os rótulos de uma tarefa do kanban (a lista inteira; vazia tira todos). O id da tarefa não muda.",
