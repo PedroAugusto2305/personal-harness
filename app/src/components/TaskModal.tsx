@@ -141,6 +141,8 @@ interface Props {
   onOpenUrl: (url: string) => void;
   onOpenSession: (id: string) => void;
   onError: (message: string) => void;
+  /** v1.1.4: pede para excluir a tarefa (o quadro confirma antes). */
+  onDelete: () => void;
 }
 
 export function TaskModal(props: Props) {
@@ -380,6 +382,16 @@ export function TaskModal(props: Props) {
           </span>
           <button type="button" className="kb2-icon tm-head-btn" onClick={() => props.onOpenNote(projeto)} title="Abrir a nota do projeto no Brain" aria-label="Abrir a nota do projeto">
             <Icon d={ICON.note} size={14} />
+          </button>
+          <button
+            type="button"
+            className="kb2-icon tm-head-btn kb2-trash"
+            onClick={props.onDelete}
+            disabled={run?.status === "rodando"}
+            title={run?.status === "rodando" ? "Rodando no Auto: feche o terminal dela antes de excluir" : "Excluir a tarefa"}
+            aria-label="Excluir a tarefa"
+          >
+            <Icon d={ICON.trash} size={14} />
           </button>
           <button type="button" className="kb2-icon tm-head-btn" onClick={props.onClose} title="Fechar (Esc)" aria-label="Fechar">
             <Icon d={ICON.close} size={14} />

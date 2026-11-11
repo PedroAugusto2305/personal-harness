@@ -203,6 +203,20 @@ class AutoQueue:
         if changed:
             self._changed()
 
+    def running(self, projeto: str, tarefa: str) -> AutoItem | None:
+        with self._lock:
+            return next((i for i in self.items if i.projeto == projeto and i.tarefa == tarefa and i.status == "rodando"), None)
+
+    def forget_task(self, projeto: str, tarefa: str) -> None:
+        """v1.1.4: a tarefa foi excluída: os itens dela saem da fila e da lista dos terminados
+        (o que está rodando fica; a rota de excluir recusa antes)."""
+        with self._lock:
+            kept = [i for i in self.items if not (i.projeto == projeto and i.tarefa == tarefa and i.status != "rodando")]
+            changed = len(kept) != len(self.items)
+            self.items = kept
+        if changed:
+            self._changed()
+
     def clear_done(self) -> None:
         with self._lock:
             self.items = [i for i in self.items if i.status in ("fila", "rodando")]

@@ -2,6 +2,14 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.1.4 · dá para excluir tarefa do kanban
+
+- **Excluir uma tarefa.** Antes, uma tarefa só saía do kanban apagando a linha à mão na nota do Brain. Agora há a lixeira no rodapé de cada cartão e no alto do cartão aberto, e ⌫ (ou Delete) com o cartão em foco faz o mesmo. Antes de excluir, uma confirmação mostra a tarefa e diz o que vai junto; Enter confirma, Esc desiste (com o cartão aberto, o Esc fecha só a confirmação).
+- **O que sai junto:** a linha some das Próximas ações da nota do projeto, com a descrição e o checklist, sem deixar linha vazia sobrando. A atividade, os comentários e os anexos da tarefa saem do núcleo, e o arquivo do anexo também, quando foi a MÊTIS que guardou (o que está em `~/.harness/anexos`). Não dá para desfazer.
+- **Fila do Auto:** a tarefa que estava na fila sai dela. A que está rodando não pode ser excluída: feche o terminal dela antes (a lixeira fica apagada, com o aviso).
+- **Só você exclui.** As tarefas são suas (decisão de 2026-11-10): não há ferramenta de excluir para os agentes, e o núcleo recusa o pedido que vem de um terminal.
+- **Tarefas repetidas:** com duas tarefas de mesmo título, excluir a de cima passa o id dela para a de baixo, e a atividade e a fila do Auto da de baixo vão junto.
+
 ## v1.1.3 · o calendário das datas fecha ao clicar fora, a prioridade troca e o agente cria a tarefa inteira
 
 - **O calendário do cartão não fechava quando você clicava fora,** nem depois de escolher a data. Era o calendário nativo do WebKit, aberto por um campo escondido que nunca recebia o foco; tudo indica que esse calendário só fecha quando o campo perde o foco, e sem foco não havia o que perder. Agora o calendário é do próprio cartão: fecha ao escolher o dia, ao clicar fora ou no Esc (o Esc fecha só o calendário, o cartão fica aberto), e abrir o do Início fecha o da Entrega.

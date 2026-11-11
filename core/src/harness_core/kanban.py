@@ -322,6 +322,9 @@ class Kanban:
         self.log = None
         #: v1.1: avisado quando o título muda e, com ele, o id: (projeto, id de antes, id novo).
         self.on_rename = None
+        #: v1.1.4: avisado quando a tarefa é excluída: (projeto, id). Vem antes dos on_rename
+        #: das repetidas que herdam o id dela.
+        self.on_delete = None
 
     def _record(self, name: str, task_id: str, quem: str, tipo: str, dados: dict | None = None, texto: str = "") -> None:
         if self.log is None:
@@ -496,6 +499,50 @@ class Kanban:
             if str(sub).strip():
                 result = self.add_subtask(name, task.id, str(sub), quem=quem)
         return result
+
+    def delete(self, name: str, task_id: str) -> dict:
+        """v1.1.4: exclui a tarefa da nota: a linha, a descrição e as subtarefas (da linha da
+        tarefa até a última dela), sem deixar duas linhas vazias seguidas no lugar. A atividade,
+        os comentários e os anexos dela saem do tarefas.db; `anexos` diz quais saíram, para quem
+        guarda os arquivos apagar. Numa tarefa repetida, a de baixo herda o id da que saiu
+        (`abc-2` vira `abc`) e a atividade e a fila do Auto vão junto, como na troca de título."""
+        note = self.vault.project(name)
+        text, lines, task = self._find(note.path, task_id)
+        before = parse_tasks(text)
+        start, end = task.line, task.end_line + 1
+        removed = lines[start:end]
+        del lines[start:end]
+        if start >= len(lines):
+            while lines and not lines[-1].strip():
+                lines.pop()
+        elif start > 0 and not lines[start].strip() and not lines[start - 1].strip():
+            del lines[start]
+        self._write(note.path, text, lines)
+        after = parse_tasks(_newline(text).join(lines))
+        others = [t for t in before if t.line != task.line]
+        # Mesma ordem antes e depois (só uma tarefa saiu); em ordem crescente, cada id novo já
+        # foi desocupado pelo passo anterior (abc-2 → abc, depois abc-3 → abc-2).
+        renamed = [(old.id, new.id) for old, new in zip(others, after) if old.id != new.id] if len(others) == len(after) else []
+        anexos: list[dict] = []
+        if self.log is not None:
+            try:
+                anexos = self.log.forget(name, task.id)
+            except Exception:  # noqa: BLE001 - a tarefa já saiu da nota; o histórico solto não atrapalha
+                pass
+        if self.on_delete is not None:
+            try:
+                self.on_delete(name, task.id)
+            except Exception:  # noqa: BLE001
+                pass
+        for antes, depois in renamed:
+            for hook in (self.log.rename if self.log is not None else None, self.on_rename):
+                if hook is None:
+                    continue
+                try:
+                    hook(name, antes, depois)
+                except Exception:  # noqa: BLE001
+                    pass
+        return {"tarefa": task.to_dict(), "linhas": removed, "anexos": anexos, "ids": dict(renamed)}
 
     # --- rótulos e subtarefas (v0.9.8) -----------------------------------------------
 
