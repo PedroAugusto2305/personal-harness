@@ -259,6 +259,11 @@ class TaskBody(BaseModel):
     #: v0.9.8: rótulos e subtarefas já na criação (opcionais).
     rotulos: list[str] = Field(default_factory=list, max_length=20)
     subtarefas: list[str] = Field(default_factory=list, max_length=50)
+    #: v1.1.3: a tarefa já nasce inteira (o que o cartão aberto edita).
+    descricao: str | None = Field(default=None, max_length=20000)
+    prioridade: str | None = Field(default=None, max_length=20)
+    inicio: str | None = Field(default=None, max_length=10)
+    entrega: str | None = Field(default=None, max_length=10)
 
 
 class TaskLabels(BaseModel):
@@ -2416,7 +2421,8 @@ def create_app(
     @app.post("/brain/projects/{name}/tasks", dependencies=[Depends(require_token)], status_code=201)
     def brain_add_task(name: str, body: TaskBody, x_harness_session: str | None = Header(default=None)) -> dict:
         try:
-            task = kanban.add(name, body.text, body.state, labels=body.rotulos, subtasks=body.subtarefas, quem=quem_of(x_harness_session))
+            task = kanban.add(name, body.text, body.state, labels=body.rotulos, subtasks=body.subtarefas, quem=quem_of(x_harness_session),
+                              descricao=body.descricao, prioridade=body.prioridade, inicio=body.inicio, entrega=body.entrega)  # fmt: skip
         except VaultError as exc:
             raise brain_fail(exc) from exc
         brain_changed(name)

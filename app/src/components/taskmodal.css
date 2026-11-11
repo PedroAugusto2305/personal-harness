@@ -206,13 +206,19 @@
   background: color-mix(in srgb, var(--elev) 80%, var(--tx));
 }
 
+/* v1.1.3: o select invisível cobre a pílula inteira. No WebKit, clicar no <label> em volta
+   (bandeira, seta, borda) só dá foco ao select e não abre o menu; o texto à mostra é o <span>. */
 .tm-pill select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
   appearance: none;
   -webkit-appearance: none;
   border: 0;
   padding: 0;
-  background: transparent;
-  color: var(--tx);
   font: inherit;
   cursor: pointer;
   outline: 0;
@@ -295,16 +301,6 @@
   gap: 2px;
 }
 
-.tm-date input[type="date"] {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .tm-date-btn {
   display: inline-flex;
   align-items: center;
@@ -332,6 +328,96 @@
 
 .tm-date[data-late="true"] .tm-date-btn {
   color: var(--err);
+}
+
+/* calendário das datas (o nosso, no lugar do nativo do WebKit) */
+
+.tm-cal {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: 236px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line2);
+  background: var(--side);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  color: var(--tx);
+}
+
+.tm-cal-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.tm-cal-title {
+  flex: 1;
+  padding-left: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tm-cal-head .tm-x {
+  width: 24px;
+  height: 24px;
+}
+
+.tm-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.tm-cal-wd {
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--fnt);
+}
+
+.tm-cal-day {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx);
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.tm-cal-day:hover {
+  background: var(--elev);
+}
+
+.tm-cal-day[data-out="true"] {
+  color: var(--fnt);
+  opacity: 0.6;
+}
+
+.tm-cal-day[data-today="true"] {
+  color: var(--acc);
+  font-weight: 700;
+}
+
+.tm-cal-day[aria-pressed="true"] {
+  background: var(--acc);
+  color: var(--onacc);
+  font-weight: 600;
+  opacity: 1;
+}
+
+.tm-cal-foot {
+  display: flex;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
 }
 
 .tm-dir {
