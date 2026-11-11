@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.1.3)
+## O que já faz (v1.1.4)
+
+**Na 1.1.4:** dá para excluir tarefa do kanban, pela lixeira do cartão, pela do cartão aberto ou com ⌫ no cartão em foco, sempre com confirmação. A tarefa sai da nota com a descrição e o checklist, e a atividade, os comentários e os anexos saem do núcleo. A que está rodando no Auto não pode ser excluída, e um agente não exclui.
 
 **Na 1.1.3:** o calendário das datas do cartão fecha ao clicar fora, ao escolher o dia e no Esc, em português e nas cores do tema; a prioridade e o status trocam clicando em qualquer ponto da pílula (antes, só na palavra); e um agente cria a tarefa já inteira pelo `tarefa_nova`, com descrição, prioridade, início e entrega, além de rótulos e subtarefas.
 

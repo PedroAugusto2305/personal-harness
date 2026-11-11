@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useCardDrag } from "../lib/cardDrag";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
@@ -163,8 +163,11 @@ function TaskCard(props: {
   onAddSubtask: (text: string) => Promise<void>;
   onToggleSubtask: (index: number, done: boolean) => Promise<void>;
   onLabelClick: (label: string) => void;
+  /** v1.1.4: pede para excluir (a tela confirma antes). */
+  onDelete: () => void;
 }) {
   const { task, run } = props;
+  const running = run?.status === "rodando";
   const [open, setOpen] = useState(false);
   const [editingLabels, setEditingLabels] = useState<string | null>(null);
   const [subtask, setSubtask] = useState("");
@@ -198,10 +201,15 @@ function TaskCard(props: {
         props.onOpen();
       }}
       onKeyDown={(event) => {
-        if (event.key === "Enter" && event.target === event.currentTarget) props.onOpen();
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter") props.onOpen();
+        else if ((event.key === "Backspace" || event.key === "Delete") && !running && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          event.preventDefault();
+          props.onDelete();
+        }
       }}
       tabIndex={0}
-      aria-label={`${plain(text)}. Enter abre o cartão`}
+      aria-label={`${plain(text)}. Enter abre o cartão, ⌫ exclui`}
     >
       <div className="kb2-card-top">
         <ProjectChip name={task.projeto} />
@@ -333,8 +341,83 @@ function TaskCard(props: {
         <button type="button" className="kb2-icon" onClick={props.onNote} title="Abrir a nota do projeto" aria-label="Abrir a nota">
           <Icon d={ICON.note} size={13} />
         </button>
+        <button
+          type="button"
+          className="kb2-icon kb2-trash"
+          onClick={props.onDelete}
+          disabled={running}
+          title={running ? "Rodando no Auto: feche o terminal dela antes de excluir" : "Excluir a tarefa (⌫ com o cartão em foco)"}
+          aria-label="Excluir a tarefa"
+        >
+          <Icon d={ICON.trash} size={13} />
+        </button>
       </div>
     </article>
+  );
+}
+
+const listPt = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items[items.length - 1]}`);
+
+/** v1.1.4: a confirmação de excluir, com o que vai junto (nada disso volta). */
+function DeleteDialog(props: { task: BoardTask; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const { task } = props;
+  const cancel = props.onCancel;
+  // Esc fecha só a confirmação: na captura, antes do Esc do cartão aberto (que desiste com defaultPrevented).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [cancel]);
+  const subs = task.subtasks_total;
+  const comments = task.comentarios ?? 0;
+  const files = task.anexos ?? 0;
+  const inNote = [task.descricao ? "a descrição" : "", subs ? `o checklist (${subs} ${subs === 1 ? "item" : "itens"})` : ""].filter(Boolean);
+  const inCore = [
+    "a atividade",
+    comments ? (comments === 1 ? "o comentário" : `os ${comments} comentários`) : "",
+    files ? (files === 1 ? "o anexo" : `os ${files} anexos`) : "",
+  ].filter(Boolean);
+  const core = listPt(inCore);
+  return (
+    <div className="kb2-modal-back kb2-over" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !props.busy && cancel()}>
+      <form
+        className="kb2-modal kb2-modal-danger"
+        role="alertdialog"
+        aria-label="Excluir a tarefa"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!props.busy) props.onConfirm();
+        }}
+      >
+        <div className="kb2-modal-title">
+          <Icon d={ICON.trash} size={16} />
+          Excluir a tarefa?
+        </div>
+        <div className="kb2-modal-task">
+          <ProjectChip name={task.projeto} />
+          <span className="mono kb2-num">#{task.n}</span>
+          <span className="kb2-modal-task-text">{plain(task.texto ?? task.text)}</span>
+        </div>
+        <p className="kb2-modal-sub">
+          Ela sai das Próximas ações da nota <b>{task.projeto}</b> no Brain{inNote.length ? `, junto com ${listPt(inNote)}` : ""}.{" "}
+          {core.charAt(0).toUpperCase() + core.slice(1)} {inCore.length > 1 ? "somem" : "some"} da MÊTIS{files ? " (os arquivos guardados por ela também)" : ""}.{" "}
+          <b>Não dá para desfazer.</b>
+        </p>
+        <div className="kb2-modal-actions">
+          <button type="button" className="kb2-btn" onClick={cancel} disabled={props.busy}>
+            Cancelar
+          </button>
+          <button type="submit" className="kb2-btn danger" autoFocus disabled={props.busy}>
+            <Icon d={ICON.trash} size={13} /> {props.busy ? "Excluindo…" : "Excluir"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -405,6 +488,9 @@ export function KanbanView(props: Props) {
   const [dialog, setDialog] = useState<BoardTask | null>(null);
   /** v1.1: o cartão aberto (projeto e id; o id muda quando o título muda). */
   const [opened, setOpened] = useState<{ projeto: string; id: string } | null>(null);
+  /** v1.1.4: a tarefa esperando a confirmação de excluir. */
+  const [deleting, setDeleting] = useState<BoardTask | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [reload, setReload] = useState(0);
   const [github, setGithub] = useState<{ issues: GithubIssue[]; prs: GithubPr[] } | null>(null);
@@ -522,6 +608,25 @@ export function KanbanView(props: Props) {
     }
   };
 
+  const closeDelete = useCallback(() => setDeleting(null), []);
+
+  const removeTask = async (task: BoardTask) => {
+    if (!client || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const saved = await client.deleteTask(task.projeto, task.id);
+      setDeleting(null);
+      // O cartão aberto fecha se era ele; uma repetida aberta segue o id que herdou.
+      setOpened((cur) => (!cur || cur.projeto !== task.projeto ? cur : cur.id === task.id ? null : saved.ids[cur.id] ? { ...cur, id: saved.ids[cur.id] } : cur));
+      setTasks((all) => all.filter((t) => !(t.projeto === task.projeto && t.id === task.id)));
+      refresh(); // as contas dos projetos e os números dos cartões
+    } catch (cause) {
+      onError(message(cause));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const addTask = async () => {
     if (!client || !composer) return;
     const text = composer.text.trim();
@@ -608,6 +713,7 @@ export function KanbanView(props: Props) {
         onAddSubtask={(text) => change(() => client!.addSubtask(task.projeto, task.id, text))}
         onToggleSubtask={(index, value) => change(() => client!.setSubtask(task.projeto, task.id, index, value))}
         onLabelClick={toggleLabel}
+        onDelete={() => setDeleting(task)}
       />
     );
   };
@@ -1041,8 +1147,10 @@ export function KanbanView(props: Props) {
           onOpenUrl={onOpenUrl}
           onOpenSession={onOpenSession}
           onError={onError}
+          onDelete={() => setDeleting(openedTask)}
         />
       )}
+      {deleting && <DeleteDialog task={deleting} busy={deleteBusy} onCancel={closeDelete} onConfirm={() => void removeTask(deleting)} />}
     </div>
   );
 }

@@ -2365,6 +2365,7 @@ def create_app(
     auto_seen.update({i.id: i.status for i in auto.items})  # o que já estava no arquivo não vira evento de novo
     auto.update_task_ids(kanban.current_ids)  # fila gravada antes da v1.0, com o id que contava os rótulos
     kanban.on_rename = auto.rename_task
+    kanban.on_delete = auto.forget_task
     manager.events.listen(auto.on_bus_event)
     app.state.auto = auto
 
@@ -2436,6 +2437,38 @@ def create_app(
             raise brain_fail(exc) from exc
         brain_changed(name)
         return task
+
+    @app.delete("/brain/projects/{name}/tasks/{task_id}", dependencies=[Depends(require_token)])
+    def brain_delete_task(name: str, task_id: str, x_harness_session: str | None = Header(default=None)) -> dict:
+        """v1.1.4: exclui a tarefa da nota, com a descrição e as subtarefas, e a atividade, os
+        comentários e os anexos dela. Só pela janela: as tarefas são do Pedro (decisão de
+        2026-11-10), então um terminal (comando metis ou agente) não exclui."""
+        if x_harness_session:
+            raise HTTPException(status_code=403, detail="só o Pedro exclui tarefa, pela janela da MÊTIS")
+        try:
+            current = kanban.current_ids(name).get(task_id)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        if current is None:
+            raise HTTPException(status_code=404, detail="tarefa não encontrada (a nota mudou?)")
+        if auto.running(name, current):
+            raise HTTPException(status_code=409, detail="a tarefa está rodando no Auto: feche o terminal dela antes de excluir")
+        try:
+            result = kanban.delete(name, task_id)
+        except VaultError as exc:
+            raise brain_fail(exc) from exc
+        # Os arquivos só saem se foi a MÊTIS que guardou (como ao tirar um anexo).
+        folder = (settings.home / "anexos").resolve()
+        for item in result["anexos"]:
+            path = Path(item["caminho"])
+            try:
+                if folder in path.resolve().parents:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        brain_changed(name)
+        task = result["tarefa"]
+        return {"id": task["id"], "texto": task.get("texto") or task["text"], "linhas": result["linhas"], "anexos": len(result["anexos"]), "ids": result["ids"]}
 
     # --- v0.9.8 parte 3: rótulos, subtarefas, ClickUp no kanban, painel e eventos dos agentes ---
 

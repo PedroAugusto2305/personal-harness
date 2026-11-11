@@ -887,6 +887,37 @@
   border: 4px solid var(--kb-yellow);
 }
 
+/* v1.1.4: excluir a tarefa (a confirmação abre por cima do cartão aberto) */
+
+.kb2-modal-back.kb2-over {
+  z-index: 70;
+}
+
+.kb2-modal-danger .kb2-modal-title svg {
+  color: var(--err);
+}
+
+.kb2-modal-danger .kb2-modal-sub b {
+  color: var(--tx);
+  font-weight: 600;
+}
+
+.kb2-btn.danger {
+  border-color: transparent;
+  background: var(--err);
+  color: var(--onacc);
+  font-weight: 600;
+}
+
+.kb2-btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 86%, black);
+}
+
+.kb2-icon.kb2-trash:hover:not(:disabled) {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+
 .kb2-modal-actions {
   display: flex;
   justify-content: flex-end;

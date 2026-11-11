@@ -138,6 +138,15 @@ class TaskLog:
                 out.setdefault((row["projeto"], row["tarefa"]), {"comentarios": 0, "anexos": 0})["anexos"] = row["n"]
         return out
 
+    def forget(self, projeto: str, tarefa: str) -> list[dict]:
+        """v1.1.4: a tarefa foi excluída: a atividade, os comentários e os anexos dela saem.
+        Devolve os anexos que saíram; os arquivos ficam por conta de quem chamou."""
+        with self._lock, self._connect() as con:
+            rows = con.execute("select * from anexos where projeto = ? and tarefa = ?", (projeto, tarefa)).fetchall()
+            con.execute("delete from anexos where projeto = ? and tarefa = ?", (projeto, tarefa))
+            con.execute("delete from eventos where projeto = ? and tarefa = ?", (projeto, tarefa))
+        return [dict(r) for r in rows]
+
     def rename(self, projeto: str, antes: str, depois: str) -> None:
         if antes == depois:
             return

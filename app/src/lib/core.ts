@@ -911,6 +911,12 @@ export class CoreClient {
     return this.request("DELETE", `${this.taskPath(project, id)}/subtarefas/${indice}`);
   }
 
+  /** v1.1.4: exclui a tarefa da nota (com a descrição e o checklist) e a atividade, os
+   * comentários e os anexos dela. `ids`: as repetidas de baixo que herdaram um id (antes → depois). */
+  deleteTask(project: string, id: string): Promise<{ id: string; texto: string; linhas: string[]; anexos: number; ids: Record<string, string> }> {
+    return this.request("DELETE", this.taskPath(project, id));
+  }
+
   taskActivity(project: string, id: string): Promise<{ eventos: TaskEvent[]; anexos: TaskAttachment[] }> {
     return this.request("GET", `${this.taskPath(project, id)}/atividade`);
   }
