@@ -14,6 +14,8 @@ Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`R
 - **Sessões já abertas** ganham a conversa ao atualizar: ela é lida do registro, com o histórico inteiro, sem reiniciar o agente.
 - **Ajustes → Agentes → "O Claude e o Codex abrem em":** Conversa (padrão) ou Terminal. A troca feita no cabeçalho vale para aquele painel.
 - **Conversas do Codex 0.154 voltam a ser achadas.** Nessa versão a primeira mensagem vem depois de uns 90 KB de instruções (lista de skills, AGENTS.md), e o núcleo só olhava os primeiros 64 KB: a conversa ficava vazia com o Codex trabalhando, e a conversa também sumia do histórico, do "continuar" e do "passar para o Claude". Agora o começo é lido linha a linha até a primeira mensagem.
+- **O comando do Codex aparece rodando desde o começo.** O Codex só grava o comando no registro quando ele termina, e um teste de 4 minutos deixava a conversa parada em "Trabalhando". Agora a linha do comando entra assim que o Codex o chama, girando, e fecha com o resultado no fim, inclusive quando ele roda vários comandos de uma vez.
+- **Codex retomado pelo histórico** já abre com a conversa antiga, sem esperar o primeiro turno novo.
 
 ## v1.1.4 · dá para excluir tarefa do kanban
 
