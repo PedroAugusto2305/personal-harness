@@ -292,3 +292,30 @@ def test_rollout_do_codex_com_instrucoes_grandes_no_comeco_e_achado(tmp_path):
     found = list_sessions({}, cwd=cwd, defaults=defaults)
     assert [(i["id"], i["titulo"]) for i in found] == [("th-9", "roda os testes do núcleo")]  # o guardião fica de fora
     assert codex_rollout_for({}, cwd, 0, defaults)["id"] == "th-9"
+
+
+def test_codex_retomado_mostra_a_conversa_antiga_antes_do_primeiro_turno(core, tmp_path):
+    """Retomar pelo histórico (`codex resume <id>`): a conversa é a de antes, e o arquivo dela é
+    mais velho que a sessão nova. Antes, ela só aparecia depois de o Codex fechar um turno."""
+    client, app = core
+    home = tmp_path / "codex"
+    folder = home / "sessions" / "2026" / "11" / "11"
+    folder.mkdir(parents=True)
+    cwd = tmp_path / "repo"
+    cwd.mkdir()
+    rollout = folder / "rollout-2026-11-11T10-00-00-th-antiga.jsonl"
+    write_lines(rollout, [
+        {"type": "session_meta", "payload": {"id": "th-antiga", "cwd": str(cwd)}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "faz o login"}]}},
+        {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "Feito."}]}},
+    ])  # fmt: skip
+    os.utime(rollout, (1_700_000_000, 1_700_000_000))  # bem antes da sessão nova
+    app.state.cli_homes = {"claude": tmp_path / "claude", "codex": home}
+    session = client.post("/sessions", json={"kind": "codex", "cwd": str(cwd), "resume": "th-antiga"}, headers=AUTH).json()
+    assert app.state.manager.get(session["id"]).conversa == "th-antiga"
+    answer = client.get(f"/sessions/{session['id']}/conversa/itens", headers=AUTH).json()
+    assert answer["disponivel"] and [i["texto"] for i in answer["itens"]] == ["faz o login", "Feito."]
+    fresh = client.post("/sessions", json={"kind": "codex", "cwd": str(cwd)}, headers=AUTH).json()
+    assert client.get(f"/sessions/{fresh['id']}/conversa/itens", headers=AUTH).json()["disponivel"] is False  # sessão nova não pega a antiga
+    for sid in (session["id"], fresh["id"]):
+        client.delete(f"/sessions/{sid}", headers=AUTH)

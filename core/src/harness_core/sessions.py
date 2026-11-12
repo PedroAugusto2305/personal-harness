@@ -401,6 +401,8 @@ class SessionManager:
             agent=agent.id if agent else None,
             status="starting" if kind == "claude" else "running",
         )
+        if kind == "codex" and resume:
+            session.conversa = resume  # v1.2.0: a conversa retomada já é conhecida, antes do primeiro turno
         self.sessions[session_id] = session
         pty.start()
         if prompt and other_cli:

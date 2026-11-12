@@ -206,15 +206,19 @@ def codex_rollout_for(
 ) -> dict | None:
     """A sessão do Codex que nasceu numa pasta depois de um instante (para retomar ou passar o trabalho).
 
-    Com `conversation` (o thread-id que o Codex manda no notify), só serve a conversa com esse id.
-    Sem ele (antes do primeiro fim de turno), vale a mais recente, menos as de `skip`: as conversas
-    que outros terminais abertos já sabem que são deles."""
-    for item in list_sessions(accounts, limit=20, cwd=cwd, defaults=defaults):
-        if item["cli"] != "codex" or item["atualizado"] < since:
+    Com `conversation` (o thread-id que o Codex manda no notify, ou a conversa retomada), só serve
+    a conversa com esse id, mesmo que o arquivo seja de antes do instante (v1.2.0: retomada pelo
+    histórico, ela só seria achada depois do primeiro turno novo). Sem ele (antes do primeiro fim
+    de turno), vale a mais recente, menos as de `skip`: as conversas que outros terminais abertos
+    já sabem que são deles."""
+    for item in list_sessions(accounts, limit=200 if conversation else 20, cwd=cwd, defaults=defaults):
+        if item["cli"] != "codex":
             continue
-        if conversation and item["id"] != conversation:
+        if conversation:
+            if item["id"] == conversation:
+                return item
             continue
-        if not conversation and item["id"] in skip:
+        if item["atualizado"] < since or item["id"] in skip:
             continue
         return item
     return None
