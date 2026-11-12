@@ -199,6 +199,42 @@ def test_jpeg_xl_attachment_is_normalized_to_png(settings, accounts, monkeypatch
         assert oct(saved.stat().st_mode & 0o777) == "0o600"
 
 
+def test_avif_disguised_as_png_is_normalized_by_content(settings, accounts, monkeypatch):
+    avif = b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00mif1avifmiaf"
+
+    def fake_convert(data, output):
+        assert data == avif
+        output.write_bytes(b"\x89PNG converted")
+
+    monkeypatch.setattr("harness_core.attachments._avif_to_png", fake_convert)
+    with TestClient(create_app(settings, accounts=accounts, poll_codex=False)) as client:
+        answer = client.post("/attachments", params={"name": "capa-fornecedores.png"}, content=avif, headers=AUTH)
+        assert answer.status_code == 201
+        saved = __import__("pathlib").Path(answer.json()["path"])
+        assert saved.name.endswith("-capa-fornecedores.png")
+        assert saved.read_bytes() == b"\x89PNG converted"
+        assert oct(saved.stat().st_mode & 0o777) == "0o600"
+
+
+def test_avif_disguised_as_png_becomes_a_real_png(tmp_path):
+    """Sem simular a conversão: um AVIF de verdade com nome .png vira PNG (o Pillow 13 lê AVIF)."""
+    import io
+
+    import pytest
+    from PIL import Image, features
+
+    from harness_core.attachments import save_attachment
+
+    if not features.check("avif"):
+        pytest.skip("este Pillow não lê AVIF")
+    buffer = io.BytesIO()
+    Image.new("RGB", (40, 30), (130, 160, 255)).save(buffer, format="AVIF")
+    saved = save_attachment(tmp_path, "print.png", buffer.getvalue())
+    assert saved.suffix == ".png" and saved.read_bytes().startswith(b"\x89PNG")
+    with Image.open(saved) as image:
+        assert image.format == "PNG" and image.size == (40, 30)
+
+
 def test_harness_command_works_inside_app_terminals(settings, accounts):
     import subprocess
 

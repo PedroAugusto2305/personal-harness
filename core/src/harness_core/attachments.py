@@ -7,14 +7,36 @@ caminho original; o upload só existe para o seletor de arquivos e para o navega
 
 from __future__ import annotations
 
+import io
 import re
 import subprocess
 import uuid
 from datetime import date
 from pathlib import Path
 
+from PIL import Image, ImageOps
+
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 _run = subprocess.run
+
+
+def _is_avif(data: bytes) -> bool:
+    """Reconhece AVIF pelo box ``ftyp``, mesmo com uma extensão enganosa.
+
+    O WebKit entrega alguns arquivos do clipboard como AVIF chamado ``.png``. O nome,
+    portanto, não serve para decidir se o agente conseguirá abrir o anexo.
+    """
+    if len(data) < 16 or data[4:8] != b"ftyp":
+        return False
+    brands = [data[8:12], *(data[i : i + 4] for i in range(16, min(len(data), 64), 4))]
+    return b"avif" in brands or b"avis" in brands
+
+
+def _avif_to_png(data: bytes, target: Path) -> None:
+    """Decodifica de memória para poder sobrescrever um AVIF chamado ``.png``."""
+    with Image.open(io.BytesIO(data)) as source:
+        image = ImageOps.exif_transpose(source)
+        image.save(target, format="PNG")
 
 
 def safe_name(name: str) -> str:
@@ -30,9 +52,23 @@ def save_attachment(home: Path, name: str, data: bytes) -> Path:
     target = folder / f"{uuid.uuid4().hex[:8]}-{safe_name(name)}"
     target.write_bytes(data)
     target.chmod(0o600)
-    # O macOS pode entregar um print/arquivo do clipboard em JPEG XL. Claude, Codex e o
-    # WebKit da conversa não leem esse formato, embora o próprio macOS leia. Normalize no
-    # ingresso: o caminho colado no terminal já aponta para um PNG que todos entendem.
+    # O macOS pode entregar um print/arquivo do clipboard em AVIF chamado `.png`, ou em
+    # JPEG XL. Claude, Codex e a conversa não leem esses formatos de modo consistente.
+    # Normalize no ingresso: o caminho colado no terminal aponta para um PNG de verdade.
+    if _is_avif(data):
+        png = target if target.suffix.lower() == ".png" else target.with_suffix(".png")
+        try:
+            _avif_to_png(data, png)
+            png.chmod(0o600)
+            if png != target:
+                target.unlink()
+            return png
+        except (OSError, ValueError, Image.DecompressionBombError):
+            if png != target:
+                png.unlink(missing_ok=True)
+            else:
+                target.write_bytes(data)  # a gravação do PNG pode ter truncado o original
+                target.chmod(0o600)
     if target.suffix.lower() == ".jxl":
         png = target.with_suffix(".png")
         try:
