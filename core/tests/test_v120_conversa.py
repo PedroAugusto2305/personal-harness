@@ -266,3 +266,29 @@ def test_rotas_da_conversa(core, claude_transcript, tmp_path):
     for sid in (session["id"], shell["id"]):
         client.delete(f"/sessions/{sid}", headers=AUTH)
     assert not os.path.exists(str(cwd / "nada"))
+
+
+def test_rollout_do_codex_com_instrucoes_grandes_no_comeco_e_achado(tmp_path):
+    """No Codex 0.154 a primeira mensagem vem depois de ~90 KB de instruções (skills, AGENTS.md):
+    com só os 64 KB do começo, a conversa não era achada e a tela ficava vazia."""
+    from harness_core.history import codex_rollout_for, list_sessions
+
+    home = tmp_path / "codex"
+    folder = home / "sessions" / "2026" / "11" / "12"
+    folder.mkdir(parents=True)
+    cwd = str(tmp_path / "repo")
+    write_lines(folder / "rollout-2026-11-12T09-40-20-th-9.jsonl", [
+        {"type": "session_meta", "payload": {"id": "th-9", "cwd": cwd, "timestamp": "2026-11-12T12:40:20Z", "source": "cli"}},
+        {"type": "response_item", "payload": {"type": "message", "role": "developer", "content": [{"type": "input_text", "text": "<skills_instructions>" + "x" * 90_000}]}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>…</environment_context>"}]}},
+        {"type": "world_state", "payload": {"state": {"agents_md": {"text": "y" * 30_000}}}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "roda os testes do núcleo"}]}},
+    ])  # fmt: skip
+    write_lines(folder / "rollout-2026-11-12T09-40-21-guardiao.jsonl", [
+        {"type": "session_meta", "payload": {"id": "guardiao", "cwd": cwd, "source": {"subagent": {"other": "guardian"}}}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "revise a ação"}]}},
+    ])  # fmt: skip
+    defaults = {"claude": tmp_path / "claude", "codex": home}
+    found = list_sessions({}, cwd=cwd, defaults=defaults)
+    assert [(i["id"], i["titulo"]) for i in found] == [("th-9", "roda os testes do núcleo")]  # o guardião fica de fora
+    assert codex_rollout_for({}, cwd, 0, defaults)["id"] == "th-9"

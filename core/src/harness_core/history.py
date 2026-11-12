@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Iterable
 
 HEAD_BYTES = 64_000
+#: Começo do rollout do Codex lido para achar a primeira mensagem (v1.2.0: ela passou dos 64 KB).
+CODEX_HEAD_BYTES = 1_000_000
 TAIL_BYTES = 48_000
 MAX_FILES = 400
 
@@ -88,10 +90,26 @@ def _claude(path: Path, account: str) -> dict | None:
     return {"cli": "claude", "id": path.stem, "cwd": cwd, "titulo": (title or first)[:120], "primeiro": first[:300], "conta": account, "inicio": started}
 
 
+def _codex_head(path: Path):
+    """As linhas do começo do rollout, uma a uma, até CODEX_HEAD_BYTES.
+
+    v1.2.0: no Codex 0.154 a primeira mensagem sua vem depois de ~90 KB de instruções (lista de
+    skills, AGENTS.md, estado do mundo); com só os 64 KB do começo, a conversa não era achada
+    (histórico, continuar, passar o trabalho e a tela da conversa)."""
+    read = 0
+    with open(path, "rb") as handle:
+        for raw in handle:
+            read += len(raw)
+            if read > CODEX_HEAD_BYTES:
+                return
+            yield raw.decode("utf-8", errors="replace")
+
+
 def _codex(path: Path, account: str) -> dict | None:
-    head, _tail = _lines(path)
     meta, first = None, ""
-    for line in head:
+    for line in _codex_head(path):
+        if '"session_meta"' not in line[:200] and '"user"' not in line:
+            continue  # instruções e estado do mundo: grandes e sem nada a ver aqui
         try:
             entry = json.loads(line)
         except ValueError:

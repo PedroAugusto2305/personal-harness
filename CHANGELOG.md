@@ -13,6 +13,7 @@ Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`R
 - **Tudo o que o terminal fazia continua:** a barra de baixo (escrever, ditar, anexar, colar print, `@nota`, `/comando`, modelo), ⌘F (agora busca na conversa, ou no terminal quando ele está na frente), reiniciar e continuar, passar para o outro agente, o ⋯ com o ID e o transcript, o mini-mapa do Brain, a hibernação e o terminal flutuante. O terminal comum (shell) não muda.
 - **Sessões já abertas** ganham a conversa ao atualizar: ela é lida do registro, com o histórico inteiro, sem reiniciar o agente.
 - **Ajustes → Agentes → "O Claude e o Codex abrem em":** Conversa (padrão) ou Terminal. A troca feita no cabeçalho vale para aquele painel.
+- **Conversas do Codex 0.154 voltam a ser achadas.** Nessa versão a primeira mensagem vem depois de uns 90 KB de instruções (lista de skills, AGENTS.md), e o núcleo só olhava os primeiros 64 KB: a conversa ficava vazia com o Codex trabalhando, e a conversa também sumia do histórico, do "continuar" e do "passar para o Claude". Agora o começo é lido linha a linha até a primeira mensagem.
 
 ## v1.1.4 · dá para excluir tarefa do kanban
 
