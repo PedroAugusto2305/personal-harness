@@ -197,6 +197,27 @@ export function AgentsPrefsSection({
             ))}
           </div>
         </div>
+        <div className="setting-row">
+          <span className="setting-label">
+            O Claude e o Codex abrem em
+            <span className="small">
+              Na conversa, as imagens, os fluxogramas, as tabelas e o código aparecem desenhados, e as ferramentas viram linhas que abrem com o resultado. O
+              terminal de verdade continua no mesmo painel e aparece sozinho quando o agente abre um menu; ⌘⇧T alterna.
+            </span>
+          </span>
+          <div className="segmented" role="radiogroup" aria-label="O agente abre em">
+            {(
+              [
+                ["conversa", "Conversa"],
+                ["terminal", "Terminal"],
+              ] as const
+            ).map(([value, label]) => (
+              <button key={value} type="button" role="radio" aria-checked={(prefs.vista_agente ?? "conversa") === value} onClick={() => void onSave({ vista_agente: value })}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <h2 className="sub">Avisos</h2>

@@ -68,10 +68,10 @@
 | Arrastar para o terminal | Arquivo vira caminho; captura de tela vira arquivo | ? | 1.0 |
 | Comandos salvos | Comandos e prompts salvos, globais ou por projeto | ? | 1.0 |
 | Terminal flutuante | Terminal, navegador e markdown fora de worktree (`Cmd+Opt+A`) | ◐ | 1.0 |
-| Tela de chat | Transcript estruturado com caixa de mensagem | ○ (desligada) | Depois (roda pelo Agent SDK com o login do plano, a zona cinzenta que evitamos) |
+| Tela de chat | Transcript estruturado com caixa de mensagem | ○ (desligada) | **1.2**, sem o Agent SDK: a conversa é desenhada do transcript que a CLI grava, com o terminal interativo por baixo (pelo plano) |
 | Caixa de mensagem do chat | Anexos, `@arquivo`, `/` comandos, fila, parar, voltar | ○ | 1.0 como **barra de entrada sob o terminal** |
 | Pílulas de modelo e anel de contexto | Modelo, esforço, modo rápido, uso do contexto | ○ | 1.0 na barra de status |
-| Visuais no chat | Gráficos e diagramas na resposta | ○ | Depois |
+| Visuais no chat | Gráficos e diagramas na resposta | ○ | **1.2**: imagens coladas, devolvidas e geradas, fluxogramas Mermaid, tabelas e código com cor |
 | Continuar após reset do limite | Reenvia sozinho quando o limite zera | ○ | Depois |
 | Ditado | Voz para o prompt ou o terminal; modelos locais (Whisper Tiny, Parakeet…) ou OpenAI | ◐ (ligado sem modelo) | **1.0**, em português |
 

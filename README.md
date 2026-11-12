@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.1.4)
+## O que já faz (v1.2.0)
+
+**Na 1.2.0:** o painel do Claude e do Codex abre numa conversa no jeito do app do Codex: seus balões, a resposta em Markdown, as ferramentas em linhas que abrem com o resultado, e as imagens (coladas, devolvidas por ferramenta e geradas em arquivo), os fluxogramas Mermaid, as tabelas e o código com cor desenhados na própria conversa. O terminal de verdade continua no mesmo painel, roda o agente pelo plano como sempre e aparece sozinho quando o agente abre um menu; ⌘⇧T alterna. Ajustes → Agentes escolhe se o agente abre na conversa ou no terminal.
 
 **Na 1.1.4:** dá para excluir tarefa do kanban, pela lixeira do cartão, pela do cartão aberto ou com ⌫ no cartão em foco, sempre com confirmação. A tarefa sai da nota com a descrição e o checklist, e a atividade, os comentários e os anexos saem do núcleo. A que está rodando no Auto não pode ser excluída, e um agente não exclui.
 

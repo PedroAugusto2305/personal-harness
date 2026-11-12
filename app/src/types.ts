@@ -905,6 +905,8 @@ export interface Prefs {
   editor_externo?: string;
   /** v0.9.8: minutos parado até hibernar o agente (0 = nunca). */
   hibernar_min?: number;
+  /** v1.2.0: o painel do Claude e do Codex abre na conversa ou no terminal. */
+  vista_agente?: "conversa" | "terminal";
 }
 
 export interface HistoryItem {
@@ -1136,6 +1138,67 @@ export interface BarCommand {
   nome: string;
   descricao: string;
   origem: "cli" | "usuario" | "projeto" | "skill";
+}
+
+/** v1.2.0: imagem na conversa, dentro do transcript (`ref`) ou num arquivo do disco (`arquivo`). */
+export interface ChatImage {
+  ref?: string;
+  arquivo?: string;
+  nome?: string;
+}
+
+/** Um passo do plano (TodoWrite do Claude, update_plan do Codex). */
+export interface ChatStep {
+  texto: string;
+  estado: "pendente" | "andamento" | "feito";
+}
+
+/**
+ * v1.2.0: um item da conversa desenhada a partir do transcript. `n` é a posição (não muda) e
+ * `v` a versão (sobe quando o item muda, como o resultado da ferramenta que chega depois).
+ */
+export interface ChatItem {
+  id: string;
+  n: number;
+  v: number;
+  tipo: "voce" | "agente" | "pensamento" | "ferramenta" | "plano" | "evento";
+  hora?: string;
+  texto?: string;
+  imagens?: ChatImage[];
+  /** Mensagem sua que entrou na fila enquanto o agente trabalhava. */
+  fila?: boolean;
+  /** Ferramenta. */
+  nome?: string;
+  categoria?: "comando" | "leitura" | "edicao" | "busca" | "web" | "mcp" | "agente" | "skill" | "pergunta" | "plano" | "imagem" | "outra";
+  rotulo?: string;
+  detalhe?: string | null;
+  lingua?: string;
+  saida?: string | null;
+  estado?: "rodando" | "ok" | "erro";
+  codigo?: number | null;
+  arquivo?: string;
+  url?: string;
+  diff?: { antes: string; depois: string }[];
+  patch?: string;
+  /** Comando `!` que você rodou pelo Claude. */
+  voce?: boolean;
+  /** Plano. */
+  passos?: ChatStep[];
+  /** Evento: compactada, duracao, comando, interrompido, resumo. */
+  evento?: string;
+}
+
+export interface ChatPage {
+  disponivel: boolean;
+  motivo?: string;
+  cli: "claude" | "codex";
+  fonte: string;
+  seq: number;
+  total: number;
+  inicio: number;
+  reset: boolean;
+  cwd: string;
+  itens: ChatItem[];
 }
 
 export interface SessionContext {

@@ -46,6 +46,7 @@ from . import barra, ghostty, github, system, themes, updates
 from . import app_themes, barra_lateral
 from .commands import CommandError, CommandStore, Keymap, UnknownCommand
 from .transcript import context_breakdown, last_messages
+from . import conversa
 from .kanban_auto import AutoError, AutoItem, AutoQueue, auto_prompt
 from .kanban import Kanban, task_brief
 from .task_log import TaskLog, TaskLogError
@@ -2250,6 +2251,69 @@ def create_app(
         if session is None:
             raise HTTPException(status_code=404, detail="sessão não encontrada")
         return await conversation_of(session)
+
+    #: v1.2.0: palpite do rollout do Codex antes do primeiro fim de turno (sem o thread-id do
+    #: notify). Vale alguns segundos: a tela da conversa pergunta a cada segundo e não pode varrer
+    #: as pastas do Codex a cada pergunta.
+    conversation_guess: dict[str, tuple[float, str | None]] = {}
+
+    def transcript_of(session) -> str | None:
+        """O transcript da conversa da sessão: o da statusline no Claude, o rollout no Codex."""
+        if session.kind == "claude":
+            return (session.statusline or {}).get("transcript")
+        if session.kind != "codex":
+            return None
+        cached = codex_rollouts.get(session.id)
+        if cached and cached[0] == session.conversa and os.path.exists(cached[1]):
+            return cached[1]
+        guess = conversation_guess.get(session.id)
+        if guess and not session.conversa and time.time() - guess[0] < 8:
+            return guess[1]
+        found = codex_rollout_of(session)
+        path = found["arquivo"] if found else None
+        if path and session.conversa:
+            codex_rollouts[session.id] = (session.conversa, path)
+        else:
+            conversation_guess[session.id] = (time.time(), path)
+        return path
+
+    @app.get("/sessions/{session_id}/conversa/itens", dependencies=[Depends(require_token)])
+    async def session_conversation_items(session_id: str, fonte: str = "", apos: int = 0, antes: int | None = None, limite: int = 160) -> dict:
+        """A conversa desenhada (v1.2.0): mensagens, ferramentas, imagens e marcos lidos do
+        transcript. Sem `fonte` igual, as últimas `limite`; com `apos`, só o que mudou depois dessa
+        versão; com `antes`, as anteriores a esse item (rolar para cima)."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        if session.kind not in ("claude", "codex"):
+            raise HTTPException(status_code=400, detail="só o Claude e o Codex têm conversa")
+        transcript = await asyncio.to_thread(transcript_of, session)
+        if not transcript or not os.path.exists(os.path.expanduser(transcript)):
+            reason = "a conversa começa quando você mandar a primeira mensagem"
+            return {"disponivel": False, "motivo": reason, "cli": session.kind, "fonte": "", "seq": 0, "total": 0, "inicio": 0, "reset": True, "itens": [], "cwd": session.cwd}
+        state = await asyncio.to_thread(conversa.read, transcript, session.kind)
+        answer = conversa.page(state, fonte, apos, antes, limite)
+        return {"disponivel": True, "cli": session.kind, **answer, "cwd": answer["cwd"] or session.cwd}
+
+    @app.get("/conversa/imagem", dependencies=[Depends(require_token_or_query)])
+    def conversation_image(fonte: str, ref: str) -> Response:
+        """Imagem que mora dentro do transcript (colada por você, devolvida por uma ferramenta)."""
+        path = fonte.split("#", 1)[0]
+        if not conversa.known(path):
+            raise HTTPException(status_code=404, detail="conversa não aberta")
+        found = conversa.imagem(path, ref)
+        if found is None:
+            raise HTTPException(status_code=404, detail="imagem não encontrada")
+        data, media = found
+        return Response(content=data, media_type=media, headers={"Cache-Control": "private, max-age=86400"})
+
+    @app.get("/conversa/arquivo", dependencies=[Depends(require_token_or_query)])
+    def conversation_file(caminho: str) -> FileResponse:
+        """Imagem no disco citada na conversa (só imagem: outro tipo de arquivo não sai por aqui)."""
+        found = conversa.image_file(caminho)
+        if found is None:
+            raise HTTPException(status_code=404, detail="imagem não encontrada")
+        return FileResponse(found[0], media_type=found[1], headers={"Cache-Control": "no-cache"})
 
     @app.get("/brain/projects", dependencies=[Depends(require_token)])
     def brain_projects() -> list[dict]:

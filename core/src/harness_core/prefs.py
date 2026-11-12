@@ -7,6 +7,8 @@
   worktree nova. Só essas pastas; nunca uma pasta qualquer.
 - Manter o Mac acordado: nunca, só com agente trabalhando, ou sempre com o núcleo no ar.
 - Avisos: notificação e som quando o agente termina ou espera você.
+- Vista do agente (v1.2.0): o painel do Claude e do Codex abre na conversa desenhada ou no
+  terminal. O terminal continua vivo por baixo nos dois casos.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ AWAKE_MODES = ("nunca", "agente", "sempre")
 GIT_AGENTS = ("claude", "codex")
 #: v0.9.8: minutos esperando até o agente hibernar (0 = nunca).
 HIBERNATE_MINUTES = (0, 15, 30, 60)
+AGENT_VIEWS = ("conversa", "terminal")
 RECIPE_MAX = 4000
 
 # Receitas de IA por ação (v0.9.6): o pedido que vai ao agente da worktree. {base} vira o branch alvo do PR.
@@ -52,6 +55,7 @@ DEFAULTS: dict[str, Any] = {
     "agente_git": "claude",
     "editor_externo": "",
     "hibernar_min": 0,
+    "vista_agente": "conversa",
     # v0.9.8: o projeto do Brain onde mora o mapa do estudo (conceitos/) e o cronograma.
     "estudo_projeto": "AI Engineer 2027",
 }
@@ -102,6 +106,8 @@ class Prefs:
                 if key == "hibernar_min":
                     if isinstance(value, bool) or not isinstance(value, int) or value not in HIBERNATE_MINUTES:
                         raise PrefsError("hibernar é 0 (nunca), 15, 30 ou 60 minutos")
+                if key == "vista_agente" and value not in AGENT_VIEWS:
+                    raise PrefsError(f"o agente abre em {' ou '.join(AGENT_VIEWS)}")
                 if key == "editor_externo":
                     if not isinstance(value, str) or len(value) > 40:
                         raise PrefsError("editor externo inválido")

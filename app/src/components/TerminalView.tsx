@@ -11,6 +11,7 @@ import { pastedFiles, terminals } from "../lib/terminals";
 import { ICON, Icon } from "../icons";
 import type { Session, SessionContext, TerminalColors, ThemeName } from "../types";
 import { DEFAULT_APPEARANCE, monoFamily, themeIsLight, type Appearance } from "../lib/appearance";
+import { ChatView } from "./ChatView";
 
 const ANSI_DARK = {
   black: "#21222c",
@@ -128,6 +129,29 @@ function findInputBox(terminal: Terminal): { top: number; status: string } | nul
 }
 
 /**
+ * Menu no fim da tela do agente: a opção escolhida ("❯ 1. Yes" no Claude, "› 1. Yes, proceed" no
+ * Codex) e a linha de dica dele ("Esc to cancel", "Press enter to confirm"). É o sinal de que o
+ * agente parou num menu (permissão, pergunta, plano, /model).
+ */
+function findMenu(terminal: Terminal): { option: boolean; hint: boolean } {
+  const buffer = terminal.buffer.active;
+  const base = buffer.viewportY;
+  const rows = terminal.rows;
+  let option = false;
+  let hint = false;
+  for (let i = Math.max(0, rows - 24); i < rows; i += 1) {
+    const text = buffer.getLine(base + i)?.translateToString(true) ?? "";
+    if (/^\s*[❯›>▶]\s*\d+[.)]\s+\S/.test(text)) option = true;
+    else if (option && /\besc\b|enter to (confirm|select|submit)/i.test(text)) hint = true;
+  }
+  return { option, hint };
+}
+
+/** v1.2.0: a vista de cada painel de agente (conversa ou terminal), escolhida à mão. */
+export type AgentView = "conversa" | "terminal";
+const chosenView = new Map<string, AgentView>();
+
+/**
  * Onde o terminal aparece. Todos ficam montados; só mudam de lugar ou somem.
  * "tile" é um painel da divisão da worktree (a posição vem em `box`).
  */
@@ -187,6 +211,12 @@ interface Props {
   onHistory?: () => void;
   /** v0.9.9: a barra de entrada do painel (agentes). */
   footer?: React.ReactNode;
+  /** v1.2.0: o agente abre na conversa (padrão) ou no terminal (Ajustes → Agentes). */
+  defaultView?: AgentView;
+  /** Sobe a cada ⌘⇧T no painel em foco: alterna conversa e terminal. */
+  viewSignal?: number;
+  /** Arquivo citado na conversa: abre numa aba da MÊTIS. */
+  onOpenFile?: (path: string) => void;
 }
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -220,6 +250,9 @@ export function TerminalView({
   onClose,
   onHistory,
   footer,
+  defaultView = "conversa",
+  viewSignal,
+  onOpenFile,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -231,8 +264,18 @@ export function TerminalView({
   focusRef.current = onFocus;
   const linkRef = useRef(onLink);
   linkRef.current = onLink;
-  const live = useRef({ readOnly, onTyped, onPasteFiles, onFocusInput });
-  live.current = { readOnly, onTyped, onPasteFiles, onFocusInput };
+  const agentKind = session.kind === "claude" || session.kind === "codex" ? session.kind : null;
+  const live = useRef({ readOnly, onTyped, onPasteFiles, onFocusInput, agentKind, status: session.status });
+  live.current = { readOnly, onTyped, onPasteFiles, onFocusInput, agentKind, status: session.status };
+  /** v1.2.0: conversa ou terminal; um menu do agente mostra o terminal até ele sair (ou você voltar). */
+  const [view, setViewState] = useState<AgentView>(() => chosenView.get(session.id) ?? defaultView);
+  const setView = (next: AgentView) => {
+    chosenView.set(session.id, next);
+    setViewState(next);
+  };
+  const [menu, setMenu] = useState(false);
+  const [menuDismissed, setMenuDismissed] = useState(false);
+  const shown: AgentView = !agentKind ? "terminal" : view === "terminal" || (menu && !menuDismissed) ? "terminal" : "conversa";
   /** Caixa vazia do Claude coberta: a partir de que linha, e o status que estava abaixo dela. */
   const [cover, setCover] = useState<{ top: number; rows: number; status: string } | null>(null);
 
@@ -305,24 +348,50 @@ export function TerminalView({
       return false;
     });
 
+    // Menu do agente (v1.2.0): com a conversa na tela, o terminal aparece enquanto ele dura. Só
+    // muda de estado depois de firme por um instante: a tela pisca enquanto o agente redesenha.
+    let menuRaw = false;
+    let menuTimer = 0;
+    let boxSeen = false;
+    const noteMenu = (raw: boolean) => {
+      if (raw === menuRaw) return;
+      menuRaw = raw;
+      window.clearTimeout(menuTimer);
+      menuTimer = window.setTimeout(() => setMenu(menuRaw), raw ? 450 : 700);
+    };
+
     // Caixa de entrada vazia do Claude: some atrás de um véu, conferida a cada desenho.
     let frame = 0;
     const scan = () => {
       if (frame) return;
       frame = requestAnimationFrame(() => {
         frame = 0;
-        if (!live.current.readOnly) return setCover(null);
+        const { readOnly: locked, agentKind: kind, status } = live.current;
+        if (!locked && !kind) return setCover(null);
         const found = findInputBox(terminal);
-        setCover((last) => {
-          const next = found ? { top: found.top, rows: terminal.rows, status: found.status } : null;
-          if (!next && !last) return last;
-          if (next && last && next.top === last.top && next.rows === last.rows && next.status === last.status) return last;
-          return next;
-        });
+        if (locked) {
+          setCover((last) => {
+            const next = found ? { top: found.top, rows: terminal.rows, status: found.status } : null;
+            if (!next && !last) return last;
+            if (next && last && next.top === last.top && next.rows === last.rows && next.status === last.status) return last;
+            return next;
+          });
+        }
+        if (!kind) return;
+        const buffer = terminal.buffer.active;
+        if (buffer.viewportY !== buffer.baseY) return; // rolado para cima: a tela não é a de agora
+        if (found) boxSeen = true;
+        const { option, hint } = findMenu(terminal);
+        // Claude: sem a caixa de entrada (depois de ela já ter aparecido) ou com opção numerada.
+        // Codex: opção numerada com a dica do menu embaixo; só a opção podia ser uma mensagem sua
+        // que começa com "1." (o Codex mostra o que você mandou com "›" na frente).
+        noteMenu(status !== "exited" && (kind === "claude" ? !found && (option || boxSeen) : option && hint));
       });
     };
     const drawn = terminal.onRender(scan);
     const scrolled = terminal.onScroll(scan);
+    // Com a conversa na frente, o desenho pode não acontecer: a escrita também confere.
+    const parsed = terminal.onWriteParsed(scan);
 
     const input = terminal.onData(sendInput);
     const observer = new ResizeObserver(() => fit());
@@ -381,6 +450,8 @@ export function TerminalView({
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
+      window.clearTimeout(menuTimer);
+      parsed.dispose();
       terminals.delete(session.id);
       observer.disconnect();
       drawn.dispose();
@@ -394,6 +465,39 @@ export function TerminalView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id, client]);
+
+  // Ajuste novo (Ajustes → Agentes): vale para o painel que não foi trocado à mão.
+  useEffect(() => {
+    if (!chosenView.has(session.id)) setViewState(defaultView);
+  }, [defaultView, session.id]);
+
+  // O menu acabou: o próximo volta a aparecer, mesmo que este tenha sido dispensado.
+  useEffect(() => {
+    if (!menu) setMenuDismissed(false);
+  }, [menu]);
+
+  // ⌘⇧T no painel em foco alterna conversa e terminal.
+  const lastViewSignal = useRef(viewSignal);
+  useEffect(() => {
+    if (viewSignal === lastViewSignal.current) return;
+    lastViewSignal.current = viewSignal;
+    if (!agentKind || !viewSignal) return;
+    if (shown === "terminal") {
+      setView("conversa");
+      setMenuDismissed(true);
+    } else {
+      setView("terminal");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewSignal]);
+
+  // Trocou para o terminal: ele mede a área de novo (o painel pode ter mudado de tamanho atrás da conversa).
+  useEffect(() => {
+    if (shown !== "terminal" || slot === "hidden") return;
+    const frame = requestAnimationFrame(() => fit());
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown, slot]);
 
   // Agente hibernado (v0.9.8) acorda quando o terminal dele ganha o foco.
   useEffect(() => {
@@ -440,8 +544,8 @@ export function TerminalView({
   }, [searchSignal]);
 
   const status = session.status;
-  const agentKind = session.kind === "claude" || session.kind === "codex" ? session.kind : null;
   const other = agentKind === "claude" ? "codex" : "claude";
+  const menuForced = !!agentKind && view === "conversa" && shown === "terminal";
   return (
     <section
       className="pane"
@@ -482,13 +586,32 @@ export function TerminalView({
             {STATUS_LABEL[status]}
           </span>
         )}
+        {agentKind && (
+          <div className="view-toggle" role="radiogroup" aria-label="Vista do agente">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={shown === "conversa"}
+              title="Conversa: imagens, fluxogramas e código desenhados (⌘⇧T alterna)"
+              onClick={() => {
+                setView("conversa");
+                setMenuDismissed(true);
+              }}
+            >
+              <Icon d={ICON.chat} size={13} strokeWidth={1.9} />
+            </button>
+            <button type="button" role="radio" aria-checked={shown === "terminal"} title="Terminal do agente, como ele roda (⌘⇧T alterna)" onClick={() => setView("terminal")}>
+              <Icon d={ICON.terminal} size={13} strokeWidth={1.9} />
+            </button>
+          </div>
+        )}
         <SessionMenu client={client} session={session} />
         {agentKind && onHandOff && <HandOffButton other={other} onHandOff={onHandOff} hint={quotaHint ?? null} />}
         <button
           type="button"
           className="icon-btn"
-          title="Buscar no terminal (⌘F)"
-          aria-label="Buscar no terminal"
+          title={shown === "conversa" ? "Buscar na conversa (⌘F)" : "Buscar no terminal (⌘F)"}
+          aria-label={shown === "conversa" ? "Buscar na conversa" : "Buscar no terminal"}
           aria-pressed={searchOpen}
           onClick={() => setSearchOpen((v) => !v)}
         >
@@ -500,7 +623,7 @@ export function TerminalView({
           </button>
         )}
       </div>
-      {searchOpen && (
+      {searchOpen && shown === "terminal" && (
         <TerminalSearch
           addon={searcher.current}
           onClose={() => {
@@ -512,20 +635,49 @@ export function TerminalView({
           signal={searchSignal}
         />
       )}
-      <div
-        className="term-host"
-        ref={host}
-        onMouseUp={() => {
-          // Clique sem selecionar texto num terminal só para ler: volta para a barra.
-          if (readOnly && !term.current?.hasSelection()) onFocusInput?.();
-        }}
-      >
-        {corner}
-        {cover && (
-          <div className="term-cover" style={{ top: `calc(10px + ${cover.top} * var(--cell-h, 17px))` }} aria-hidden="true">
-            <span>{footer ? "escreva na barra abaixo · ↑↓ ↵ esc vão para o agente" : "escreva na barra de baixo · ↑↓ ↵ esc vão para o agente"}</span>
+      <div className="pane-body" data-view={shown}>
+        <div
+          className="term-host"
+          ref={host}
+          onMouseUp={() => {
+            // Clique sem selecionar texto num terminal só para ler: volta para a barra.
+            if (readOnly && !term.current?.hasSelection()) onFocusInput?.();
+          }}
+        >
+          {cover && (
+            <div className="term-cover" style={{ top: `calc(10px + ${cover.top} * var(--cell-h, 17px))` }} aria-hidden="true">
+              <span>{footer ? "escreva na barra abaixo · ↑↓ ↵ esc vão para o agente" : "escreva na barra de baixo · ↑↓ ↵ esc vão para o agente"}</span>
+            </div>
+          )}
+        </div>
+        {agentKind && (
+          <ChatView
+            session={session}
+            client={client}
+            theme={theme}
+            visible={slot !== "hidden" && shown === "conversa"}
+            searchOpen={searchOpen && shown === "conversa"}
+            searchSignal={searchSignal}
+            onCloseSearch={() => {
+              setSearchOpen(false);
+              onFocusInput?.();
+            }}
+            onLink={onLink}
+            onOpenFile={onOpenFile}
+            onFocusInput={onFocusInput}
+            onPasteFiles={onPasteFiles}
+            onShowTerminal={() => setView("terminal")}
+          />
+        )}
+        {menuForced && (
+          <div className="term-menu-note" role="status">
+            <span>O agente abriu um menu: ↑↓ e ⏎ na barra vazia escolhem.</span>
+            <button type="button" onClick={() => setMenuDismissed(true)}>
+              Voltar à conversa
+            </button>
           </div>
         )}
+        {corner}
       </div>
       {agentKind && status === "exited" && onRestart && (
         <ExitStrip

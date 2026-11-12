@@ -16,6 +16,7 @@ import { usePomodoro } from "./lib/pomodoro";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
 import { Dock, type DockHandle } from "./components/Dock";
 import "./components/terminals.css";
+import "./components/chat.css";
 import { warmMonaco } from "./lib/monaco";
 import { AddProjectDialog, NewWorkspaceDialog, type NewWorkspaceRequest } from "./components/ProjectDialogs";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -207,6 +208,8 @@ export default function App() {
   const [resizing, setResizing] = useState(false);
   /** ⌘F: qual terminal abre a busca, e um contador para abrir de novo. */
   const [searchSignal, setSearchSignal] = useState<{ id: string; n: number } | null>(null);
+  /** v1.2.0: ⌘⇧T alterna conversa e terminal no painel de agente em foco. */
+  const [viewSignal, setViewSignal] = useState<{ id: string; n: number } | null>(null);
   /** Tema do terminal (v0.9.3, importado do Ghostty); null = as cores do tema da MÊTIS. */
   const [termTheme, setTermTheme] = useState<TerminalTheme | null>(() => stored<TerminalTheme | null>("harness.termTheme", null));
   const [floatOpen, setFloatOpen] = useState(false);
@@ -627,6 +630,14 @@ export default function App() {
   };
   const openFile = (path: string, root = contextPlace?.worktree.path) => {
     if (root) openDoc({ type: "file", root, path });
+  };
+  /** v1.2.0: arquivo citado na conversa de um agente. Dentro da worktree dele, abre ao lado do
+   *  agente; fora dela (um print em /tmp, uma imagem em ~/Downloads), pela pasta do arquivo. */
+  const openChatFile = (path: string, cwd: string) => {
+    const root = (placeFor(cwd)?.worktree.path ?? cwd).replace(/\/$/, "");
+    if (root && path.startsWith(`${root}/`)) return openDoc({ type: "file", root, path: path.slice(root.length + 1) });
+    const cut = path.lastIndexOf("/");
+    openDoc({ type: "file", root: path.slice(0, cut) || "/", path: path.slice(cut + 1) });
   };
 
   const webCount = useRef(0);
@@ -1215,6 +1226,10 @@ export default function App() {
       case "buscar":
         if (view !== "term" || !focusedSession) return false;
         setSearchSignal((last) => ({ id: focusedSession.id, n: (last?.n ?? 0) + 1 }));
+        return true;
+      case "conversa.alternar":
+        if (view !== "term" || !focusedSession || focusedSession.kind === "shell") return false;
+        setViewSignal((last) => ({ id: focusedSession.id, n: (last?.n ?? 0) + 1 }));
         return true;
       case "dividir.direita":
         splitFocused("right");
@@ -2299,6 +2314,9 @@ export default function App() {
                       colors={termTheme?.cores ?? customOf(theme)?.terminal ?? null}
                       font={appearance}
                       searchSignal={searchSignal?.id === session.id ? searchSignal.n : undefined}
+                      viewSignal={viewSignal?.id === session.id ? viewSignal.n : undefined}
+                      defaultView={harness.prefs?.vista_agente ?? "conversa"}
+                      onOpenFile={(path) => openChatFile(path, session.cwd)}
                       accountName={accountName(session)}
                       badge={agent ? <AgentSprite agent={agent} client={harness.client} size={16} /> : undefined}
                       place={place ? `${place.project.name} · ${wtName(place.worktree)}` : null}

@@ -69,6 +69,10 @@ export const ICON = {
   checklist: "M4 6l1.5 1.5L8 5M11 6.5h9M4 12l1.5 1.5L8 11M11 12.5h9M4 18h4M11 18.5h9",
   more: "M6 12h.01M12 12h.01M18 12h.01",
   arrowRight: "M5 12h14M13 6l6 6-6 6",
+  /** v1.2.0: a conversa do agente e as imagens dentro dela. */
+  chat: "M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",
+  image: "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM3 16l5-5 4 4 3-3 6 6M15.5 8.5h.01",
+  copy: "M9 9h10v11H9zM5 15V4h10",
 } as const;
 
 export function Icon({ d, size = 18, strokeWidth = 1.7 }: { d: string; size?: number; strokeWidth?: number }) {

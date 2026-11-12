@@ -102,6 +102,7 @@ import type {
   NoteTitle,
   BarCommand,
   SessionContext,
+  ChatPage,
   ThemeEntry,
  ConnectorTool, ToolMode, BoardTask, AutoQueueView, AutoItem, AutoSettings, VaultNode, ModelUsageReport } from "../types";
 
@@ -1195,6 +1196,22 @@ export class CoreClient {
   /** A conversa da sessão (id, transcript e as últimas mensagens). v1.0: rota própria, fora do /contexto. */
   sessionContext(id: string): Promise<SessionContext> {
     return this.request("GET", `/sessions/${encodeURIComponent(id)}/conversa`);
+  }
+
+  /**
+   * v1.2.0: a conversa desenhada. Sem `fonte`, as últimas; com `fonte` e `apos`, só o que mudou
+   * depois dessa versão; com `antes`, as mensagens anteriores a esse item.
+   */
+  conversation(id: string, params: { fonte?: string; apos?: number; antes?: number; limite?: number } = {}): Promise<ChatPage> {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== "") query.set(key, String(value));
+    return this.request("GET", `/sessions/${encodeURIComponent(id)}/conversa/itens?${query}`);
+  }
+
+  /** Imagem da conversa para o <img>: dentro do transcript (ref) ou no disco (arquivo). */
+  conversationImageUrl(fonte: string, image: { ref?: string; arquivo?: string }): string {
+    if (image.ref) return `${this.info.url}/conversa/imagem?${new URLSearchParams({ fonte, ref: image.ref, token: this.info.token })}`;
+    return `${this.info.url}/conversa/arquivo?${new URLSearchParams({ caminho: image.arquivo ?? "", token: this.info.token })}`;
   }
 
   /** Acorda o agente hibernado (SIGCONT). */
