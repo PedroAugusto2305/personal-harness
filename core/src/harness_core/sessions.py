@@ -44,6 +44,9 @@ BLOCKED_ENV_KEYS = {
     "CLAUDE_CODE_SESSION_ATTENDED",
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_SSE_PORT",
+    # Um núcleo Dev pode nascer dentro de um terminal da MÊTIS instalada. O token da
+    # central daquela sessão nunca pertence aos filhos (shell ou outro agente).
+    "METIS_MCP_TOKEN",
 }
 
 # Hook do Claude Code → status do agente na interface.

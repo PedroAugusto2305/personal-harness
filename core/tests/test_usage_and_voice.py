@@ -183,6 +183,22 @@ def test_attachments_are_saved_privately_with_a_safe_name(settings, accounts):
         assert oct(saved.stat().st_mode & 0o777) == "0o600"
 
 
+def test_jpeg_xl_attachment_is_normalized_to_png(settings, accounts, monkeypatch):
+    def fake_sips(command, **_kwargs):
+        output = __import__("pathlib").Path(command[-1])
+        output.write_bytes(b"\x89PNG converted")
+        return __import__("subprocess").CompletedProcess(command, 0)
+
+    monkeypatch.setattr("harness_core.attachments._run", fake_sips)
+    with TestClient(create_app(settings, accounts=accounts, poll_codex=False)) as client:
+        answer = client.post("/attachments", params={"name": "capa.jxl"}, content=b"jpeg xl", headers=AUTH)
+        assert answer.status_code == 201
+        saved = __import__("pathlib").Path(answer.json()["path"])
+        assert saved.suffix == ".png" and saved.read_bytes() == b"\x89PNG converted"
+        assert not saved.with_suffix(".jxl").exists()
+        assert oct(saved.stat().st_mode & 0o777) == "0o600"
+
+
 def test_harness_command_works_inside_app_terminals(settings, accounts):
     import subprocess
 
