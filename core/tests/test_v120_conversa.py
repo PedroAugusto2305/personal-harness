@@ -319,3 +319,49 @@ def test_codex_retomado_mostra_a_conversa_antiga_antes_do_primeiro_turno(core, t
     assert client.get(f"/sessions/{fresh['id']}/conversa/itens", headers=AUTH).json()["disponivel"] is False  # sessão nova não pega a antiga
     for sid in (session["id"], fresh["id"]):
         client.delete(f"/sessions/{sid}", headers=AUTH)
+
+
+def test_codex_mostra_o_comando_rodando_desde_a_chamada(tmp_path):
+    """No Codex 0.154 o comando pronto só é gravado quando termina: um pytest de 4 minutos ficava
+    invisível e a conversa parecia parada. A chamada do modelo, gravada no começo, vira a linha
+    "rodando" que o item pronto completa (pelo texto do comando)."""
+    path = tmp_path / "rollout.jsonl"
+    exec_call = lambda call_id, js: {"type": "response_item", "payload": {"type": "custom_tool_call", "call_id": call_id, "name": "exec", "input": js}}  # noqa: E731
+    output = lambda call_id, text: {"type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": call_id, "output": [{"type": "input_text", "text": text}]}}  # noqa: E731
+    done = lambda item_id, cmd, out, code=0: {"type": "event_msg", "payload": {"type": "item_completed", "item": {  # noqa: E731
+        "type": "CommandExecution", "id": item_id, "command": ["/bin/zsh", "-lc", cmd], "parsed_cmd": [{"type": "unknown"}], "aggregated_output": out, "exit_code": code, "status": "completed"}}}
+    write_lines(path, [
+        {"type": "session_meta", "payload": {"id": "th-3", "cwd": str(tmp_path)}},
+        {"type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "UserMessage", "id": "u", "content": []}}},
+        {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "roda tudo"}]}},
+        exec_call("c1", 'const [a, b] = await Promise.all([tools.exec_command({"cmd":"uv run pytest -q","yield_time_ms":30000}), tools.exec_command({cmd: \'git status\'})]);'),
+    ])  # fmt: skip
+    first = conversa.page(conversa.read(str(path), "codex"))
+    tools = [i for i in first["itens"] if i["tipo"] == "ferramenta"]
+    assert [(t["rotulo"], t["estado"]) for t in tools] == [("uv run pytest -q", "rodando"), ("git status", "rodando")]
+    write_lines(path, [
+        done("e-git", "git status", "nada a commitar"),  # o segundo terminou primeiro
+        output("c1", "Script running with cell ID 7\nWall time 30.0 seconds"),  # o pytest segue vivo
+    ], "a")  # fmt: skip
+    state = conversa.read(str(path), "codex")
+    assert [(t["rotulo"], t["estado"]) for t in state.items if t["tipo"] == "ferramenta"] == [("uv run pytest -q", "rodando"), ("git status", "ok")]
+    write_lines(path, [
+        {"type": "response_item", "payload": {"type": "function_call", "call_id": "w1", "name": "wait", "arguments": "{\"cell_id\":\"7\"}"}},
+        done("e-test", "uv run pytest -q", "1 failed", 1),
+        exec_call("c2", 'const r = await tools.exec_command({"cmd":"sed -n 1,5p a.txt"});'),
+        output("c2", "Script completed\nWall time 0.2 seconds\nOutput:\nlinha 1"),  # o Codex não gravou o item deste
+        exec_call("c3", 'const i = await tools.view_image({path:"/tmp/x.avif"});'),
+        output("c3", "Script failed\nWall time 0.1 seconds"),
+        exec_call("c4", 'await tools.exec_command({"cmd":"sleep 100"});'),
+        {"type": "event_msg", "payload": {"type": "turn_aborted"}},
+    ], "a")  # fmt: skip
+    state = conversa.read(str(path), "codex")
+    tools = [(t["rotulo"], t["estado"], t.get("saida") or "") for t in state.items if t["tipo"] == "ferramenta"]
+    assert tools == [
+        ("uv run pytest -q", "erro", "1 failed"),
+        ("git status", "ok", "nada a commitar"),
+        ("sed -n 1,5p a.txt", "ok", "Script completed\nWall time 0.2 seconds\nOutput:\nlinha 1"),
+        ("Vendo /tmp/x.avif", "erro", "Script failed\nWall time 0.1 seconds"),
+        ("sleep 100", "erro", "interrompido"),
+    ]  # fmt: skip
+    assert state.pending == {} and state.call_slots == {}

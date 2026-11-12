@@ -81,6 +81,10 @@ class _State:
         self.items_mode = False
         #: Claude: o último comando `!` (a saída dele chega na mensagem seguinte).
         self.last_bash: str | None = None
+        #: Codex com itens prontos: linhas "rodando" criadas pela chamada do modelo, à espera do
+        #: item pronto que as completa (por tipo), e as linhas de cada chamada (pelo call_id).
+        self.pending: dict[str, list[str]] = {}
+        self.call_slots: dict[str, list[str]] = {}
         self.lock = threading.Lock()
 
     @property
@@ -524,9 +528,12 @@ def _codex(state: _State, entry: dict, offset: int) -> None:
             item = payload.get("item")
             if isinstance(item, dict):
                 _codex_item(state, item, entry, offset)
-        elif e_type == "task_complete" and payload.get("duration_ms"):
-            _event(state, f"Trabalhou por {_duration(float(payload['duration_ms']))}", entry, "duracao")
+        elif e_type == "task_complete":
+            _close_slots(state, "ok")
+            if payload.get("duration_ms"):
+                _event(state, f"Trabalhou por {_duration(float(payload['duration_ms']))}", entry, "duracao")
         elif e_type == "turn_aborted":
+            _close_slots(state, "erro", "interrompido")
             _event(state, "Interrompido por você", entry, "interrompido")
         elif e_type == "context_compacted":
             _event(state, "Conversa compactada", entry, "compactada")
@@ -566,6 +573,9 @@ def _codex(state: _State, entry: dict, offset: int) -> None:
         _codex_call(state, payload, entry, offset)
         return
     if p_type in ("function_call_output", "custom_tool_call_output"):
+        if str(payload.get("call_id") or "") in state.call_slots:
+            _slot_output(state, payload, offset)
+            return
         item = state.get(str(payload.get("call_id") or ""))
         if item is None or item.get("tipo") != "ferramenta":
             return
@@ -612,7 +622,10 @@ def _codex_call(state: _State, payload: dict, entry: dict, offset: int) -> None:
         state.add({"id": call_id, "tipo": "plano", "passos": steps, "texto": args.get("explanation") or None, "hora": _when(entry)})
         return
     if state.items_mode:
-        return  # as ferramentas chegam como itens prontos (CommandExecution, FileChange…)
+        # As ferramentas chegam como itens prontos (CommandExecution, FileChange…), mas só quando
+        # terminam: a chamada, gravada no começo, vira a linha "rodando" que o item completa.
+        _codex_slots(state, payload, name, args, call_id, entry)
+        return
     item: dict = {"id": call_id, "tipo": "ferramenta", "nome": name, "categoria": "outra", "estado": "rodando", "hora": _when(entry)}
     if p_type == "local_shell_call" or name in ("shell", "exec_command", "container.exec", "shell_command"):
         command = (payload.get("action") or {}).get("command") if p_type == "local_shell_call" else args.get("cmd") or args.get("command")
@@ -637,6 +650,126 @@ def _codex_call(state: _State, payload: dict, entry: dict, offset: int) -> None:
         body = payload.get("input") if isinstance(payload.get("input"), str) else (json.dumps(args, ensure_ascii=False, indent=2) if args else "")
         item.update(rotulo=name, detalhe=_cut(str(body), INPUT_LIMIT) or None)
     state.add(item)
+
+
+JS_CMD = re.compile(r"""\bcmd["']?\s*:\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`([^`]*)`)""")
+JS_IMAGE = re.compile(r"""view_image\s*\(\s*\{\s*["']?path["']?\s*:\s*["']((?:[^"'\\]|\\.)*)["']""")
+
+
+#: A saída do `exec` diz que o comando segue vivo (ele devolve antes e o Codex espera depois).
+STILL_RUNNING = re.compile(r"Script running|SESSION_ID=|Process running with session", re.I)
+
+
+def _js_string(raw: str) -> str:
+    try:
+        return json.loads(f'"{raw}"')
+    except ValueError:
+        return raw.replace("\\n", "\n").replace('\\"', '"')
+
+
+def _codex_slots(state: _State, payload: dict, name: str, args: dict, call_id: str | None, entry: dict) -> None:
+    """Linhas "rodando" de uma chamada do Codex (v1.2.0). Antes, com os itens prontos, um pytest
+    de 4 minutos só aparecia na conversa quando terminava, e a tela parecia parada. No modo de
+    código do Codex 0.154 uma chamada `exec` traz um JavaScript que pode rodar vários comandos
+    (Promise.all): cada `cmd` vira uma linha."""
+    if not call_id:
+        return
+    source = payload.get("input") if isinstance(payload.get("input"), str) else ""
+    slots: list[tuple[str, dict]] = []
+    command_names = ("exec_command", "shell", "shell_command", "container.exec")
+    if name in command_names or payload.get("type") == "local_shell_call":
+        command = args.get("cmd") or args.get("command") or (payload.get("action") or {}).get("command")
+        if isinstance(command, list):
+            command = command[-1] if len(command) >= 3 and command[1] in ("-lc", "-c") else " ".join(map(str, command))
+        if command:
+            slots.append(("comando", {"nome": "exec_command", "categoria": "comando", "rotulo": str(command).splitlines()[0][:120], "detalhe": _cut(str(command), INPUT_LIMIT), "lingua": "bash"}))
+    elif name == "apply_patch":
+        slots.append(("edicao", {"nome": "apply_patch", "categoria": "edicao", "rotulo": "Editando arquivos"}))
+    elif name == "view_image":
+        slots.append(("imagem", {"nome": "view_image", "categoria": "imagem", "rotulo": f"Vendo {_short_path(str(args.get('path') or ''), state.cwd)}"}))
+    elif "__" in name:
+        server, _sep, tool = name.removeprefix("mcp__").partition("__")
+        slots.append(("mcp", {"nome": name, "categoria": "mcp", "rotulo": f"{server} · {tool}", "detalhe": _cut(json.dumps(args, ensure_ascii=False, indent=2), INPUT_LIMIT), "lingua": "json"}))
+    elif source:
+        for match in JS_CMD.finditer(source):
+            command = _js_string(next(g for g in match.groups() if g is not None))
+            slots.append(("comando", {"nome": "exec_command", "categoria": "comando", "rotulo": command.splitlines()[0][:120] if command else "comando", "detalhe": _cut(command, INPUT_LIMIT), "lingua": "bash"}))
+        for match in JS_IMAGE.finditer(source):
+            slots.append(("imagem", {"nome": "view_image", "categoria": "imagem", "rotulo": f"Vendo {_short_path(_js_string(match.group(1)), state.cwd)}"}))
+        if "apply_patch" in source:
+            slots.append(("edicao", {"nome": "apply_patch", "categoria": "edicao", "rotulo": "Editando arquivos"}))
+    for k, (kind, item) in enumerate(slots):
+        item.update(id=f"{call_id}#{k}", tipo="ferramenta", estado="rodando", hora=_when(entry))
+        state.add(item)
+        state.pending.setdefault(kind, []).append(item["id"])
+        state.call_slots.setdefault(call_id, []).append(item["id"])
+
+
+def _slot_output(state: _State, payload: dict, offset: int) -> None:
+    """Saída de uma chamada que tem linhas "rodando". Quando o comando sai pronto, o item vem
+    antes da saída e a linha já fechou. O que ainda gira fecha aqui com a saída: o Codex nem
+    sempre grava o item do comando. A exceção é o comando que segue vivo ("Script running with
+    cell ID", `SESSION_ID=`): o `exec` devolve antes, e quem fecha a linha é o item pronto."""
+    call_id = str(payload.get("call_id") or "")
+    output = payload.get("output")
+    if isinstance(output, dict):
+        text, images, failed = str(output.get("content") or ""), [], output.get("success") is False
+    else:
+        text, images = _result_parts(state, output, offset, "payload", "output")
+        failed = text.lstrip().startswith("Script failed")
+    running = not failed and bool(STILL_RUNNING.search(text))
+    for slot_id in state.call_slots.pop(call_id, []):
+        slot = state.get(slot_id)
+        if slot is None or slot.get("estado") != "rodando":
+            continue
+        if slot.get("categoria") == "comando" and running:
+            continue
+        changes: dict = {"saida": _cut(ANSI.sub("", text), OUTPUT_LIMIT), "estado": "erro" if failed else "ok"}
+        if images:
+            changes["imagens"] = (slot.get("imagens") or []) + images
+        state.update(slot, changes)
+        _unqueue(state, slot_id)
+
+
+def _unqueue(state: _State, slot_id: str) -> None:
+    for queue in state.pending.values():
+        if slot_id in queue:
+            queue.remove(slot_id)
+
+
+def _close_slots(state: _State, estado: str, saida: str | None = None) -> None:
+    """Fim do turno: linha que ficou "rodando" sem item pronto fecha (no fim normal, sem erro)."""
+    for queue in state.pending.values():
+        for slot_id in queue:
+            slot = state.get(slot_id)
+            if slot is not None and slot.get("estado") == "rodando":
+                state.update(slot, {"estado": estado, **({"saida": saida} if saida and not slot.get("saida") else {})})
+    state.pending.clear()
+    state.call_slots.clear()
+
+
+def _settle(state: _State, item: dict, kind: str) -> None:
+    """Item pronto do Codex: completa a linha "rodando" que espera por ele (o mesmo comando, ou a
+    mais antiga do tipo) ou entra como linha nova."""
+    item_id = item.get("id")
+    if item_id and item_id in state.by_id:
+        state.update(state.items[state.by_id[item_id]], {k: v for k, v in item.items() if k not in ("id", "n", "v")})
+        return
+    queue = state.pending.get(kind) or []
+    target = None
+    if kind == "comando":
+        wanted = (item.get("detalhe") or "").strip()
+        target = next((sid for sid in queue if (state.get(sid) or {}).get("detalhe", "").strip() == wanted), None)
+    target = target or next((sid for sid in queue if (state.get(sid) or {}).get("estado") == "rodando"), None)
+    slot = state.get(target) if target else None
+    if slot is None:
+        state.add(item)
+        return
+    _unqueue(state, target)
+    fields = {k: v for k, v in item.items() if k not in ("id", "n", "v")}
+    state.update(slot, fields)
+    if item_id:
+        state.by_id[item_id] = slot["n"]
 
 
 def _codex_item(state: _State, item: dict, entry: dict, offset: int) -> None:
@@ -668,8 +801,8 @@ def _codex_item(state: _State, item: dict, entry: dict, offset: int) -> None:
             str(item.get(k) or "") for k in ("stdout", "stderr") if item.get(k)
         )
         failed = state_of == "erro" or (isinstance(code, int) and code != 0)
-        state.add({"id": item_id, "tipo": "ferramenta", "nome": "exec_command", "categoria": category, "rotulo": label, "detalhe": _cut(command, INPUT_LIMIT),
-                   "lingua": "bash", "saida": _cut(ANSI.sub("", str(output)), OUTPUT_LIMIT), "codigo": code, "estado": "erro" if failed else "ok", "hora": when})  # fmt: skip
+        _settle(state, {"id": item_id, "tipo": "ferramenta", "nome": "exec_command", "categoria": category, "rotulo": label, "detalhe": _cut(command, INPUT_LIMIT),
+                   "lingua": "bash", "saida": _cut(ANSI.sub("", str(output)), OUTPUT_LIMIT), "codigo": code, "estado": "erro" if failed else "ok", "hora": when}, "comando")  # fmt: skip
     elif key == "filechange":
         changes = item.get("changes") or []
         if isinstance(changes, dict):
@@ -685,8 +818,8 @@ def _codex_item(state: _State, item: dict, entry: dict, offset: int) -> None:
             kind = change.get("kind") or change.get("type")
             kind = kind.get("type") if isinstance(kind, dict) else kind
             patches.append(f"*** {kind or 'update'}: {path}\n{diff}")
-        state.add({"id": item_id, "tipo": "ferramenta", "nome": "apply_patch", "categoria": "edicao", "rotulo": "Editou " + (", ".join(files[:3]) or "arquivos"),
-                   "patch": _cut("\n".join(patches), OUTPUT_LIMIT), "estado": state_of, "hora": when})  # fmt: skip
+        _settle(state, {"id": item_id, "tipo": "ferramenta", "nome": "apply_patch", "categoria": "edicao", "rotulo": "Editou " + (", ".join(files[:3]) or "arquivos"),
+                        "patch": _cut("\n".join(patches), OUTPUT_LIMIT), "estado": state_of, "hora": when}, "edicao")  # fmt: skip
     elif key == "mcptoolcall":
         result = item.get("result") or {}
         text, images = ("", [])
@@ -695,11 +828,11 @@ def _codex_item(state: _State, item: dict, entry: dict, offset: int) -> None:
             if not text and result.get("structured_content") is not None:
                 text = json.dumps(result.get("structured_content"), ensure_ascii=False, indent=2)
         error = item.get("error")
-        state.add({"id": item_id, "tipo": "ferramenta", "nome": f"{item.get('server')}__{item.get('tool')}", "categoria": "mcp",
+        _settle(state, {"id": item_id, "tipo": "ferramenta", "nome": f"{item.get('server')}__{item.get('tool')}", "categoria": "mcp",
                    "rotulo": f"{item.get('server') or 'mcp'} · {item.get('tool') or ''}", "lingua": "json",
                    "detalhe": _cut(json.dumps(item.get("arguments"), ensure_ascii=False, indent=2), INPUT_LIMIT) if item.get("arguments") is not None else None,
                    "saida": _cut(str((error or {}).get("message") if isinstance(error, dict) else error or text), OUTPUT_LIMIT),
-                   "estado": "erro" if error else state_of, "imagens": images, "hora": when})  # fmt: skip
+                   "estado": "erro" if error else state_of, "imagens": images, "hora": when}, "mcp")  # fmt: skip
     elif key == "websearch" or (key == "extension" and str(item.get("kind") or "").startswith("web")):
         action = item.get("action") or {}
         queries = action.get("queries") or [action.get("query") or item.get("query") or ""]
@@ -709,8 +842,8 @@ def _codex_item(state: _State, item: dict, entry: dict, offset: int) -> None:
                    "saida": listing or None, "lingua": "markdown", "estado": state_of, "hora": when})  # fmt: skip
     elif key == "imageview":
         image = _file_image(str(item.get("path") or ""), state.cwd, check=False)
-        state.add({"id": item_id, "tipo": "ferramenta", "nome": "view_image", "categoria": "imagem", "rotulo": f"Viu {_short_path(str(item.get('path') or ''), state.cwd)}",
-                   "imagens": [image] if image else [], "estado": "ok", "hora": when})  # fmt: skip
+        _settle(state, {"id": item_id, "tipo": "ferramenta", "nome": "view_image", "categoria": "imagem", "rotulo": f"Viu {_short_path(str(item.get('path') or ''), state.cwd)}",
+                        "imagens": [image] if image else [], "estado": "ok", "hora": when}, "imagem")  # fmt: skip
     elif key == "imagegeneration":
         images: list[dict] = []
         saved = item.get("saved_path") or item.get("savedPath") or item.get("path")
