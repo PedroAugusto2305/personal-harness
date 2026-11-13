@@ -448,3 +448,17 @@ def test_study_question_carries_the_agent_name(tmp_path):
     study = StudyMap(Vault(root), project=lambda: "AI Engineer 2027")
     done = study.add_question("Injeção de prompt", "Qual é a indireta?", ["A", "B"], who="Mentor de Estudos")
     assert "> [!pergunta] Pergunta de previsão · Mentor de Estudos" in (root / done["caminho"]).read_text(encoding="utf-8")
+
+
+def test_study_site_label_is_accepted_by_the_native_browser():
+    """v1.3.2: o browser.rs só abre página com rótulo "browser-…"; com "estudo-notebooklm" a aba
+    NotebookLM ficava em branco e a janela avisava "aba de navegador inválida"."""
+    import re
+
+    root = Path(__file__).resolve().parents[2]
+    rust = (root / "app/src-tauri/src/browser.rs").read_text()
+    prefixes = set(re.findall(r'label\.starts_with\("([^"]+)"\)', rust))
+    assert prefixes == {"browser-"}
+    tsx = (root / "app/src/components/StudyNotebook.tsx").read_text()
+    label = re.search(r'export const STUDY_WEB_LABEL = "([^"]+)"', tsx)
+    assert label and label[1].startswith("browser-")

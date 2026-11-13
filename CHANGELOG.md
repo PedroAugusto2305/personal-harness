@@ -2,6 +2,10 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.3.2 · o site do NotebookLM aparece na aba do Estudo
+
+- **A aba NotebookLM mostra o site.** Desde a 1.3.0 a página ficava em branco e a janela avisava "aba de navegador inválida": a aba do Estudo tinha um nome que o navegador embutido da MÊTIS recusava. Agora o NotebookLM abre ali, no caderno escolhido, como em qualquer aba do navegador.
+
 ## v1.3.1 · o login do NotebookLM fica aberto até você entrar
 
 - **Entrar e ligar ao chat voltou a funcionar.** A janela do Chrome abria, piscava e fechava sozinha, e a aba continuava dizendo que o login tinha vencido. O perfil próprio do `notebooklm-py` guardava o cookie de uma sessão do Google que já tinha caído; o CLI tomava esse cookie por login feito, salvava uma sessão que não vale e fechava a janela antes de você conseguir entrar. Agora o Entrar sempre começa num perfil limpo (`--fresh`): a janela abre na tela de login do Google e espera até você terminar, inclusive a verificação em duas etapas (até 14 minutos, eram 5).

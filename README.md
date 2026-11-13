@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.3.1)
+## O que já faz (v1.3.2)
+
+**Na 1.3.2:** a aba NotebookLM do Estudo mostra o site de verdade (antes ficava em branco com o aviso "aba de navegador inválida").
 
 **Na 1.3.1:** o Entrar da aba NotebookLM abre o login do Google num perfil limpo e a janela fica aberta até você terminar (antes ela piscava e fechava sozinha, presa a uma sessão do Google que já tinha caído); se o login não valer, a aba diz por quê.
 
