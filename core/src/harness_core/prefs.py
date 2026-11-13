@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -27,6 +28,7 @@ GIT_AGENTS = ("claude", "codex")
 HIBERNATE_MINUTES = (0, 15, 30, 60)
 AGENT_VIEWS = ("conversa", "terminal")
 RECIPE_MAX = 4000
+NOTEBOOK_ID = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 
 # Receitas de IA por ação (v0.9.6): o pedido que vai ao agente da worktree. {base} vira o branch alvo do PR.
 RECIPE_COMMIT = (
@@ -58,6 +60,8 @@ DEFAULTS: dict[str, Any] = {
     "vista_agente": "conversa",
     # v0.9.8: o projeto do Brain onde mora o mapa do estudo (conceitos/) e o cronograma.
     "estudo_projeto": "AI Engineer 2027",
+    # v1.3.0: o caderno do NotebookLM que o Sócrates usa como base das respostas (vazio = nenhum).
+    "estudo_caderno": {"id": "", "titulo": ""},
 }
 
 
@@ -112,6 +116,16 @@ class Prefs:
                     if not isinstance(value, str) or len(value) > 40:
                         raise PrefsError("editor externo inválido")
                     value = value.strip()
+                if key == "estudo_caderno":
+                    if value is None:
+                        value = {"id": "", "titulo": ""}
+                    if not isinstance(value, dict):
+                        raise PrefsError("o caderno do estudo é {id, titulo}")
+                    nb_id = str(value.get("id") or "").strip()
+                    if nb_id and not NOTEBOOK_ID.match(nb_id):
+                        raise PrefsError("id de caderno do NotebookLM inválido")
+                    title = " ".join(str(value.get("titulo") or "").split())[:200]
+                    value = {"id": nb_id, "titulo": title if nb_id else ""}
                 if key == "estudo_projeto":
                     if not isinstance(value, str) or not value.strip() or len(value) > 120:
                         raise PrefsError("o projeto de estudo é o nome de um projeto do Brain")

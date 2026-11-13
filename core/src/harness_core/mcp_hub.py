@@ -32,6 +32,7 @@ from .browser_bridge import BridgeError, BrowserBridge, normalize_url
 from .connectors import ConnectorError, ConnectorStore, tool_mode
 from .kanban import Kanban
 from .mcp_client import McpError
+from .notebooklm import NotebookError
 from .google import GoogleError
 from . import graphify_tools  # v0.9.8 parte 5: o grafo do código
 from .graphify_tools import GraphifyError
@@ -43,6 +44,9 @@ PROTOCOL = "2025-06-18"
 APPROVAL_TIMEOUT = 10 * 60
 UPSTREAM_TTL = 10 * 60
 MAX_NAME = 52  # o Claude mostra mcp__metis__<nome>, e o total não pode passar de 64
+#: v1.3.0: quanto a estudo_imagem espera o GPT antes de devolver o id para pegar depois. O Claude
+#: Code corta a chamada de MCP por HTTP em 60 s (visto no teste: o GPT leva uns 60 s por imagem).
+IMAGE_WAIT = 45
 
 INSTRUCTIONS = (
     "Central da MÊTIS, o ambiente pessoal do Pedro. Use brain_precedentes e brain_buscar para ver o que "
@@ -66,6 +70,8 @@ class Context:
     who: str
     cwd: str | None
     allowed: set[str] | None  # contas de conector liberadas; None = todas
+    #: v1.3.0: sessão de estudo (o Sócrates ou uma sessão aberta pelo Estudo): ganha o NotebookLM e as imagens.
+    estudo: bool = False
 
 
 @dataclass
@@ -198,7 +204,7 @@ class Hub:
         if session is None:
             return None
         info = self.session_info(session) or {}
-        return Context(session=session, who=info.get("who") or session, cwd=info.get("cwd"), allowed=info.get("allowed"))
+        return Context(session=session, who=info.get("who") or session, cwd=info.get("cwd"), allowed=info.get("allowed"), estudo=bool(info.get("estudo")))
 
     # --- ferramentas -----------------------------------------------------------------
 
@@ -421,6 +427,111 @@ class Hub:
             Tool("estudo_conceito_novo", "Cria um conceito no mapa de estudo (nota em conceitos/ do projeto), com um resumo curto e os conceitos relacionados (a ligação vale dos dois lados).",
                  _schema({"nome": {"type": "string"}, "resumo": {"type": "string"}, "relacionados": {"type": "array", "items": {"type": "string"}}}, ["nome"]), novo),
         ]  # fmt: skip
+
+    def _notebook_tools(self, ctx: Context) -> list[Tool]:
+        """v1.3.0: o NotebookLM do Pedro (pelo CLI do notebooklm-py) e as imagens de estudo (o GPT
+        desenha pelo Codex), só nas sessões de estudo. Leem e geram para o Pedro: sem aprovação."""
+        if not ctx.estudo:
+            return []
+        tools: list[Tool] = []
+        nlm = getattr(self, "notebooklm", None)
+        chosen = getattr(self, "study_notebook", None)
+        if nlm is not None and nlm.installed():
+
+            def current() -> dict:
+                value = chosen() if chosen else None
+                return value if isinstance(value, dict) else {}
+
+            def notebook(args: dict) -> tuple[str, str]:
+                given = str(args.get("caderno") or "").strip()
+                if given:
+                    return given, ""
+                value = current()
+                if not value.get("id"):
+                    raise ToolError("nenhum caderno do NotebookLM escolhido no Estudo: veja os cadernos com a ferramenta cadernos "
+                                    "e passe o id no campo caderno, ou peça ao Pedro para escolher um na aba NotebookLM do Estudo")  # fmt: skip
+                return value["id"], value.get("titulo") or ""
+
+            def cadernos(_args: dict, _ctx: Context) -> str:
+                items = nlm.notebooks()
+                if not items:
+                    return "O Pedro não tem cadernos no NotebookLM."
+                mine = current().get("id")
+                rows = [f"- {n['titulo']} · id {n['id']}" + (" ← o caderno do estudo" if n["id"] == mine else "") for n in items[:60]]
+                return f"{len(items)} caderno(s) no NotebookLM:\n" + "\n".join(rows)
+
+            def fontes(args: dict, _ctx: Context) -> str:
+                nb, title = notebook(args)
+                items = nlm.sources(nb)
+                if not items:
+                    return "O caderno não tem fontes."
+                rows = [f"- {s['titulo']} · id {s['id']}" + (f" · {s['tipo']}" if s.get("tipo") else "") + (f" · {s['url']}" if s.get("url") else "") for s in items]
+                head = f"Fontes do caderno «{title}»" if title else f"Fontes do caderno {nb}"
+                return f"{head} ({len(items)}):\n" + "\n".join(rows)
+
+            def perguntar(args: dict, _ctx: Context) -> str:
+                nb, title = notebook(args)
+                raw = args.get("fontes") or []
+                answer = nlm.ask(nb, str(args.get("pergunta") or ""), [str(x) for x in raw] if isinstance(raw, list) else [])
+                lines = [f"Resposta do NotebookLM{f' (caderno «{title}»)' if title else ''}:", answer["resposta"] or "(sem resposta)"]
+                if answer["citacoes"]:
+                    lines += ["", "Citações:"]
+                    for ref in answer["citacoes"][:20]:
+                        excerpt = ref["trecho"][:240] + ("…" if len(ref["trecho"]) > 240 else "")
+                        lines.append(f"[{ref['n']}] {ref['fonte'] or ref['fonte_id']}" + (f": \"{excerpt}\"" if excerpt else ""))
+                return "\n".join(lines)
+
+            def fonte(args: dict, _ctx: Context) -> str:
+                nb, _title = notebook(args)
+                part = nlm.fulltext(nb, str(args.get("fonte") or ""), int(args.get("inicio") or 0))
+                more = (f"\n\n[continua: chame de novo com inicio={part['fim']} para o resto ({part['total']} caracteres no total)]"
+                        if part["fim"] < part["total"] else "")  # fmt: skip
+                return f"Fonte «{part['titulo']}», caracteres {part['inicio']} a {part['fim']} de {part['total']}:\n\n{part['texto']}{more}"
+
+            caderno = {"type": "string", "description": "id do caderno; vazio = o caderno escolhido no Estudo"}
+            tools += [
+                Tool("cadernos", "Os cadernos do NotebookLM do Pedro, com o id de cada um; o escolhido para o estudo vem marcado.", _schema({}, []), cadernos),
+                Tool("caderno_fontes", "As fontes (PDFs, sites, vídeos, textos) de um caderno do NotebookLM, com o id de cada uma.",
+                     _schema({"caderno": caderno}, []), fontes),
+                Tool("caderno_perguntar", "Pergunta ao NotebookLM sobre o caderno: a resposta vem só das fontes dele, com as citações [n] e o trecho de cada fonte. "
+                     "Use antes de explicar um assunto do caderno. A pergunta aparece no chat do caderno no site do NotebookLM.",
+                     _schema({"pergunta": {"type": "string"}, "caderno": caderno,
+                              "fontes": {"type": "array", "items": {"type": "string"}, "description": "limita a estas fontes (ids)"}}, ["pergunta"]), perguntar),
+                Tool("caderno_fonte", "O texto completo de uma fonte do caderno, em Markdown, em pedaços de até 20 mil caracteres (use inicio para seguir).",
+                     _schema({"fonte": {"type": "string", "description": "id da fonte (veja caderno_fontes)"}, "caderno": caderno,
+                              "inicio": {"type": "integer", "minimum": 0}}, ["fonte"]), fonte),
+            ]  # fmt: skip
+        images = getattr(self, "study_images", None)
+        if images is not None and images.available():
+
+            def imagem(args: dict, ctx: Context) -> str:
+                job_id = str(args.get("id") or "").strip()
+                if job_id:
+                    job = images.wait(job_id, IMAGE_WAIT)
+                else:
+                    pedido = " ".join(str(args.get("pedido") or "").split())
+                    started = images.start(pedido, owner=ctx.session)
+                    if started.pedido != pedido:
+                        return (f"Já há uma imagem desta conversa sendo desenhada (id {started.id}: «{started.pedido[:120]}»). "
+                                f"Chame estudo_imagem com id={started.id} para pegá-la antes de pedir outra.")  # fmt: skip
+                    job = images.wait(started.id, IMAGE_WAIT)
+                if job.status == "error":
+                    raise ToolError(f"a imagem não saiu: {job.erro}")
+                if job.status != "done" or not job.caminho:
+                    return (f"Ainda desenhando (id {job.id}; o GPT leva cerca de 1 minuto). Escreva a explicação e o diagrama enquanto isso "
+                            f"e chame estudo_imagem com id={job.id} para pegar a imagem e mostrá-la.")  # fmt: skip
+                about = f" O GPT descreveu: {job.descricao}" if job.descricao else ""
+                return f"Imagem pronta: {job.caminho}.{about} Mostre na resposta com ![legenda curta]({job.caminho})."
+
+            tools.append(
+                Tool("estudo_imagem", "Desenha uma ilustração de estudo com o gerador de imagens do GPT (pelo Codex do Pedro), para quando a forma importa: "
+                     "uma arquitetura, um objeto, uma cena, uma metáfora visual. Descreva o que a imagem mostra e os rótulos (em português). "
+                     "O GPT leva cerca de 1 min: se não ficar pronta na hora, a resposta traz um id; chame de novo só com o id para pegar o PNG, e mostre com ![legenda](caminho). Para fluxos e estruturas, prefira Mermaid.",
+                     _schema({"pedido": {"type": "string", "description": "o que desenhar, com os rótulos"},
+                              "id": {"type": "string", "description": "id de um pedido que ainda estava desenhando"}}, []), imagem,
+                     summary=lambda a: str(a.get("pedido") or a.get("id") or "")[:200])
+            )  # fmt: skip
+        return tools
 
     def _code_tools(self, ctx: Context) -> list[Tool]:
         """O grafo do código pelo graphify (v0.9.8): só quando a pasta da sessão está num
@@ -793,6 +904,7 @@ class Hub:
         tools = self._builtin() + self._browser_tools()
         tools += self._code_tools(ctx)  # v0.9.8 parte 5: grafo do código (graphify)
         tools += self._study_tools()  # v0.9.8 parte 5: Estudo completo (mapa e plano)
+        tools += self._notebook_tools(ctx)  # v1.3.0: NotebookLM e imagens nas sessões de estudo
         for account in self.connectors.list():
             if ctx.allowed is not None and account.id not in ctx.allowed:
                 continue
@@ -878,7 +990,7 @@ class Hub:
             payload = result if isinstance(result, dict) and "content" in result else _text(str(result))
             if payload.get("isError"):
                 status = "erro"
-        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, GoogleError, GraphifyError, KeyError, ValueError) as exc:
+        except (ToolError, BridgeError, VaultError, ConnectorError, SlackError, McpError, GoogleError, GraphifyError, NotebookError, KeyError, ValueError) as exc:
             status, detail = "erro", str(exc)
             payload = {**_text(f"Erro: {exc}"), "isError": True}
         texts = [c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict)]

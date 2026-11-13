@@ -67,6 +67,8 @@ export function useHarness() {
   const [routineRun, setRoutineRun] = useState<{ id: number; name: string; status: string; session?: string; detail: string } | null>(null);
   /** Sobe quando uma nota do Brain muda pela MÊTIS (kanban, `metis tarefa`), para as telas recarregarem. */
   const [brainTick, setBrainTick] = useState(0);
+  /** v1.3.0: o login do NotebookLM terminou ou o caderno do estudo mudou. */
+  const [notebookTick, setNotebookTick] = useState(0);
   /** Sobe quando uma sugestão de precedente nasce ou é decidida (v0.8). */
   const [suggestionsTick, setSuggestionsTick] = useState(0);
   /** Por sessão: sobe quando ela vê uma nota nova do Brain (mini-mapa). */
@@ -280,6 +282,10 @@ export function useHarness() {
           break;
         case "estudo.mudou":
           setBrainTick((n) => n + 1);
+          break;
+        case "notebooklm":
+        case "notebooklm.caderno":
+          setNotebookTick((n) => n + 1);
           break;
         case "codigo.grafo":
           setCodeGraphEvent(event);
@@ -497,6 +503,7 @@ export function useHarness() {
     activity,
     setActivity,
     brainTick,
+    notebookTick,
     bumpBrain: () => setBrainTick((n) => n + 1),
     suggestionsTick,
     bumpSuggestions: () => setSuggestionsTick((n) => n + 1),

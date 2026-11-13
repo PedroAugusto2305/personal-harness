@@ -4,9 +4,11 @@ import { ICON, Icon } from "../icons";
 import { openExternal } from "../lib/browser";
 import type { CoreClient } from "../lib/core";
 import type { Pomodoro } from "../lib/pomodoro";
-import type { Agent, BrainNote, Session, StudySummary } from "../types";
+import type { Agent, BrainNote, BrowserProfile, Session, StudySummary, ThemeName } from "../types";
 import { AgentSprite } from "./AgentSprite";
-import { SessionPeek } from "./SessionPeek";
+import type { WebInfo } from "./BrowserView";
+import { StudyChat } from "./StudyChat";
+import { StudyNotebook } from "./StudyNotebook";
 import { StudyNote, markAnswer, type QuestionBlock } from "./StudyNote";
 import { StudyActions, StudyMapView, StudyPlanView } from "./StudyParts";
 import { VaultTree } from "./VaultTree";
@@ -27,6 +29,18 @@ interface Props {
   onAdopt: (session: Session) => void;
   onOpenSession: (id: string) => void;
   onError: (message: string) => void;
+  /** v1.3.0: a conversa rica do Sócrates e o NotebookLM no navegador embutido. */
+  theme: ThemeName;
+  notebookTick: number;
+  webInfo: WebInfo | undefined;
+  /** Algo da interface por cima (⌘K, diálogo…): a página nativa do NotebookLM some. */
+  covered: boolean;
+  browserProfiles: BrowserProfile[];
+  defaultProfile: string;
+  onWebDesign: (on: boolean) => void;
+  onWebDevice: (id: string) => void;
+  onLink: (url: string, external: boolean) => void;
+  onOpenFile: (path: string, cwd: string) => void;
 }
 
 const DAYS = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
@@ -35,10 +49,11 @@ const PRESETS: [number, number][] = [
   [50, 10],
   [15, 3],
 ];
-type Fixed = "foco" | "mapa" | "plano";
-const FIXED: Fixed[] = ["foco", "mapa", "plano"];
+type Fixed = "foco" | "mapa" | "plano" | "notebooklm";
+const FIXED: Fixed[] = ["foco", "mapa", "plano", "notebooklm"];
 const TABS_KEY = "harness.study.tabs";
 const ACTIVE_KEY = "harness.study.active";
+const WIDE_KEY = "harness.study.chat.wide";
 
 function stored<T>(key: string, fallback: T): T {
   try {
@@ -51,7 +66,8 @@ function stored<T>(key: string, fallback: T): T {
 
 const titleOf = (path: string) => path.split("/").pop()!.replace(/\.md$/, "");
 
-export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote, sessions, onAdopt, onOpenSession, onError }: Props) {
+export function StudyView(props: Props) {
+  const { client, tick, pomodoro, agents, onLaunch, onOpenNote, sessions, onAdopt, onOpenSession, onError } = props;
   const [summary, setSummary] = useState<StudySummary | null>(null);
   const [project, setProject] = useState<string | null>(null);
   const [tabs, setTabs] = useState<string[]>(() => stored<string[]>(TABS_KEY, []).slice(0, 10));
@@ -59,7 +75,18 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
   const [note, setNote] = useState<BrainNote | null>(null);
   const [subject, setSubject] = useState(pomodoro.state.subject);
   const [peekId, setPeekId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [wide, setWide] = useState<boolean>(() => stored(WIDE_KEY, false));
   const { state } = pomodoro;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WIDE_KEY, JSON.stringify(wide));
+    } catch {
+      // sem armazenamento
+    }
+  }, [wide]);
 
   useEffect(() => {
     if (!client) return;
@@ -121,8 +148,12 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
 
   const tutor = agents.find((a) => a.id === "socrates") ?? agents.find((a) => a.name.toLowerCase().startsWith("sócrates")) ?? null;
   const coach = agents.find((a) => a.id === "aurora") ?? null;
+  // v1.3.0: o Sócrates padrão (sem agente na galeria) também conta: agente socrates ou sessão aberta pelo Estudo.
   const tutorSessions = useMemo(
-    () => sessions.filter((s) => s.status !== "exited" && ((tutor && s.agent === tutor.id) || /sócrates/i.test(s.title))).sort((a, b) => b.created_at - a.created_at),
+    () =>
+      sessions
+        .filter((s) => s.status !== "exited" && (s.agent === "socrates" || (tutor && s.agent === tutor.id) || s.tag === "estudo" || /sócrates/i.test(s.title)))
+        .sort((a, b) => b.created_at - a.created_at),
     [sessions, tutor],
   );
   const peek = tutorSessions.find((s) => s.id === peekId) ?? tutorSessions[0] ?? null;
@@ -156,6 +187,28 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : String(cause));
     }
+  };
+
+  /** v1.3.0: conversa de estudo com o Sócrates (modo visual e, se houver, o caderno do NotebookLM). */
+  const startChat = async (text?: string) => {
+    if (!client || starting) return;
+    setStarting(true);
+    try {
+      const session = await client.studySession("conversa");
+      onAdopt(session);
+      setPeekId(session.id);
+      if (text) setDraft(text);
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  /** Pergunta sugerida pelo NotebookLM: vai para a caixa do Sócrates (abre uma conversa se não houver). */
+  const askTutor = (text: string) => {
+    if (peek && peek.status !== "exited") setDraft(text);
+    else void startChat(text);
   };
 
   const max = Math.max(60, ...(summary?.week.map((d) => d.minutes) ?? [0]));
@@ -223,6 +276,7 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
               ["foco", "Foco"],
               ["mapa", summary?.vencidos ? `O que eu sei · ${summary.vencidos}` : "O que eu sei"],
               ["plano", "Plano"],
+              ["notebooklm", "NotebookLM"],
             ] as const
           ).map(([key, label]) => (
             <button key={key} type="button" role="tab" className="bv-tab" aria-selected={active === key} onClick={() => setActive(key)}>
@@ -293,6 +347,19 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
           <div className="sv-scroll">
             <StudyPlanView client={client} tick={tick} onOpenNote={(title) => void openTitle(title)} />
           </div>
+        ) : active === "notebooklm" && client ? (
+          <StudyNotebook
+            client={client}
+            tick={props.notebookTick}
+            shown={!props.covered}
+            info={props.webInfo}
+            profiles={props.browserProfiles}
+            defaultProfile={props.defaultProfile}
+            onDesign={props.onWebDesign}
+            onDevice={props.onWebDevice}
+            onAskTutor={askTutor}
+            onError={onError}
+          />
         ) : note && note.path === active ? (
           <article className="sv-note">
             <div className="sv-note-bar">
@@ -317,7 +384,7 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
         )}
       </main>
 
-      <aside className="sv-right" aria-label="Sócrates">
+      <aside className="sv-right" aria-label="Sócrates" data-wide={wide || undefined}>
         <div className="sv-tutor-head">
           {tutor ? <AgentSprite agent={tutor} client={client} size={28} state={peek ? (peek.status === "working" ? "working" : peek.status === "waiting" ? "waiting" : "idle") : "idle"} /> : null}
           <span className="sv-tutor-who">
@@ -333,6 +400,14 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
               {peek.status === "working" ? "trabalhando" : peek.status === "waiting" ? "esperando você" : "parado"}
             </span>
           )}
+          {peek && (
+            <button type="button" className="sv-icon" title="Nova conversa de estudo" aria-label="Nova conversa de estudo" disabled={starting} onClick={() => void startChat()}>
+              <Icon d={ICON.plus} size={13} />
+            </button>
+          )}
+          <button type="button" className="sv-icon" aria-pressed={wide} title={wide ? "Estreitar a conversa" : "Alargar a conversa (diagramas e imagens maiores)"} aria-label="Largura da conversa" onClick={() => setWide((v) => !v)}>
+            <Icon d={ICON.split} size={13} />
+          </button>
         </div>
         {tutorSessions.length > 1 && (
           <div className="sv-tutor-tabs">
@@ -344,10 +419,30 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
           </div>
         )}
         {client && peek ? (
-          <SessionPeek client={client} session={peek} placeholder="Responda falando ou escreva…" onError={onError} onOpen={() => onOpenSession(peek.id)} />
+          <StudyChat
+            client={client}
+            session={peek}
+            theme={props.theme}
+            visible
+            draft={draft}
+            onDraftUsed={() => setDraft(null)}
+            onError={onError}
+            onOpenTerminal={() => onOpenSession(peek.id)}
+            onLink={props.onLink}
+            onOpenFile={(path) => props.onOpenFile(path, peek.cwd)}
+          />
         ) : (
           <div className="sv-start">
-            <p className="small">Comece uma sessão: o Sócrates pergunta antes de explicar, escreve as perguntas na nota do conceito e registra cada resposta no mapa.</p>
+            <p className="small">
+              Converse com o Sócrates: ele explica em passos, com diagramas, tabelas e imagens desenhados na conversa, e faz perguntas de fixação. Com um caderno escolhido na aba NotebookLM, ele responde com base nas fontes dele.
+            </p>
+            {client && (
+              <button type="button" className="btn primary" disabled={starting} onClick={() => void startChat()}>
+                <Icon d={ICON.chat} size={14} />
+                {starting ? "Abrindo…" : "Conversar com o Sócrates"}
+              </button>
+            )}
+            <p className="small">Ou uma sessão guiada: ele pergunta antes de explicar, escreve as perguntas na nota do conceito e registra cada resposta no mapa.</p>
             {client && <StudyActions client={client} dueCount={summary?.vencidos ?? 0} onSession={onAdopt} />}
             {client && note && isNote && (
               <button
@@ -363,14 +458,14 @@ export function StudyView({ client, tick, pomodoro, agents, onLaunch, onOpenNote
                 Aprender «{note.title}»
               </button>
             )}
-            <div className="sv-start-agents">
-              {[coach, tutor].filter(Boolean).map((agent) => (
-                <button key={agent!.id} type="button" className="btn" onClick={() => onLaunch(agent!)}>
-                  <AgentSprite agent={agent!} client={client} size={18} />
-                  {agent!.id === "aurora" ? "Check-in com a Aurora" : `Conversa livre com ${agent!.name}`}
+            {coach && (
+              <div className="sv-start-agents">
+                <button type="button" className="btn" onClick={() => onLaunch(coach)}>
+                  <AgentSprite agent={coach} client={client} size={18} />
+                  Check-in com a Aurora
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </aside>

@@ -75,6 +75,10 @@ import type {
   StudyMap,
   StudyPlan,
   StudySessionKind,
+  StudyNotebookChoice,
+  Notebook,
+  NotebookDetail,
+  NotebookStatus,
   CodeGraph,
   FailedCheck,
   SkillTarget,
@@ -1073,6 +1077,27 @@ export class CoreClient {
 
   studySession(tipo: StudySessionKind, conceito?: string): Promise<Session> {
     return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null });
+  }
+
+  // v1.3.0: NotebookLM no Estudo
+  notebookStatus(fresh = false): Promise<NotebookStatus> {
+    return this.request("GET", `/estudo/notebooklm${fresh ? "?fresh=true" : ""}`);
+  }
+
+  notebooks(fresh = false): Promise<Notebook[]> {
+    return this.request("GET", `/estudo/notebooklm/cadernos${fresh ? "?fresh=true" : ""}`);
+  }
+
+  notebook(id: string, fresh = false): Promise<NotebookDetail> {
+    return this.request("GET", `/estudo/notebooklm/cadernos/${encodeURIComponent(id)}${fresh ? "?fresh=true" : ""}`);
+  }
+
+  chooseNotebook(id: string, titulo: string): Promise<StudyNotebookChoice> {
+    return this.request("PUT", "/estudo/notebooklm/caderno", { id, titulo });
+  }
+
+  notebookLogin(): Promise<NotebookStatus["entrando"]> {
+    return this.request("POST", "/estudo/notebooklm/entrar");
   }
 
   // v0.9.8: perfis e backup

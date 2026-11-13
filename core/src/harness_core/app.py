@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
@@ -29,7 +30,9 @@ from .agent_draft import DraftError, draft_agent
 from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
-from .study_map import SESSION_TYPES, TUTOR, StudyError, StudyMap
+from .study_map import SESSION_TYPES, TUTOR, TUTOR_ROLE, StudyError, StudyMap, session_rules
+from .notebooklm import NotebookError, NotebookLM, NotLoggedIn, notebook_url
+from .study_images import StudyImages
 from .boards import BoardConflict, BoardError, BoardStore
 from .brain_index import BrainIndex
 from .automation_engine import Engine
@@ -430,6 +433,18 @@ class StudySessionBody(BaseModel):
     conceito: str | None = Field(default=None, max_length=120)
 
 
+class NotebookChoice(BaseModel):
+    """v1.3.0: o caderno do NotebookLM do estudo (id vazio tira)."""
+
+    id: str = Field(default="", max_length=100)
+    titulo: str = Field(default="", max_length=300)
+
+
+class NotebookQuestion(BaseModel):
+    pergunta: str = Field(min_length=1, max_length=4000)
+    caderno: str | None = Field(default=None, max_length=100)
+
+
 class DraftRequest(BaseModel):
     descricao: str = Field(min_length=1, max_length=2000)
 
@@ -636,6 +651,7 @@ def create_app(
     http=None,
     run_scheduler: bool = True,
     embedder: Embedder | None = None,
+    notebooklm: NotebookLM | None = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     manager = SessionManager(settings, accounts)
@@ -692,8 +708,21 @@ def create_app(
             try:
                 agent = agents.get(session.agent)
             except AgentError:
-                agent = None
-        return {"who": agent.name if agent else session.title, "cwd": session.cwd, "allowed": allowed_connectors(agent)}
+                # v1.3.0: o Sócrates padrão (sem agente na galeria) não usa conector nenhum.
+                agent = tutor_agent() if session.agent == TUTOR else None
+        # v1.3.0: sessão de estudo ganha o NotebookLM e as imagens na central.
+        study_session = session.tag == "estudo" or session.agent == TUTOR
+        return {"who": agent.name if agent else session.title, "cwd": session.cwd, "allowed": allowed_connectors(agent), "estudo": study_session}
+
+    def tutor_agent() -> Agent:
+        """O Sócrates da galeria; sem ele, o padrão da MÊTIS (v1.3.0): Claude no vault, com o
+        papel de tutor e sem conectores. Antes, sem o agente socrates o chat do Estudo nem abria."""
+        try:
+            return agents.get(TUTOR)
+        except AgentError:
+            folder = str(settings.brain) if settings.brain.is_dir() else ""  # sem o vault, a pasta pessoal
+            return Agent(id=TUTOR, name="Sócrates", description="Tutor do Estudo (padrão da MÊTIS)", cli="claude",
+                         folder=folder, color="#C9A227", connectors="nenhum", prompt=TUTOR_ROLE)  # fmt: skip
 
     hub = Hub(
         connectors=connectors,
@@ -715,6 +744,13 @@ def create_app(
     study = StudyLog(settings.home, vault)
     study_map = StudyMap(vault, project=lambda: manager.prefs.get()["estudo_projeto"])
     hub.study_map = study_map  # ferramentas estudo_* da central (v0.9.8)
+    # v1.3.0: o NotebookLM (CLI do notebooklm-py) e as imagens de estudo (o GPT, pelo Codex).
+    notebooks = notebooklm or NotebookLM()
+    notebooks.on_change = lambda status: manager.events.publish({"type": "notebooklm", "status": status})
+    hub.notebooklm = notebooks
+    hub.study_notebook = lambda: manager.prefs.get()["estudo_caderno"]
+    study_images = StudyImages(settings.home, codex_env, studio._claimed)
+    hub.study_images = study_images
 
     def dm_pedro(text: str) -> str:
         """Mensagem do bot na DM do Pedro (conta de lembretes). Devolve o que deu errado, se deu."""
@@ -897,6 +933,7 @@ def create_app(
         await engine.shutdown()
         await manager.close_all()
         connectors.close()  # os MCPs por stdio não ficam órfãos
+        notebooks.stop()  # o login do NotebookLM aberto fecha junto
         awake.stop()
 
     app = FastAPI(title="Harness core", version=__version__, lifespan=lifespan)
@@ -906,6 +943,8 @@ def create_app(
     app.state.suggestions = suggestions
     app.state.hub = hub
     app.state.study_map = study_map
+    app.state.notebooklm = notebooks
+    app.state.study_images = study_images
     app.state.embedder = embedder
     app.state.engine = engine
     app.state.cli_homes = None  # None = ~/.claude e ~/.codex; os testes apontam para pastas temporárias
@@ -3654,17 +3693,23 @@ def create_app(
         # async de propósito: o PTY nasce no loop do asyncio, como em POST /sessions.
         if body.tipo not in SESSION_TYPES:
             raise HTTPException(status_code=400, detail=f"tipo de sessão é {', '.join(SESSION_TYPES)}")
+        agent = tutor_agent()  # v1.3.0: sem o Sócrates na galeria, o padrão da MÊTIS
+        notebook = manager.prefs.get()["estudo_caderno"]
+        chosen = notebook if notebook.get("id") else None
         try:
-            agent = agents.get(TUTOR)
-        except AgentError as exc:
-            raise HTTPException(status_code=400, detail="o Sócrates (agente socrates) não está na galeria de agentes: crie ou importe ele primeiro") from exc
-        try:
-            prompt = study_map.session_prompt(body.tipo, (body.conceito or "").strip() or None)
+            prompt = study_map.session_prompt(body.tipo, (body.conceito or "").strip() or None, chosen)
             cwd = study_map.session_cwd(body.tipo)
         except (StudyError, OSError) as exc:
             raise study_fail(exc) from exc
+        # v1.3.0: o jeito de explicar (modo visual, registro e o caderno) vai no papel de sistema;
+        # a CLI "outra" não tem papel de sistema, e as regras vão no pedido.
+        rules = session_rules(chosen)
+        if agent.cli in ("claude", "codex"):
+            agent = replace(agent, prompt=f"{agent.prompt.rstrip()}\n\n{rules}".strip())
+        else:
+            prompt = f"{prompt}\n\n{rules}"
         label = {"medir": "medir o que sei", "aprender": f"aprender {body.conceito}" if body.conceito else "aprender",
-                 "praticar": "praticar", "revisar": "revisar"}[body.tipo]  # fmt: skip
+                 "praticar": "praticar", "revisar": "revisar", "conversa": "conversa"}[body.tipo]  # fmt: skip
         try:
             session = manager.create(agent.cli, cwd, title=f"Estudo · {label}"[:60], tag="estudo", agent=agent, prompt=prompt)
         except (LaunchError, UnknownKind, ExecutableNotFound) as exc:
@@ -3672,6 +3717,74 @@ def create_app(
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise HTTPException(status_code=400, detail=f"pasta inválida para a sessão: {exc}") from exc
         return session.to_dict()
+
+    # --- NotebookLM no Estudo (v1.3.0) ---
+
+    def notebook_fail(exc: Exception) -> HTTPException:
+        # 409 (e não 401) quando o login do NotebookLM venceu: 401 é o token do núcleo.
+        return HTTPException(status_code=409 if isinstance(exc, NotLoggedIn) else 502 if isinstance(exc, NotebookError) else 400, detail=str(exc))
+
+    def notebook_view() -> dict:
+        chosen = manager.prefs.get()["estudo_caderno"]
+        return {**chosen, "url": notebook_url(chosen.get("id") or None)} if chosen.get("id") else {"id": "", "titulo": "", "url": notebook_url(None)}
+
+    @app.get("/estudo/notebooklm", dependencies=[Depends(require_token)])
+    async def notebooklm_status(fresh: bool = False) -> dict:
+        """Instalado, versão, login (vai à rede: guardado uns minutos) e o caderno do estudo."""
+        status = await asyncio.to_thread(notebooks.status, fresh)
+        return {**status, "caderno": notebook_view()}
+
+    @app.get("/estudo/notebooklm/cadernos", dependencies=[Depends(require_token)])
+    async def notebooklm_notebooks(fresh: bool = False) -> list[dict]:
+        try:
+            return await asyncio.to_thread(notebooks.notebooks, fresh)
+        except NotebookError as exc:
+            raise notebook_fail(exc) from exc
+
+    @app.get("/estudo/notebooklm/cadernos/{notebook_id}", dependencies=[Depends(require_token)])
+    async def notebooklm_notebook(notebook_id: str, fresh: bool = False) -> dict:
+        """As fontes e o resumo de um caderno (o resumo é do NotebookLM, com os temas sugeridos)."""
+        try:
+            sources = await asyncio.to_thread(notebooks.sources, notebook_id, fresh)
+            try:
+                summary = await asyncio.to_thread(notebooks.summary, notebook_id)
+            except NotLoggedIn:
+                raise
+            except NotebookError:
+                summary = {"resumo": "", "topicos": []}  # sem resumo, as fontes ainda servem
+        except NotebookError as exc:
+            raise notebook_fail(exc) from exc
+        return {"id": notebook_id, "url": notebook_url(notebook_id), "fontes": sources, **summary}
+
+    @app.put("/estudo/notebooklm/caderno", dependencies=[Depends(require_token)])
+    def notebooklm_choose(body: NotebookChoice) -> dict:
+        """O caderno que o Sócrates usa como base das respostas (id vazio = nenhum)."""
+        try:
+            manager.prefs.update({"estudo_caderno": {"id": body.id, "titulo": body.titulo}})
+        except PrefsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        view = notebook_view()
+        manager.events.publish({"type": "notebooklm.caderno", "caderno": view})
+        return view
+
+    @app.post("/estudo/notebooklm/entrar", dependencies=[Depends(require_token)])
+    def notebooklm_login() -> dict:
+        """Abre o login do Google do notebooklm-py (o Chrome do Mac, num perfil do CLI, ou o Chromium do
+        Playwright); o fim chega pelo evento notebooklm."""
+        try:
+            return notebooks.login()
+        except NotebookError as exc:
+            raise notebook_fail(exc) from exc
+
+    @app.post("/estudo/notebooklm/perguntar", dependencies=[Depends(require_token)])
+    async def notebooklm_ask(body: NotebookQuestion) -> dict:
+        notebook_id = (body.caderno or manager.prefs.get()["estudo_caderno"].get("id") or "").strip()
+        if not notebook_id:
+            raise HTTPException(status_code=400, detail="escolha um caderno do NotebookLM no Estudo")
+        try:
+            return await asyncio.to_thread(notebooks.ask, notebook_id, body.pergunta)
+        except NotebookError as exc:
+            raise notebook_fail(exc) from exc
 
     @app.post("/agents/rascunho", dependencies=[Depends(require_token)])
     def agent_draft(body: DraftRequest) -> dict:

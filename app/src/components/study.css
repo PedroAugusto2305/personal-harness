@@ -509,9 +509,212 @@
   gap: 8px;
 }
 
+/* v1.3.0: o chat do Sócrates é a conversa rica (ChatView) com a caixa embaixo. Mais largo que a
+   espiada de antes: diagrama e imagem precisam de espaço; "alargar" divide a tela com o centro. */
+
+.sv-right {
+  flex-basis: 420px;
+  transition: flex-basis 0.18s ease;
+}
+
+.sv-right[data-wide] {
+  flex-basis: 50%;
+}
+
+.sv-icon[aria-pressed="true"] {
+  color: var(--acc);
+}
+
+.sv-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sv-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sv-chat-log {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sv-chat .chat {
+  background: var(--term);
+}
+
+.sv-chat .chat-col {
+  padding: 14px 14px 18px;
+  font-size: 13.5px;
+}
+
+.sv-chat .chat-empty kbd {
+  display: none;
+}
+
+.sv-right .sv-chat-input {
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin: 8px 10px 10px;
+}
+
+/* A aba NotebookLM: barra com o caderno do estudo, o site no navegador embutido e as fontes ao lado. */
+
+.snb {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.snb-bar {
+  flex: 0 0 auto;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bar);
+}
+
+.snb-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--tx);
+}
+
+.snb-pick {
+  flex: 0 1 340px;
+  min-width: 120px;
+}
+
+.snb-note {
+  color: var(--mut);
+}
+
+.snb-warn {
+  color: var(--wait);
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snb-linked {
+  background: color-mix(in srgb, var(--acc) 16%, transparent);
+  color: var(--tx);
+  font-size: 11.5px;
+}
+
+.snb-bar .icon-btn[aria-pressed="true"] {
+  color: var(--acc);
+}
+
+.snb-error {
+  margin: 8px 10px 0;
+}
+
+.snb-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.snb-web {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.snb-side {
+  flex: 0 0 260px;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 10px;
+  border-left: 1px solid var(--line);
+  background: var(--side);
+}
+
+.snb-side section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.snb-side .section-title {
+  padding: 0;
+}
+
+.snb-hint {
+  margin: 0;
+  color: var(--mut);
+  line-height: 1.5;
+}
+
+.snb-summary {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--tx);
+}
+
+.snb-topic {
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--tx);
+  font-size: 12.5px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.snb-topic:hover {
+  border-color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 8%, transparent);
+}
+
+.snb-source {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.snb-kind {
+  flex: 0 0 auto;
+  color: var(--fnt);
+  font-size: 10.5px;
+}
+
+.snb-source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  text-align: left;
+}
+
 @media (max-width: 1250px) {
   .sv-right {
-    flex-basis: 300px;
+    flex-basis: 340px;
+  }
+  .snb-side {
+    flex-basis: 220px;
   }
   .sv-left {
     flex-basis: 210px;
