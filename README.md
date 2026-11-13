@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.3.0)
+## O que já faz (v1.3.1)
+
+**Na 1.3.1:** o Entrar da aba NotebookLM abre o login do Google num perfil limpo e a janela fica aberta até você terminar (antes ela piscava e fechava sozinha, presa a uma sessão do Google que já tinha caído); se o login não valer, a aba diz por quê.
 
 **Na 1.3.0:** o NotebookLM dentro do Estudo, numa aba com o site de verdade no navegador da MÊTIS, e o caderno escolhido vira a base das respostas do agente de estudo (pelo `notebooklm-py`, com as citações das fontes). A aba de Estudo começa sem agente: você cria o seu agente de estudos na aba Agentes e conecta (ou desconecta) no Estudo. O chat do Estudo virou a conversa rica: o agente explica em passos, com fluxogramas e mapas mentais desenhados, tabelas e imagens desenhadas pelo GPT (pelo Codex), e fecha com uma pergunta de fixação.
 

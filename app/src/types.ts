@@ -321,7 +321,7 @@ export interface NotebookStatus {
   logado: boolean;
   erro: string | null;
   host: string;
-  entrando: { rodando: boolean; inicio?: number; fim?: number; ok?: boolean | null; erro?: string | null };
+  entrando: { rodando: boolean; inicio?: number; fim?: number; ok?: boolean | null; erro?: string | null; navegador?: string };
   caderno: StudyNotebookChoice;
 }
 
