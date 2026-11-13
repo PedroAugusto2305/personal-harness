@@ -7,6 +7,7 @@ import { AutomationsView } from "./components/AutomationsView";
 import { BoardsView } from "./components/BoardsView";
 import { BrainView, type BrainRequest } from "./components/BrainView";
 import { BrowserView, type WebInfo } from "./components/BrowserView";
+import { STUDY_WEB_LABEL } from "./components/StudyNotebook";
 import { CoreVersionBanner, Ribbon, TitleBar } from "./components/Chrome";
 import { Confirm } from "./components/Confirm";
 import { ApprovalCard, ConnectorsView } from "./components/ConnectorsView";
@@ -2120,6 +2121,30 @@ export default function App() {
             onAdopt={(session) => harness.adopt(session)}
             onOpenSession={(id) => (setView("term"), select(id))}
             onError={setToast}
+            theme={theme}
+            notebookTick={harness.notebookTick}
+            webInfo={webInfo[STUDY_WEB_LABEL]}
+            covered={overlayOpen}
+            browserProfiles={profiles}
+            defaultProfile={defaultProfile}
+            onWebDesign={(on) => {
+              setWebInfo((all) => ({ ...all, [STUDY_WEB_LABEL]: { ...(all[STUDY_WEB_LABEL] ?? { url: "about:blank", title: null, loading: false }), design: on } }));
+              void browser.design(STUDY_WEB_LABEL, on).catch((cause) => setToast(String(cause)));
+            }}
+            onWebDevice={(id) =>
+              setWebInfo((all) => ({ ...all, [STUDY_WEB_LABEL]: { ...(all[STUDY_WEB_LABEL] ?? { url: "about:blank", title: null, loading: false, design: false }), device: id } }))
+            }
+            onLink={(url, external) => {
+              if (external !== (linkTarget === "mac")) void openExternal(url);
+              else {
+                openWeb(url);
+                setView("term");
+              }
+            }}
+            onOpenFile={(path, cwd) => {
+              openChatFile(path, cwd);
+              setView("term");
+            }}
           />
         )}
         {view === "today" && (

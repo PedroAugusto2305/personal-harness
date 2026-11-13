@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.2.0)
+## O que já faz (v1.3.0)
+
+**Na 1.3.0:** o NotebookLM dentro do Estudo, numa aba com o site de verdade no navegador da MÊTIS, e o caderno escolhido vira a base das respostas do Sócrates (pelo `notebooklm-py`, com as citações das fontes). O chat do Estudo virou a conversa rica: o Sócrates explica em passos, com fluxogramas e mapas mentais desenhados, tabelas e imagens desenhadas pelo GPT (pelo Codex), e fecha com uma pergunta de fixação. Sem um agente `socrates` na galeria, a MÊTIS usa o Sócrates padrão.
 
 **Na 1.2.0:** o painel do Claude e do Codex abre numa conversa no jeito do app do Codex: seus balões, a resposta em Markdown, as ferramentas em linhas que abrem com o resultado, e as imagens (coladas, devolvidas por ferramenta e geradas em arquivo), os fluxogramas Mermaid, as tabelas e o código com cor desenhados na própria conversa. O terminal de verdade continua no mesmo painel, roda o agente pelo plano como sempre e aparece sozinho quando o agente abre um menu; ⌘⇧T alterna. Ajustes → Agentes escolhe se o agente abre na conversa ou no terminal.
 

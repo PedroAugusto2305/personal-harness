@@ -36,8 +36,60 @@ CONCEPTS_DIR = "conceitos"
 DOMAIN_LABEL = {0: "não vi", 1: "ouvi falar", 2: "entendo com ajuda", 3: "faço sozinho", 4: "consigo ensinar"}
 MAX_INTERVAL = 60
 BAD_TITLE = re.compile(r'[\[\]#^|/\\:*?"<>]')
-SESSION_TYPES = ("medir", "aprender", "praticar", "revisar")
+SESSION_TYPES = ("medir", "aprender", "praticar", "revisar", "conversa")
 TUTOR = "socrates"
+
+#: v1.3.0: o jeito de explicar de toda sessão de estudo. O Pedro estuda melhor com o GPT porque
+#: ele responde com imagens e diagramas; a conversa da MÊTIS desenha Mermaid, tabelas e imagens.
+VISUAL = (
+    "Modo de estudo: explique em passos curtos e numerados, com um exemplo concreto em cada passo, e feche cada explicação "
+    "com uma pergunta de fixação (eu respondo antes de você seguir). Use recursos visuais sempre que a explicação pedir, e pelo "
+    "menos um em cada assunto novo: a conversa da MÊTIS desenha tudo na hora. Diagrama Mermaid num bloco ```mermaid "
+    "(flowchart para processos e decisões, sequenceDiagram para trocas entre partes, mindmap para um panorama, timeline para "
+    "ordem no tempo, classDiagram ou erDiagram para estruturas, stateDiagram-v2 para estados), com rótulos curtos e entre "
+    "aspas quando tiverem parênteses, dois-pontos ou vírgulas; tabela em Markdown para comparar; e imagem quando a forma "
+    "importa (uma arquitetura, um objeto, uma metáfora visual): peça à ferramenta estudo_imagem, que o GPT desenha, e mostre "
+    "o arquivo na resposta com ![legenda](caminho). Nada de desenho em ASCII."
+)
+
+#: v1.3.0: o Sócrates que a MÊTIS usa quando o Pedro ainda não tem um agente socrates na galeria.
+TUTOR_ROLE = (
+    "Você é o Sócrates, o tutor de estudo do Pedro na MÊTIS. Responda sempre em português do Brasil, direto e caloroso, "
+    "sem sermão e sem elogio vazio. Método: pergunte antes de explicar (a previsão do Pedro e a confiança dele de 1 a 5), "
+    "uma pergunta por vez, explicação curta em passos, exemplos concretos e perguntas de fixação; corrija o raciocínio, "
+    "não só a resposta. As ferramentas da central metis guardam o estudo: estudo_plano e estudo_conceitos "
+    "(o cronograma e o mapa do que ele sabe), estudo_pergunta (pergunta com alternativas na nota do conceito), "
+    "estudo_registrar (cada resposta, com a confiança dita antes), estudo_conceito_novo; cadernos, caderno_fontes, "
+    "caderno_perguntar e caderno_fonte leem o NotebookLM do Pedro; estudo_imagem desenha uma ilustração. Nota permanente "
+    "no Brain só nasce da destilação do Pedro, com as palavras dele: não escreva uma."
+)
+
+
+#: v1.3.0: o registro que vale em toda sessão (inclusive na conversa livre).
+RECORD_RULE = (
+    "Quando eu responder uma pergunta de fixação sobre um conceito, peça a minha confiança de 1 a 5 antes de corrigir e "
+    "registre com estudo_registrar (conceito, acertou, confianca, nota curta)."
+)
+
+
+def session_rules(caderno: dict | None) -> str:
+    """v1.3.0: como explicar em toda sessão de estudo. Vai no papel de sistema da sessão (o
+    --append-system-prompt do Claude, as developer_instructions do Codex), não no primeiro
+    pedido: o pedido aparece na conversa como mensagem do Pedro e fica curto."""
+    return "\n\n".join(part for part in (VISUAL, RECORD_RULE, notebook_rule(caderno)) if part)
+
+
+def notebook_rule(caderno: dict | None) -> str:
+    """v1.3.0: o caderno do NotebookLM escolhido no Estudo vira a base das respostas."""
+    if not caderno or not caderno.get("id"):
+        return ""
+    title = caderno.get("titulo") or "sem título"
+    return (
+        f"Caderno do NotebookLM deste estudo: «{title}» (id {caderno['id']}). Baseie as explicações nas fontes dele: antes de "
+        "explicar um assunto do caderno, use caderno_perguntar (a resposta do NotebookLM vem com as citações) ou caderno_fontes "
+        "e caderno_fonte (o texto da fonte); diga de qual fonte veio cada ponto e não invente o que as fontes não dizem. Se elas "
+        "não cobrirem a pergunta, diga isso e explique por conta própria, avisando."
+    )
 
 
 class StudyError(VaultError):
@@ -560,7 +612,9 @@ class StudyMap:
             write_atomic(path, text)
         return {"conceito": concept.titulo, "caminho": concept.caminho}
 
-    def session_prompt(self, kind: str, concept: str | None = None) -> str:
+    def session_prompt(self, kind: str, concept: str | None = None, caderno: dict | None = None) -> str:
+        """O pedido que abre a sessão com o Sócrates (o que fazer agora). O jeito de explicar
+        (modo visual, caderno do NotebookLM) vem de session_rules, no papel de sistema."""
         if kind not in SESSION_TYPES:
             raise StudyError(f"tipo de sessão é {', '.join(SESSION_TYPES)}")
         project = self.project_name
@@ -584,6 +638,15 @@ class StudyMap:
                 f"Sessão de aprender: {target} ({project}, {week_text}). Ensine com perguntas de previsão primeiro e explicação curta depois, um passo por vez. "
                 f"{record} Ligue o conceito aos relacionados com estudo_conceito_novo quando surgir um novo. Pare quando eu acertar com confiança alta duas vezes seguidas."
             )
+        if kind == "conversa":
+            title = (caderno or {}).get("titulo") if (caderno or {}).get("id") else None
+            start = (
+                f"Comece com um panorama do caderno «{title}» do NotebookLM em até 5 linhas, um mapa mental dos assuntos dele e 3 "
+                "perguntas para começarmos."
+                if title
+                else "Diga numa linha que está pronto e pergunte o que vamos estudar hoje."
+            )
+            return f"Estudo livre ({project}, {week_text}): eu pergunto e você explica. {start}"
         if kind == "praticar":
             return (
                 f"Sessão de prática ({project}, {week_text}). Proponha um exercício prático do foco da semana, feito aqui no repositório, do tamanho de 25 a 50 minutos. "

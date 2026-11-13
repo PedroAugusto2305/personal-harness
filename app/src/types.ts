@@ -199,6 +199,8 @@ export type CoreEvent =
   | { type: "activity.event"; item: AgentEvent }
   | ({ type: "kanban.auto" } & AutoQueueView)
   | { type: "estudo.mudou" }
+  | { type: "notebooklm"; status: Omit<NotebookStatus, "caderno"> }
+  | { type: "notebooklm.caderno"; caderno: StudyNotebookChoice }
   | { type: "codigo.grafo"; root: string; status: string; detalhe?: string }
   | { type: "brain.changed"; project: string }
   | { type: "kanban.tarefa"; project: string; task: string }
@@ -299,7 +301,51 @@ export interface StudyPlan {
   semana_atual: number | null;
 }
 
-export type StudySessionKind = "medir" | "aprender" | "praticar" | "revisar";
+export type StudySessionKind = "medir" | "aprender" | "praticar" | "revisar" | "conversa";
+
+/** v1.3.0: o caderno do NotebookLM que o Sócrates usa como base (id vazio = nenhum). */
+export interface StudyNotebookChoice {
+  id: string;
+  titulo: string;
+  url: string;
+}
+
+/** v1.3.0: o NotebookLM pelo CLI do notebooklm-py. */
+export interface NotebookStatus {
+  instalado: boolean;
+  versao: string | null;
+  versao_ok: boolean;
+  logado: boolean;
+  erro: string | null;
+  host: string;
+  entrando: { rodando: boolean; inicio?: number; fim?: number; ok?: boolean | null; erro?: string | null };
+  caderno: StudyNotebookChoice;
+}
+
+export interface Notebook {
+  id: string;
+  titulo: string;
+  papel: string | null;
+  criado: string | null;
+  visto: string | null;
+  url: string;
+}
+
+export interface NotebookSource {
+  id: string;
+  titulo: string;
+  tipo: string | null;
+  url: string | null;
+  status: string | null;
+}
+
+export interface NotebookDetail {
+  id: string;
+  url: string;
+  fontes: NotebookSource[];
+  resumo: string;
+  topicos: string[];
+}
 
 export interface MetisProfile {
   id: string;
