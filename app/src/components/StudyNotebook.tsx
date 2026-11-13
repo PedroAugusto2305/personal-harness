@@ -197,7 +197,9 @@ export function StudyNotebook({ client, tick, shown, info, profiles, defaultProf
             ))}
           </select>
         ) : entering ? (
-          <span className="small snb-note">Termine o login do Google na janela do Chromium que abriu; a MÊTIS confere sozinha.</span>
+          <span className="small snb-note">
+            Entre na sua conta do Google na janela do {status.entrando.navegador === "chrome" ? "Chrome" : "Chromium"} que abriu (ela fica aberta até o login terminar); a MÊTIS confere sozinha.
+          </span>
         ) : (
           <>
             <span className="small snb-warn" title={status.erro ?? undefined}>

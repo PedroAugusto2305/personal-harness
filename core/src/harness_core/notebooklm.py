@@ -14,7 +14,10 @@ que fala com o NotebookLM pela sessão do Google guardada em
 - entrar: `notebooklm login` abre o navegador no login do Google e salva sozinho quando o login
   termina (não precisa de terminal). Com o Chrome no Mac, vai `--browser chrome` (num perfil
   próprio do notebooklm-py, não o do Pedro): o Chromium do Playwright pode travar no macOS 15 ou
-  mais novo, e a versão dele muda a cada atualização do pacote.
+  mais novo, e a versão dele muda a cada atualização do pacote. Vai sempre com `--fresh` (v1.3.1):
+  o perfil próprio guarda o cookie SID de uma sessão que o Google já derrubou, o notebooklm-py
+  toma esse SID por login feito, salva os cookies sem o `__Secure-1PSIDTS` e fecha a janela num
+  segundo, sem o Pedro conseguir entrar. Limpo, o perfil abre na tela de login do Google e espera.
 
 Desde a 0.8 o NotebookLM mora em notebook.google.com; o notebooklm-py anterior a ela não
 reconhece o endereço novo e dá o login como vencido. Por isso a versão mínima é 0.8.0.
@@ -43,6 +46,9 @@ TIMEOUT = 90
 #: Abaixo dos 60 s em que o Claude Code corta uma chamada de MCP por HTTP.
 ASK_TIMEOUT = 55
 LOGIN_TIMEOUT = 15 * 60
+#: Quanto o notebooklm-py espera o login do Google (senha e 2FA): um minuto antes do corte do
+#: núcleo, para ele mesmo dizer que o tempo acabou (o padrão dele é 5 minutos).
+BROWSER_WAIT = LOGIN_TIMEOUT - 60
 STATUS_TTL = 120
 LIST_TTL = 60
 SOURCES_TTL = 180
@@ -123,6 +129,22 @@ def notebook_url(notebook_id: str | None) -> str:
 def _last_line(text: str) -> str:
     lines = [line.strip() for line in (text or "").strip().splitlines() if line.strip()]
     return lines[-1][:300] if lines else ""
+
+
+#: O que o `notebooklm login` escreve quando não termina, no que a tela mostra ao Pedro.
+LOGIN_ERRORS = (
+    ("Login not detected", "o login do Google não terminou a tempo: use Entrar de novo"),
+    ("browser window was closed", "a janela do login foi fechada antes de o Google confirmar"),
+    ("Could not verify a stable Google cookie", "o Google não confirmou a sessão: termine o login na janela e use Entrar de novo"),
+    ("Google Chrome not found", "o Google Chrome não foi achado para o login"),
+)
+
+
+def login_error(out: str, code: int) -> str:
+    for marker, text in LOGIN_ERRORS:
+        if marker in (out or ""):
+            return text
+    return _last_line(out) or f"saiu com {code}"
 
 
 class NotebookLM:
@@ -352,14 +374,14 @@ class NotebookLM:
     # --- entrar ----------------------------------------------------------------------
 
     def login(self) -> dict:
-        """Abre o login do Google (Chromium do Playwright). Termina sozinho quando o login é
-        detectado; o status volta a ser conferido e a tela recebe o aviso."""
+        """Abre o login do Google num perfil limpo do navegador do notebooklm-py. Termina sozinho
+        quando o login é detectado; o status volta a ser conferido e a tela recebe o aviso."""
         cli = self._cli()
         with self._lock:
             if self._login.get("rodando"):
                 return dict(self._login)
             browser = self._browser()
-            argv = [cli, "login", *(["--browser", browser] if browser else [])]
+            argv = [cli, "login", "--fresh", "--browser-timeout", str(BROWSER_WAIT), *(["--browser", browser] if browser else [])]
             try:
                 proc = self._spawn(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=cli_env())
             except OSError as exc:
@@ -373,7 +395,7 @@ class NotebookLM:
     def _wait_login(self, proc: subprocess.Popen) -> None:
         try:
             out, _ = proc.communicate(timeout=LOGIN_TIMEOUT)
-            ok, error = proc.returncode == 0, None if proc.returncode == 0 else (_last_line(out) or f"saiu com {proc.returncode}")
+            ok, error = proc.returncode == 0, None if proc.returncode == 0 else login_error(out, proc.returncode)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
@@ -384,7 +406,15 @@ class NotebookLM:
             self._lists.clear()
             self._login_proc = None
         try:
-            self.on_change(self.status(fresh=True))
+            status = self.status(fresh=True)
+            # O CLI sai com 0 mesmo quando salva uma sessão sem o __Secure-1PSIDTS: só o auth
+            # check diz se o login vale.
+            if ok and not status.get("logado"):
+                with self._lock:
+                    self._login = {**self._login, "ok": False, "erro": "a janela fechou, mas o Google não deu uma sessão que valha: use Entrar de novo"}
+                    login = dict(self._login)
+                status = {**status, "entrando": login}
+            self.on_change(status)
         except Exception:  # aviso à tela é o de menos: o login já terminou
             pass
 

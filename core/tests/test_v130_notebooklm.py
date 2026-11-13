@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from harness_core import sessions as sessions_mod
 from harness_core.app import create_app
 from harness_core.mcp_hub import Context, ToolError
-from harness_core.notebooklm import MIN_VERSION, NotebookError, NotebookLM, NotLoggedIn, notebook_url, parse_version
+from harness_core.notebooklm import BROWSER_WAIT, LOGIN_TIMEOUT, MIN_VERSION, NotebookError, NotebookLM, NotLoggedIn, login_error, notebook_url, parse_version
 from harness_core.prefs import Prefs, PrefsError
 from harness_core.study_images import StudyImages
 from harness_core.study_map import SESSION_TYPES, VISUAL, notebook_rule, session_rules
@@ -359,17 +359,62 @@ def test_login_opens_chrome_when_installed_and_reports_the_end():
     cli = FakeCli()
     nlm = NotebookLM(run=cli, which=lambda: "/fake/notebooklm", on_change=changes.append, spawn=spawn, browser=lambda: "chrome")
     state = nlm.login()
-    assert spawned[0] == ["/fake/notebooklm", "login", "--browser", "chrome"] and state["navegador"] == "chrome"
-    for _ in range(100):
-        if changes:
-            break
-        import time
-
-        time.sleep(0.02)
+    # Sempre num perfil limpo (v1.3.1): o perfil guardado tem o SID de uma sessão derrubada.
+    wait = ["--fresh", "--browser-timeout", str(BROWSER_WAIT)]
+    assert spawned[0] == ["/fake/notebooklm", "login", *wait, "--browser", "chrome"] and state["navegador"] == "chrome"
+    assert LOGIN_TIMEOUT - BROWSER_WAIT == 60
+    wait_for(changes)
     assert changes and changes[0]["logado"] and changes[0]["entrando"]["ok"] is True and not changes[0]["entrando"]["rodando"]
     plain = NotebookLM(run=cli, which=lambda: "/fake/notebooklm", spawn=spawn, browser=lambda: None)
     plain.login()
-    assert spawned[1] == ["/fake/notebooklm", "login"]
+    assert spawned[1] == ["/fake/notebooklm", "login", *wait]
+
+
+def wait_for(changes: list) -> None:
+    import time
+
+    for _ in range(100):
+        if changes:
+            return
+        time.sleep(0.02)
+
+
+class LoginProc:
+    def __init__(self, code: int, out: str) -> None:
+        self.returncode = code
+        self.out = out
+
+    def communicate(self, timeout=None):
+        return self.out, None
+
+    def poll(self):
+        return self.returncode
+
+
+def test_login_that_saves_a_dead_session_is_reported_as_failed():
+    """O notebooklm-py 0.8.6 sai com 0 depois de salvar cookies sem o __Secure-1PSIDTS (sessão
+    derrubada pelo Google): a tela mostrava só "o login venceu", como se nada tivesse acontecido."""
+    changes: list[dict] = []
+    out = "Capturing Google cookies...\nWarning: account metadata was not written.\nAuthentication saved to: /x/storage_state.json"
+    nlm = NotebookLM(run=FakeCli(logged=False), which=lambda: "/fake/notebooklm", on_change=changes.append, spawn=lambda argv, **kw: LoginProc(0, out), browser=lambda: "chrome")
+    nlm.login()
+    wait_for(changes)
+    entrando = changes[0]["entrando"]
+    assert not changes[0]["logado"] and entrando["ok"] is False and not entrando["rodando"] and "Entrar de novo" in entrando["erro"]
+    assert nlm.status()["entrando"]["ok"] is False  # a próxima leitura da tela vê o mesmo
+
+
+def test_login_errors_are_said_in_portuguese():
+    timeout = "Login not detected within 840 seconds.\nTry again with: notebooklm login\n(needs the 'cookies' extra)."
+    closed = "The browser window was closed during login.\nTry:\n  1. Run: notebooklm login --fresh"
+    assert "não terminou a tempo" in login_error(timeout, 1)
+    assert "janela do login foi fechada" in login_error(closed, 1)
+    assert login_error("Error: algo novo\n", 2) == "Error: algo novo" and login_error("", 3) == "saiu com 3"
+    changes: list[dict] = []
+    nlm = NotebookLM(run=FakeCli(logged=False), which=lambda: "/fake/notebooklm", on_change=changes.append, spawn=lambda argv, **kw: LoginProc(1, timeout), browser=lambda: None)
+    nlm.login()
+    wait_for(changes)
+    assert changes[0]["entrando"]["ok"] is False and "não terminou a tempo" in changes[0]["entrando"]["erro"]
 
 
 def test_study_image_one_drawing_per_session_at_a_time(tmp_path):
