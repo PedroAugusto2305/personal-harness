@@ -18,7 +18,8 @@ import type { BrowserProfile, Notebook, NotebookDetail, NotebookStatus } from ".
  * site vale para usar o NotebookLM aqui; o do CLI liga o caderno ao chat.
  */
 
-export const STUDY_WEB_LABEL = "estudo-notebooklm";
+/** O lado nativo (browser.rs) só abre página com rótulo começando por "browser-" (v1.3.2). */
+export const STUDY_WEB_LABEL = "browser-estudo-notebooklm";
 const SIDE_KEY = "harness.study.notebook.side";
 const PROFILE_KEY = "harness.study.notebook.profile";
 
