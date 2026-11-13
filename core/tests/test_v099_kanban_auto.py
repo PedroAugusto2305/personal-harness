@@ -141,7 +141,7 @@ def test_study_question_becomes_a_block_in_the_concept_note(tmp_path):
     study = StudyMap(Vault(root), project=lambda: "AI Engineer 2027")
     done = study.add_question("Atenção", "De onde vem a informação?", ["Da própria palavra", "Das outras palavras", "Não sei"])
     text = (root / done["caminho"]).read_text(encoding="utf-8")
-    assert "## Perguntas" in text and "> [!pergunta] Pergunta de previsão · Sócrates" in text
+    assert "## Perguntas" in text and "> [!pergunta] Pergunta de previsão · agente de estudo" in text  # v1.3.0: sem Sócrates fixo
     assert "> - [ ] Das outras palavras" in text
     study.add_question("Atenção", "Outra?", ["sim", "não"])
     assert (root / done["caminho"]).read_text(encoding="utf-8").count("[!pergunta]") == 2

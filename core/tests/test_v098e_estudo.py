@@ -221,14 +221,13 @@ def test_routes_map_plan_concepts_and_summary(core):
 
 def test_session_prompts_by_type_and_missing_tutor(core, vault):
     client, app = core
-    # v1.3.0: sem o Sócrates na galeria, a sessão abre com o Sócrates padrão da MÊTIS (antes era recusada).
-    fallback = client.post("/estudo/sessao", json={"tipo": "medir"}, headers=AUTH)
-    assert fallback.status_code == 201, fallback.text
-    argv = app.state.manager.get(fallback.json()["id"]).pty.argv
-    assert fallback.json()["agent"] == "socrates" and "--append-system-prompt" in argv
-    assert "Sócrates" in argv[argv.index("--append-system-prompt") + 1]
+    # v1.3.0: a aba de Estudo começa sem agente; a sessão só abre com um agente conectado.
+    refused = client.post("/estudo/sessao", json={"tipo": "medir"}, headers=AUTH)
+    assert refused.status_code == 400 and "agente de estudo" in refused.json()["detail"]
     agent = client.post("/agents", json={"name": "Socrates", "cli": "claude"}, headers=AUTH).json()
     assert agent["id"] == "socrates"
+    assert client.post("/estudo/sessao", json={"tipo": "medir"}, headers=AUTH).status_code == 400  # criar não conecta
+    assert client.put("/estudo/agente", json={"id": "socrates"}, headers=AUTH).json() == {"agente": "socrates"}
     assert client.post("/estudo/sessao", json={"tipo": "dancar"}, headers=AUTH).status_code == 400
     prompts = {}
     for kind in ("medir", "aprender", "praticar", "revisar"):

@@ -70,7 +70,7 @@ class Context:
     who: str
     cwd: str | None
     allowed: set[str] | None  # contas de conector liberadas; None = todas
-    #: v1.3.0: sessão de estudo (o Sócrates ou uma sessão aberta pelo Estudo): ganha o NotebookLM e as imagens.
+    #: v1.3.0: sessão de estudo (aberta pelo Estudo ou do agente conectado a ele): ganha o NotebookLM e as imagens.
     estudo: bool = False
 
 
@@ -411,7 +411,7 @@ class Hub:
 
         def pergunta(args: dict, ctx: Context) -> str:
             raw = args.get("opcoes") or []
-            answer = study.add_question(str(args.get("conceito") or ""), str(args.get("pergunta") or ""), [str(o) for o in raw] if isinstance(raw, list) else [])
+            answer = study.add_question(str(args.get("conceito") or ""), str(args.get("pergunta") or ""), [str(o) for o in raw] if isinstance(raw, list) else [], who=ctx.who)
             self.publish({"type": "estudo.mudou"})
             return f"Pergunta escrita na nota de {answer['conceito']} ({answer['caminho']}). Espere a resposta do Pedro, que chega aqui."
 

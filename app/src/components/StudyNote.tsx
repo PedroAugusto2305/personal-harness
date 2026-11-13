@@ -4,9 +4,9 @@ import type { BrainNote } from "../types";
 
 /**
  * Nota de estudo (v0.9.9, mockup "Estudo · B"): as propriedades no topo, como no Obsidian, e
- * cada bloco `> [!pergunta]` que o Sócrates escreve (ferramenta estudo_pergunta) vira um
+ * cada bloco `> [!pergunta]` que o agente de estudo escreve (ferramenta estudo_pergunta) vira um
  * formulário: alternativas, a régua de confiança e o raciocínio. Responder manda a resposta
- * ao Sócrates e marca a alternativa na nota.
+ * ao agente de estudo e marca a alternativa na nota.
  */
 
 export interface QuestionBlock {
@@ -37,7 +37,7 @@ export function splitQuestions(body: string): Segment[] {
     }
     if (md.length) out.push({ kind: "md", text: md.join("\n") });
     md = [];
-    const block: QuestionBlock = { kind: "q", index: index++, title: head[1] || "Pergunta · Sócrates", question: "", options: [], answer: "" };
+    const block: QuestionBlock = { kind: "q", index: index++, title: head[1] || "Pergunta", question: "", options: [], answer: "" };
     while (i + 1 < lines.length && lines[i + 1].startsWith(">")) {
       const line = lines[++i];
       const option = OPTION.exec(line);
@@ -77,7 +77,7 @@ const DOMAIN = ["não vi", "já ouvi falar", "entendo com ajuda", "consigo usar"
 
 interface Props {
   note: BrainNote;
-  /** Há um Sócrates aberto para receber a resposta. */
+  /** Há uma conversa com o agente de estudo aberta para receber a resposta. */
   canAnswer: boolean;
   onAnswer: (block: QuestionBlock, option: number, confidence: number, reasoning: string) => Promise<void>;
   onLink: (event: React.MouseEvent) => void;
@@ -177,7 +177,7 @@ function Question({ block, canAnswer, onAnswer }: { block: QuestionBlock; canAns
             <textarea rows={2} value={reasoning} onChange={(e) => setReasoning(e.target.value)} placeholder="Por que essa resposta? Escreva ou fale." />
           </label>
           <div className="sq-actions">
-            {!canAnswer && <span className="sq-hint">Abra uma sessão com o Sócrates (à direita) para a resposta chegar a ele.</span>}
+            {!canAnswer && <span className="sq-hint">Abra uma conversa com o agente de estudo (à direita) para a resposta chegar a ele.</span>}
             <button type="submit" className="sq-send" disabled={choice < 0 || busy || !canAnswer}>
               {busy ? "Mandando…" : "Responder"}
             </button>

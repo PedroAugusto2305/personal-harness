@@ -281,6 +281,7 @@ export function useHarness() {
           setAppThemesTick((n) => n + 1);
           break;
         case "estudo.mudou":
+        case "estudo.agente":
           setBrainTick((n) => n + 1);
           break;
         case "notebooklm":
