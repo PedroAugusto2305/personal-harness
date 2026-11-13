@@ -37,7 +37,6 @@ DOMAIN_LABEL = {0: "não vi", 1: "ouvi falar", 2: "entendo com ajuda", 3: "faço
 MAX_INTERVAL = 60
 BAD_TITLE = re.compile(r'[\[\]#^|/\\:*?"<>]')
 SESSION_TYPES = ("medir", "aprender", "praticar", "revisar", "conversa")
-TUTOR = "socrates"
 
 #: v1.3.0: o jeito de explicar de toda sessão de estudo. O Pedro estuda melhor com o GPT porque
 #: ele responde com imagens e diagramas; a conversa da MÊTIS desenha Mermaid, tabelas e imagens.
@@ -51,19 +50,6 @@ VISUAL = (
     "importa (uma arquitetura, um objeto, uma metáfora visual): peça à ferramenta estudo_imagem, que o GPT desenha, e mostre "
     "o arquivo na resposta com ![legenda](caminho). Nada de desenho em ASCII."
 )
-
-#: v1.3.0: o Sócrates que a MÊTIS usa quando o Pedro ainda não tem um agente socrates na galeria.
-TUTOR_ROLE = (
-    "Você é o Sócrates, o tutor de estudo do Pedro na MÊTIS. Responda sempre em português do Brasil, direto e caloroso, "
-    "sem sermão e sem elogio vazio. Método: pergunte antes de explicar (a previsão do Pedro e a confiança dele de 1 a 5), "
-    "uma pergunta por vez, explicação curta em passos, exemplos concretos e perguntas de fixação; corrija o raciocínio, "
-    "não só a resposta. As ferramentas da central metis guardam o estudo: estudo_plano e estudo_conceitos "
-    "(o cronograma e o mapa do que ele sabe), estudo_pergunta (pergunta com alternativas na nota do conceito), "
-    "estudo_registrar (cada resposta, com a confiança dita antes), estudo_conceito_novo; cadernos, caderno_fontes, "
-    "caderno_perguntar e caderno_fonte leem o NotebookLM do Pedro; estudo_imagem desenha uma ilustração. Nota permanente "
-    "no Brain só nasce da destilação do Pedro, com as palavras dele: não escreva uma."
-)
-
 
 #: v1.3.0: o registro que vale em toda sessão (inclusive na conversa livre).
 RECORD_RULE = (
@@ -590,7 +576,7 @@ class StudyMap:
 
     # sessões com o Sócrates
 
-    def add_question(self, name: str, question: str, options: list[str], kind: str = "previsão") -> dict:
+    def add_question(self, name: str, question: str, options: list[str], kind: str = "previsão", who: str = "agente de estudo") -> dict:
         """v0.9.9: a pergunta do Sócrates vira um bloco na nota do conceito (cria o conceito se
         faltar). A tela do Estudo mostra o bloco com as opções, a confiança e o raciocínio, e a
         resposta do Pedro volta ao terminal do Sócrates."""
@@ -604,7 +590,8 @@ class StudyMap:
         with self._lock:
             path = self.vault.root / concept.caminho
             text = path.read_text(encoding="utf-8")
-            block = [f"> [!pergunta] Pergunta de {kind} · Sócrates", f"> {question}", *(f"> - [ ] {o}" for o in opts)]
+            author = " ".join(str(who or "agente de estudo").split())[:60] or "agente de estudo"
+            block = [f"> [!pergunta] Pergunta de {kind} · {author}", f"> {question}", *(f"> - [ ] {o}" for o in opts)]
             heading = "## Perguntas"
             if heading not in text:
                 text = text.rstrip("\n") + f"\n\n{heading}\n"
@@ -613,7 +600,7 @@ class StudyMap:
         return {"conceito": concept.titulo, "caminho": concept.caminho}
 
     def session_prompt(self, kind: str, concept: str | None = None, caderno: dict | None = None) -> str:
-        """O pedido que abre a sessão com o Sócrates (o que fazer agora). O jeito de explicar
+        """O pedido que abre a sessão com o agente de estudo (o que fazer agora). O jeito de explicar
         (modo visual, caderno do NotebookLM) vem de session_rules, no papel de sistema."""
         if kind not in SESSION_TYPES:
             raise StudyError(f"tipo de sessão é {', '.join(SESSION_TYPES)}")

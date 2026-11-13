@@ -11,11 +11,11 @@ import type { BrowserProfile, Notebook, NotebookDetail, NotebookStatus } from ".
  * - O site de verdade (notebook.google.com) num navegador embutido da MÊTIS, na aba NotebookLM:
  *   cadernos, fontes, chat, resumos em áudio e vídeo, mapas mentais, tudo sem sair da MÊTIS.
  * - A barra de cima lê os cadernos pelo notebooklm-py (o CLI que o Pedro já usa) e escolhe o
- *   caderno do estudo: o Sócrates responde com base nele (ferramentas caderno_* da central).
- * - Ao lado, o resumo do NotebookLM, as perguntas que ele sugere (vão para o Sócrates) e as fontes.
+ *   caderno do estudo: o agente de estudo conectado responde com base nele (ferramentas caderno_* da central).
+ * - Ao lado, o resumo do NotebookLM, as perguntas que ele sugere (vão para o chat) e as fontes.
  *
  * O login do site (o WebKit da MÊTIS) e o do CLI (o Chromium do Playwright) são separados: o do
- * site vale para usar o NotebookLM aqui; o do CLI liga o caderno ao Sócrates.
+ * site vale para usar o NotebookLM aqui; o do CLI liga o caderno ao chat.
  */
 
 export const STUDY_WEB_LABEL = "estudo-notebooklm";
@@ -32,8 +32,10 @@ interface Props {
   defaultProfile: string;
   onDesign: (on: boolean) => void;
   onDevice: (id: string) => void;
-  /** Uma pergunta sugerida pelo NotebookLM vai para o Sócrates. */
+  /** Uma pergunta sugerida pelo NotebookLM vai para o chat do agente de estudo. */
   onAskTutor: (text: string) => void;
+  /** O agente de estudo conectado (null = nenhum). */
+  agentName: string | null;
   onError: (message: string) => void;
 }
 
@@ -71,7 +73,7 @@ const KIND_LABEL: Record<string, string> = {
   image: "imagem",
 };
 
-export function StudyNotebook({ client, tick, shown, info, profiles, defaultProfile, onDesign, onDevice, onAskTutor, onError }: Props) {
+export function StudyNotebook({ client, tick, shown, info, profiles, defaultProfile, onDesign, onDevice, onAskTutor, agentName, onError }: Props) {
   const [status, setStatus] = useState<NotebookStatus | null>(null);
   const [books, setBooks] = useState<Notebook[] | null>(null);
   const [detail, setDetail] = useState<NotebookDetail | null>(null);
@@ -183,10 +185,10 @@ export function StudyNotebook({ client, tick, shown, info, profiles, defaultProf
             value={chosen.id}
             disabled={!books}
             onChange={(event) => void choose(event.target.value)}
-            title="O caderno que o Sócrates usa como base das respostas"
+            title="O caderno que o agente de estudo usa como base das respostas"
             aria-label="Caderno do estudo"
           >
-            <option value="">{books ? "Sem caderno: o Sócrates explica por conta própria" : "lendo os cadernos…"}</option>
+            <option value="">{books ? "Sem caderno: o chat explica por conta própria" : "lendo os cadernos…"}</option>
             {chosen.id && !books?.some((b) => b.id === chosen.id) && <option value={chosen.id}>{chosen.titulo || chosen.id}</option>}
             {books?.map((b) => (
               <option key={b.id} value={b.id}>
@@ -199,19 +201,19 @@ export function StudyNotebook({ client, tick, shown, info, profiles, defaultProf
         ) : (
           <>
             <span className="small snb-warn" title={status.erro ?? undefined}>
-              {loginFailed ? `O login não terminou: ${loginFailed}` : (status.erro ?? "O NotebookLM não está ligado ao Sócrates.")}
+              {loginFailed ? `O login não terminou: ${loginFailed}` : (status.erro ?? "O NotebookLM não está ligado ao chat.")}
             </span>
             {status.instalado && status.versao_ok && (
-              <button type="button" className="btn primary" disabled={busy === "entrar"} onClick={() => void login()} title="Abre o login do Google do notebooklm-py, que liga os cadernos ao Sócrates">
-                {busy === "entrar" ? "Abrindo…" : "Entrar e ligar ao Sócrates"}
+              <button type="button" className="btn primary" disabled={busy === "entrar"} onClick={() => void login()} title="Abre o login do Google do notebooklm-py, que liga os cadernos ao chat do Estudo">
+                {busy === "entrar" ? "Abrindo…" : "Entrar e ligar ao chat"}
               </button>
             )}
           </>
         )}
         <span className="grow" />
         {chosen.id && (
-          <span className="chip snb-linked" title={`O Sócrates responde com base em «${chosen.titulo || chosen.id}»`}>
-            ligado ao Sócrates
+          <span className="chip snb-linked" title={`${agentName ?? "O agente de estudo"} responde com base em «${chosen.titulo || chosen.id}»`}>
+            ligado ao chat
           </span>
         )}
         <button type="button" className="icon-btn" aria-pressed={side} title={side ? "Esconder fontes e resumo" : "Fontes e resumo do caderno"} aria-label="Fontes e resumo" onClick={() => setSide((v) => !v)}>
@@ -254,10 +256,10 @@ export function StudyNotebook({ client, tick, shown, info, profiles, defaultProf
           <aside className="snb-side" aria-label="Fontes e resumo do caderno">
             {!logged ? (
               <p className="small snb-hint">
-                Use o NotebookLM aqui ao lado como no navegador (o login do Google desta página fica guardado no perfil do navegador da MÊTIS). Para o Sócrates responder com base num caderno, use <b>Entrar e ligar ao Sócrates</b> acima.
+                Use o NotebookLM aqui ao lado como no navegador (o login do Google desta página fica guardado no perfil do navegador da MÊTIS). Para o chat responder com base num caderno, use <b>Entrar e ligar ao chat</b> acima.
               </p>
             ) : !chosen.id ? (
-              <p className="small snb-hint">Escolha um caderno acima: o Sócrates passa a explicar com base nas fontes dele, citando de onde veio cada ponto.</p>
+              <p className="small snb-hint">Escolha um caderno acima: o agente de estudo passa a explicar com base nas fontes dele, citando de onde veio cada ponto.</p>
             ) : busy === "detalhe" && !detail ? (
               <p className="small snb-hint">lendo o caderno…</p>
             ) : detail ? (
@@ -270,9 +272,9 @@ export function StudyNotebook({ client, tick, shown, info, profiles, defaultProf
                 )}
                 {detail.topicos.length > 0 && (
                   <section>
-                    <div className="section-title">Pergunte ao Sócrates</div>
+                    <div className="section-title">{agentName ? `Pergunte a ${agentName}` : "Pergunte no chat"}</div>
                     {detail.topicos.map((topic) => (
-                      <button key={topic} type="button" className="snb-topic" onClick={() => onAskTutor(topic)} title="Manda a pergunta para o Sócrates">
+                      <button key={topic} type="button" className="snb-topic" onClick={() => onAskTutor(topic)} title="Manda a pergunta para o chat do Estudo">
                         {topic}
                       </button>
                     ))}

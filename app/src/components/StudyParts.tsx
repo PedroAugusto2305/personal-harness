@@ -20,7 +20,7 @@ function calibrationLabel(value: number | null): string {
   return "descalibrado";
 }
 
-/** Botões das sessões com o Sócrates: cada uma abre um terminal com o pedido certo. */
+/** Botões das sessões com o agente de estudo: cada uma abre um terminal com o pedido certo. */
 export function StudyActions({
   client,
   dueCount,
@@ -61,7 +61,7 @@ export function StudyActions({
 
 /**
  * Mapa do que você sabe (v0.9.8): os conceitos do projeto de estudo, cada um uma nota em
- * 01-PROJETOS/<projeto>/conceitos, com domínio, próxima revisão e calibração. O Sócrates
+ * 01-PROJETOS/<projeto>/conceitos, com domínio, próxima revisão e calibração. O agente de estudo
  * registra cada resposta; aqui dá para abrir a nota, aprender um conceito e criar outro.
  */
 export function StudyMapView({
@@ -146,7 +146,7 @@ export function StudyMapView({
       {error && <p className="small error-box">{error}</p>}
       {r.total === 0 && (
         <p className="small study-empty">
-          Nenhum conceito ainda. Use <b>Medir o que eu sei</b>: o Sócrates pergunta os conceitos da semana e cada resposta vira uma nota em{" "}
+          Nenhum conceito ainda. Use <b>Medir o que eu sei</b>: o agente de estudo pergunta os conceitos da semana e cada resposta vira uma nota em{" "}
           <span className="mono">01-PROJETOS/{map.projeto}/conceitos</span>, ligada às outras no grafo do Brain.
         </p>
       )}

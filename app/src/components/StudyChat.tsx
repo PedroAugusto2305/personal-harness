@@ -5,7 +5,7 @@ import type { CoreClient } from "../lib/core";
 import type { Session, ThemeName } from "../types";
 
 /**
- * O chat do Estudo (v1.3.0): a conversa do Sócrates desenhada do transcript, a mesma da v1.2.0
+ * O chat do Estudo (v1.3.0): a conversa do agente de estudo desenhada do transcript, a mesma da v1.2.0
  * (Markdown, fluxogramas Mermaid, tabelas e imagens na própria conversa), com a caixa de
  * mensagem logo abaixo. Antes, o painel era a espiada em texto puro (SessionPeek), e o diagrama
  * chegava como código. O terminal de verdade continua na tela Terminais.
@@ -13,6 +13,8 @@ import type { Session, ThemeName } from "../types";
 
 interface Props {
   client: CoreClient;
+  /** O agente de estudo conectado. */
+  agentName: string;
   session: Session;
   theme: ThemeName;
   /** O painel aparece (aba Estudo na tela): só então a conversa pergunta ao núcleo. */
@@ -26,7 +28,7 @@ interface Props {
   onOpenFile?: (path: string) => void;
 }
 
-export function StudyChat({ client, session, theme, visible, draft, onDraftUsed, onError, onOpenTerminal, onLink, onOpenFile }: Props) {
+export function StudyChat({ client, agentName, session, theme, visible, draft, onDraftUsed, onError, onOpenTerminal, onLink, onOpenFile }: Props) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -89,8 +91,8 @@ export function StudyChat({ client, session, theme, visible, draft, onDraftUsed,
               void send();
             }
           }}
-          placeholder={exited ? "A sessão saiu." : "Pergunte ao Sócrates (ex.: me explica com um diagrama)…"}
-          aria-label="Mensagem para o Sócrates"
+          placeholder={exited ? "A sessão saiu." : `Pergunte a ${agentName} (ex.: me explica com um diagrama)…`}
+          aria-label={`Mensagem para ${agentName}`}
         />
         <button type="submit" className="peek-send" aria-label="Enviar" disabled={!text.trim() || sending || exited}>
           <Icon d={ICON.up} size={13} strokeWidth={2.4} />

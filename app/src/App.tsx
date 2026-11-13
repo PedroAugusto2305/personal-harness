@@ -2110,7 +2110,7 @@ export default function App() {
             tick={harness.routinesTick + harness.brainTick}
             pomodoro={pomodoro}
             agents={harness.agents}
-            onLaunch={launchAgent}
+            onOpenAgents={() => setView("agents")}
             onSession={(session) => {
               harness.adopt(session);
               setView("term");

@@ -30,7 +30,7 @@ from .agent_draft import DraftError, draft_agent
 from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
-from .study_map import SESSION_TYPES, TUTOR, TUTOR_ROLE, StudyError, StudyMap, session_rules
+from .study_map import SESSION_TYPES, StudyError, StudyMap, session_rules
 from .notebooklm import NotebookError, NotebookLM, NotLoggedIn, notebook_url
 from .study_images import StudyImages
 from .boards import BoardConflict, BoardError, BoardStore
@@ -433,6 +433,12 @@ class StudySessionBody(BaseModel):
     conceito: str | None = Field(default=None, max_length=120)
 
 
+class StudyAgentChoice(BaseModel):
+    """v1.3.0: o agente conectado à aba de Estudo (id vazio desconecta)."""
+
+    id: str = Field(default="", max_length=80)
+
+
 class NotebookChoice(BaseModel):
     """v1.3.0: o caderno do NotebookLM do estudo (id vazio tira)."""
 
@@ -708,21 +714,22 @@ def create_app(
             try:
                 agent = agents.get(session.agent)
             except AgentError:
-                # v1.3.0: o Sócrates padrão (sem agente na galeria) não usa conector nenhum.
-                agent = tutor_agent() if session.agent == TUTOR else None
-        # v1.3.0: sessão de estudo ganha o NotebookLM e as imagens na central.
-        study_session = session.tag == "estudo" or session.agent == TUTOR
+                agent = None
+        # v1.3.0: sessão de estudo (aberta pelo Estudo, ou do agente conectado a ele) ganha o NotebookLM e as imagens.
+        connected = manager.prefs.get()["estudo_agente"]
+        study_session = session.tag == "estudo" or bool(connected and session.agent == connected)
         return {"who": agent.name if agent else session.title, "cwd": session.cwd, "allowed": allowed_connectors(agent), "estudo": study_session}
 
-    def tutor_agent() -> Agent:
-        """O Sócrates da galeria; sem ele, o padrão da MÊTIS (v1.3.0): Claude no vault, com o
-        papel de tutor e sem conectores. Antes, sem o agente socrates o chat do Estudo nem abria."""
+    def study_agent() -> Agent | None:
+        """v1.3.0: o agente conectado à aba de Estudo. A aba começa sem agente: o Pedro cria o agente
+        de estudos dele na aba Agentes e conecta (ou desconecta) no Estudo. Agente apagado conta como nenhum."""
+        agent_id = manager.prefs.get()["estudo_agente"]
+        if not agent_id:
+            return None
         try:
-            return agents.get(TUTOR)
+            return agents.get(agent_id)
         except AgentError:
-            folder = str(settings.brain) if settings.brain.is_dir() else ""  # sem o vault, a pasta pessoal
-            return Agent(id=TUTOR, name="Sócrates", description="Tutor do Estudo (padrão da MÊTIS)", cli="claude",
-                         folder=folder, color="#C9A227", connectors="nenhum", prompt=TUTOR_ROLE)  # fmt: skip
+            return None
 
     hub = Hub(
         connectors=connectors,
@@ -3639,8 +3646,28 @@ def create_app(
 
     @app.get("/estudo", dependencies=[Depends(require_token)])
     def study_summary() -> dict:
-        # v0.9.8: quantos conceitos vencem hoje e a semana do cronograma.
-        return {**study.summary(), "vencidos": study_map.due_count(), "semana_atual": study_map.current()}
+        # v0.9.8: quantos conceitos vencem hoje e a semana do cronograma; v1.3.0: o agente conectado.
+        agent = study_agent()
+        return {**study.summary(), "vencidos": study_map.due_count(), "semana_atual": study_map.current(), "agente": agent.id if agent else ""}
+
+    @app.put("/estudo/agente", dependencies=[Depends(require_token)])
+    def study_connect(body: StudyAgentChoice) -> dict:
+        """v1.3.0: conecta um agente da galeria à aba de Estudo (id vazio desconecta). Só Claude ou
+        Codex: o modo de estudo vai no papel de sistema e o NotebookLM pela central de MCP."""
+        agent_id = body.id.strip()
+        if agent_id:
+            try:
+                agent = agents.get(agent_id)
+            except AgentError as exc:
+                raise HTTPException(status_code=404, detail=f"agente não encontrado: {agent_id}") from exc
+            if agent.cli not in ("claude", "codex"):
+                raise HTTPException(status_code=400, detail="o agente de estudo precisa ser do Claude ou do Codex")
+        try:
+            manager.prefs.update({"estudo_agente": agent_id})
+        except PrefsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        manager.events.publish({"type": "estudo.agente", "agente": agent_id})
+        return {"agente": agent_id}
 
     @app.post("/estudo/blocos", dependencies=[Depends(require_token)], status_code=201)
     def study_block(body: StudyBlock) -> dict:
@@ -3693,7 +3720,9 @@ def create_app(
         # async de propósito: o PTY nasce no loop do asyncio, como em POST /sessions.
         if body.tipo not in SESSION_TYPES:
             raise HTTPException(status_code=400, detail=f"tipo de sessão é {', '.join(SESSION_TYPES)}")
-        agent = tutor_agent()  # v1.3.0: sem o Sócrates na galeria, o padrão da MÊTIS
+        agent = study_agent()
+        if agent is None:
+            raise HTTPException(status_code=400, detail="nenhum agente de estudo conectado: crie o seu na aba Agentes e conecte na aba Estudo")
         notebook = manager.prefs.get()["estudo_caderno"]
         chosen = notebook if notebook.get("id") else None
         try:
@@ -3758,7 +3787,7 @@ def create_app(
 
     @app.put("/estudo/notebooklm/caderno", dependencies=[Depends(require_token)])
     def notebooklm_choose(body: NotebookChoice) -> dict:
-        """O caderno que o Sócrates usa como base das respostas (id vazio = nenhum)."""
+        """O caderno que o agente de estudo usa como base das respostas (id vazio = nenhum)."""
         try:
             manager.prefs.update({"estudo_caderno": {"id": body.id, "titulo": body.titulo}})
         except PrefsError as exc:

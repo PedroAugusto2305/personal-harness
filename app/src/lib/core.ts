@@ -1079,6 +1079,11 @@ export class CoreClient {
     return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null });
   }
 
+  /** v1.3.0: conecta um agente da galeria à aba de Estudo (id vazio desconecta). */
+  setStudyAgent(id: string): Promise<{ agente: string }> {
+    return this.request("PUT", "/estudo/agente", { id });
+  }
+
   // v1.3.0: NotebookLM no Estudo
   notebookStatus(fresh = false): Promise<NotebookStatus> {
     return this.request("GET", `/estudo/notebooklm${fresh ? "?fresh=true" : ""}`);

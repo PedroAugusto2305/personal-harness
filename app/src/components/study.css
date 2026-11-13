@@ -530,6 +530,18 @@
   cursor: default;
 }
 
+/* Sem agente conectado: escolher um da galeria (os do Maestri ficam de fora). */
+.sv-connect {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sv-connect select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .sv-chat {
   flex: 1 1 auto;
   min-height: 0;

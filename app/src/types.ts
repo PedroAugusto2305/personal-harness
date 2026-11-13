@@ -201,6 +201,7 @@ export type CoreEvent =
   | { type: "estudo.mudou" }
   | { type: "notebooklm"; status: Omit<NotebookStatus, "caderno"> }
   | { type: "notebooklm.caderno"; caderno: StudyNotebookChoice }
+  | { type: "estudo.agente"; agente: string }
   | { type: "codigo.grafo"; root: string; status: string; detalhe?: string }
   | { type: "brain.changed"; project: string }
   | { type: "kanban.tarefa"; project: string; task: string }
@@ -272,6 +273,8 @@ export interface StudySummary {
   /** v0.9.8: conceitos para revisar hoje e a semana do cronograma. */
   vencidos?: number;
   semana_atual?: { numero: number; foco: string } | null;
+  /** v1.3.0: o agente conectado à aba de Estudo ("" = nenhum). */
+  agente?: string;
 }
 
 export interface StudyConcept {

@@ -29,6 +29,7 @@ HIBERNATE_MINUTES = (0, 15, 30, 60)
 AGENT_VIEWS = ("conversa", "terminal")
 RECIPE_MAX = 4000
 NOTEBOOK_ID = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+AGENT_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 
 # Receitas de IA por ação (v0.9.6): o pedido que vai ao agente da worktree. {base} vira o branch alvo do PR.
 RECIPE_COMMIT = (
@@ -62,6 +63,8 @@ DEFAULTS: dict[str, Any] = {
     "estudo_projeto": "AI Engineer 2027",
     # v1.3.0: o caderno do NotebookLM que o Sócrates usa como base das respostas (vazio = nenhum).
     "estudo_caderno": {"id": "", "titulo": ""},
+    # v1.3.0: o agente da galeria conectado à aba de Estudo (vazio = nenhum; o Pedro conecta o que criar).
+    "estudo_agente": "",
 }
 
 
@@ -126,6 +129,10 @@ class Prefs:
                         raise PrefsError("id de caderno do NotebookLM inválido")
                     title = " ".join(str(value.get("titulo") or "").split())[:200]
                     value = {"id": nb_id, "titulo": title if nb_id else ""}
+                if key == "estudo_agente":
+                    value = str(value or "").strip()
+                    if value and not AGENT_ID.match(value):
+                        raise PrefsError("id de agente inválido")
                 if key == "estudo_projeto":
                     if not isinstance(value, str) or not value.strip() or len(value) > 120:
                         raise PrefsError("o projeto de estudo é o nome de um projeto do Brain")

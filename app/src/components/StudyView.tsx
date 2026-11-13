@@ -20,16 +20,17 @@ interface Props {
   tick: number;
   pomodoro: Pomodoro;
   agents: Agent[];
-  onLaunch: (agent: Agent) => void;
-  /** v0.9.8: sessões com o Sócrates e abrir a nota de um conceito. */
+  /** v1.3.0: a aba começa sem agente; criar o agente de estudo é na aba Agentes. */
+  onOpenAgents: () => void;
+  /** v0.9.8: sessões com o agente de estudo e abrir a nota de um conceito. */
   onSession: (session: Session) => void;
   onOpenNote: (title: string) => void;
-  /** v0.9.9: o Estudo do mockup (nota no centro e o Sócrates ao lado). */
+  /** v0.9.9: o Estudo do mockup (nota no centro e o agente de estudo ao lado). */
   sessions: Session[];
   onAdopt: (session: Session) => void;
   onOpenSession: (id: string) => void;
   onError: (message: string) => void;
-  /** v1.3.0: a conversa rica do Sócrates e o NotebookLM no navegador embutido. */
+  /** v1.3.0: a conversa rica do agente de estudo e o NotebookLM no navegador embutido. */
   theme: ThemeName;
   notebookTick: number;
   webInfo: WebInfo | undefined;
@@ -67,7 +68,7 @@ function stored<T>(key: string, fallback: T): T {
 const titleOf = (path: string) => path.split("/").pop()!.replace(/\.md$/, "");
 
 export function StudyView(props: Props) {
-  const { client, tick, pomodoro, agents, onLaunch, onOpenNote, sessions, onAdopt, onOpenSession, onError } = props;
+  const { client, tick, pomodoro, agents, onOpenNote, sessions, onAdopt, onOpenSession, onError } = props;
   const [summary, setSummary] = useState<StudySummary | null>(null);
   const [project, setProject] = useState<string | null>(null);
   const [tabs, setTabs] = useState<string[]>(() => stored<string[]>(TABS_KEY, []).slice(0, 10));
@@ -78,6 +79,7 @@ export function StudyView(props: Props) {
   const [draft, setDraft] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [wide, setWide] = useState<boolean>(() => stored(WIDE_KEY, false));
+  const [pick, setPick] = useState("");
   const { state } = pomodoro;
 
   useEffect(() => {
@@ -108,7 +110,7 @@ export function StudyView(props: Props) {
 
   const isNote = !FIXED.includes(active as Fixed);
 
-  // A nota da aba ativa (e de novo quando o Sócrates escreve nela: estudo.mudou vira tick).
+  // A nota da aba ativa (e de novo quando o agente de estudo escreve nela: estudo.mudou vira tick).
   useEffect(() => {
     if (!client || !isNote) return;
     let alive = true;
@@ -146,14 +148,13 @@ export function StudyView(props: Props) {
     });
   };
 
-  const tutor = agents.find((a) => a.id === "socrates") ?? agents.find((a) => a.name.toLowerCase().startsWith("sócrates")) ?? null;
-  const coach = agents.find((a) => a.id === "aurora") ?? null;
-  // v1.3.0: o Sócrates padrão (sem agente na galeria) também conta: agente socrates ou sessão aberta pelo Estudo.
+  // v1.3.0: a aba de Estudo começa sem agente. O Pedro cria o agente de estudo dele na aba Agentes e
+  // conecta (ou desconecta) aqui; o núcleo guarda qual é (estudo_agente).
+  const tutor = agents.find((a) => a.id === (summary?.agente ?? "")) ?? null;
+  // Os que podem ser conectados: Claude ou Codex criados na MÊTIS (os herdados do Maestri ficam de fora).
+  const eligible = useMemo(() => agents.filter((a) => (a.cli === "claude" || a.cli === "codex") && !a.origin.startsWith("maestri:")), [agents]);
   const tutorSessions = useMemo(
-    () =>
-      sessions
-        .filter((s) => s.status !== "exited" && (s.agent === "socrates" || (tutor && s.agent === tutor.id) || s.tag === "estudo" || /sócrates/i.test(s.title)))
-        .sort((a, b) => b.created_at - a.created_at),
+    () => (tutor ? sessions.filter((s) => s.status !== "exited" && s.agent === tutor.id).sort((a, b) => b.created_at - a.created_at) : []),
     [sessions, tutor],
   );
   const peek = tutorSessions.find((s) => s.id === peekId) ?? tutorSessions[0] ?? null;
@@ -189,7 +190,20 @@ export function StudyView(props: Props) {
     }
   };
 
-  /** v1.3.0: conversa de estudo com o Sócrates (modo visual e, se houver, o caderno do NotebookLM). */
+  /** v1.3.0: conecta (id) ou desconecta ("") o agente de estudo. */
+  const connect = async (id: string) => {
+    if (!client) return;
+    try {
+      const { agente } = await client.setStudyAgent(id);
+      setSummary((current) => (current ? { ...current, agente } : current));
+      setPeekId(null);
+      setPick("");
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  /** v1.3.0: conversa de estudo com o agente conectado (modo visual e, se houver, o caderno do NotebookLM). */
   const startChat = async (text?: string) => {
     if (!client || starting) return;
     setStarting(true);
@@ -205,7 +219,7 @@ export function StudyView(props: Props) {
     }
   };
 
-  /** Pergunta sugerida pelo NotebookLM: vai para a caixa do Sócrates (abre uma conversa se não houver). */
+  /** Pergunta sugerida pelo NotebookLM: vai para a caixa do agente de estudo (abre uma conversa se não houver). */
   const askTutor = (text: string) => {
     if (peek && peek.status !== "exited") setDraft(text);
     else void startChat(text);
@@ -337,7 +351,7 @@ export function StudyView(props: Props) {
                 </button>
               )}
             </div>
-            <p className="small study-note">Cada foco terminado vira uma linha em 📚 Estudo na nota do dia do Brain, que a Aurora lê às 20h50. Abra a nota da aula à esquerda para estudar ao lado do Sócrates.</p>
+            <p className="small study-note">Cada foco terminado vira uma linha em 📚 Estudo na nota do dia do Brain. Abra a nota da aula à esquerda para estudar ao lado do agente de estudo.</p>
           </section>
         ) : active === "mapa" && client ? (
           <div className="sv-scroll">
@@ -358,6 +372,7 @@ export function StudyView(props: Props) {
             onDesign={props.onWebDesign}
             onDevice={props.onWebDevice}
             onAskTutor={askTutor}
+            agentName={tutor?.name ?? null}
             onError={onError}
           />
         ) : note && note.path === active ? (
@@ -384,13 +399,13 @@ export function StudyView(props: Props) {
         )}
       </main>
 
-      <aside className="sv-right" aria-label="Sócrates" data-wide={wide || undefined}>
+      <aside className="sv-right" aria-label="Agente de estudo" data-wide={wide || undefined}>
         <div className="sv-tutor-head">
           {tutor ? <AgentSprite agent={tutor} client={client} size={28} state={peek ? (peek.status === "working" ? "working" : peek.status === "waiting" ? "waiting" : "idle") : "idle"} /> : null}
           <span className="sv-tutor-who">
-            <b>{tutor?.name ?? "Sócrates"}</b>
+            <b>{tutor?.name ?? "Agente de estudo"}</b>
             <span className="small mono">
-              {peek ? `${peek.kind}${peek.statusline?.model ? ` · ${peek.statusline.model}` : ""}` : "tutor"}
+              {peek ? `${peek.kind}${peek.statusline?.model ? ` · ${peek.statusline.model}` : ""}` : tutor ? "conectado" : "nenhum conectado"}
               {week ? ` · semana ${week.numero}` : ""}
             </span>
           </span>
@@ -408,18 +423,66 @@ export function StudyView(props: Props) {
           <button type="button" className="sv-icon" aria-pressed={wide} title={wide ? "Estreitar a conversa" : "Alargar a conversa (diagramas e imagens maiores)"} aria-label="Largura da conversa" onClick={() => setWide((v) => !v)}>
             <Icon d={ICON.split} size={13} />
           </button>
+          {tutor && (
+            <button
+              type="button"
+              className="sv-icon"
+              title={`Desconectar ${tutor.name} do Estudo (as conversas abertas continuam em Terminais)`}
+              aria-label="Desconectar o agente de estudo"
+              onClick={() => void connect("")}
+            >
+              <Icon d={ICON.close} size={13} />
+            </button>
+          )}
         </div>
         {tutorSessions.length > 1 && (
           <div className="sv-tutor-tabs">
             {tutorSessions.map((s, i) => (
               <button key={s.id} type="button" aria-pressed={s.id === peek?.id} onClick={() => setPeekId(s.id)}>
-                {i === 0 ? "última" : s.title.replace(/^Sócrates\s*·?\s*/i, "") || `sessão ${i + 1}`}
+                {i === 0 ? "última" : s.title.replace(/^Estudo\s*·?\s*/i, "") || `sessão ${i + 1}`}
               </button>
             ))}
           </div>
         )}
-        {client && peek ? (
+        {summary === null ? (
+          <p className="sv-loading small">lendo o Estudo…</p>
+        ) : !tutor ? (
+          <div className="sv-start">
+            <p className="small">
+              <b>Nenhum agente de estudo conectado.</b> Crie o seu agente de estudos na aba Agentes e conecte aqui: ele explica em passos, com diagramas, tabelas e imagens desenhados na conversa, e responde com base no caderno escolhido na aba NotebookLM.
+            </p>
+            {eligible.length > 0 ? (
+              <form
+                className="sv-connect"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (pick) void connect(pick);
+                }}
+              >
+                <select className="web-select" value={pick} onChange={(event) => setPick(event.target.value)} aria-label="Agente para conectar ao Estudo">
+                  <option value="">Escolha um agente…</option>
+                  {eligible.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                      {agent.description ? ` · ${agent.description}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button type="submit" className="btn primary" disabled={!pick}>
+                  Conectar
+                </button>
+              </form>
+            ) : (
+              <p className="small">Ainda não há agentes criados na MÊTIS para conectar.</p>
+            )}
+            <button type="button" className="btn" onClick={props.onOpenAgents}>
+              <Icon d={ICON.agents} size={14} />
+              Criar o agente na aba Agentes
+            </button>
+          </div>
+        ) : client && peek ? (
           <StudyChat
+            agentName={tutor.name}
             client={client}
             session={peek}
             theme={props.theme}
@@ -434,12 +497,12 @@ export function StudyView(props: Props) {
         ) : (
           <div className="sv-start">
             <p className="small">
-              Converse com o Sócrates: ele explica em passos, com diagramas, tabelas e imagens desenhados na conversa, e faz perguntas de fixação. Com um caderno escolhido na aba NotebookLM, ele responde com base nas fontes dele.
+              Converse com {tutor.name}: no Estudo, ele explica em passos, com diagramas, tabelas e imagens desenhados na conversa, e faz perguntas de fixação. Com um caderno escolhido na aba NotebookLM, ele responde com base nas fontes dele.
             </p>
             {client && (
               <button type="button" className="btn primary" disabled={starting} onClick={() => void startChat()}>
                 <Icon d={ICON.chat} size={14} />
-                {starting ? "Abrindo…" : "Conversar com o Sócrates"}
+                {starting ? "Abrindo…" : `Conversar com ${tutor.name}`}
               </button>
             )}
             <p className="small">Ou uma sessão guiada: ele pergunta antes de explicar, escreve as perguntas na nota do conceito e registra cada resposta no mapa.</p>
@@ -457,14 +520,6 @@ export function StudyView(props: Props) {
               >
                 Aprender «{note.title}»
               </button>
-            )}
-            {coach && (
-              <div className="sv-start-agents">
-                <button type="button" className="btn" onClick={() => onLaunch(coach)}>
-                  <AgentSprite agent={coach} client={client} size={18} />
-                  Check-in com a Aurora
-                </button>
-              </div>
             )}
           </div>
         )}
