@@ -28,6 +28,8 @@ from collections import Counter, deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .codex_usage import end_codex
+
 MAX_COLORS = 32
 MAX_CELLS = 96  # o personagem nunca passa disso de altura
 OUTLINE = (24, 16, 16, 255)
@@ -481,12 +483,12 @@ class SpriteStudio:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            start_new_session=True,  # no tempo esgotado, o binário nativo sai junto (ver end_codex)
         )
         try:
             _, err = await asyncio.wait_for(proc.communicate(), TIMEOUT_SECONDS)
         except TimeoutError:
-            proc.kill()
-            await proc.wait()
+            await end_codex(proc, grace=0)
             raise RuntimeError("o Codex demorou mais de 6 minutos") from None
         # Só vale a imagem que saiu do gerador do GPT (a original em alta, guardada pelo Codex):
         # um sprite.png sem ela foi desenhado por código e não segue o modelo.

@@ -2,6 +2,12 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.3.3 · a MÊTIS não fecha mais sozinha e os projetos não somem
+
+- **Os projetos, a conversa e o resto da janela não somem mais depois de umas horas.** A cada 3 minutos a MÊTIS pergunta ao Codex quanto da cota já foi usado, e cada pergunta deixava um `codex app-server` esquecido, preso ao núcleo. Em umas 5 horas o núcleo chegava ao limite de 256 arquivos abertos que o macOS dá a um app aberto pelo Finder, e daí em diante não conseguia ler mais nada: a lista de projetos aparecia vazia ("Adicione um repositório git"), a conversa dizia que o transcript não existia mais e o resto da tela falhava junto. Agora cada pergunta fecha o Codex inteiro, e o núcleo começa com folga de 8192 arquivos. Os dados nunca se perderam: o `projects.json` continuou no disco.
+- **Adicionar ou remover projeto com o núcleo nesse estado não apaga mais a lista.** Antes, a lista que falhou na leitura contava como vazia, e o projeto novo era gravado por cima dos outros. Agora a MÊTIS avisa que não conseguiu ler e não grava nada.
+- **A janela não fecha mais sozinha.** Quando a tela recarregava no meio da carga de um arquivo dela, o WebKit cancelava essa carga, e a MÊTIS, compilada para abortar em vez de tratar o erro, fechava na hora. Agora o erro é tratado e a janela segue aberta.
+
 ## v1.3.2 · o site do NotebookLM aparece na aba do Estudo
 
 - **A aba NotebookLM mostra o site.** Desde a 1.3.0 a página ficava em branco e a janela avisava "aba de navegador inválida": a aba do Estudo tinha um nome que o navegador embutido da MÊTIS recusava. Agora o NotebookLM abre ali, no caderno escolhido, como em qualquer aba do navegador.

@@ -47,10 +47,19 @@ class ProjectStore:
     def __init__(self, home: Path) -> None:
         self.path = home / "projects.json"
 
-    def _load(self) -> list[dict]:
+    def _load(self, to_save: bool = False) -> list[dict]:
+        """A lista gravada; sem o arquivo, vazia. Uma leitura que falha (o núcleo sem arquivos
+        livres, na 1.3.2) também mostra vazia, mas quem vai gravar pede `to_save` e recebe o
+        erro: gravar por cima de uma leitura que falhou trocaria os projetos pelo novo."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return []
+        except OSError as exc:
+            if to_save:
+                raise ProjectError(f"não consegui ler a lista de projetos ({exc.strerror or exc}); nada foi gravado") from exc
+            return []
+        except json.JSONDecodeError:
             return []
         return [p for p in data if isinstance(p, dict) and {"id", "name", "path"} <= p.keys()]
 
@@ -71,7 +80,7 @@ class ProjectStore:
         raise ProjectError(f"projeto desconhecido: {project_id}")
 
     def set_scripts(self, project_id: str, setup: str | None = None, arquivar: str | None = None) -> dict:
-        items = self._load()
+        items = self._load(to_save=True)
         for item in items:
             if item["id"] == project_id:
                 if setup is not None:
@@ -90,7 +99,7 @@ class ProjectStore:
 
     def add(self, path: str, name: str | None = None) -> Project:
         root = repo_root(path)
-        items = self._load()
+        items = self._load(to_save=True)
         for item in items:
             if Path(item["path"]) == root:
                 return Project(item["id"], item["name"], item["path"])
@@ -107,7 +116,7 @@ class ProjectStore:
 
     def remove(self, project_id: str) -> None:
         """Só tira da lista. O repositório e as worktrees continuam no disco."""
-        items = self._load()
+        items = self._load(to_save=True)
         kept = [i for i in items if i["id"] != project_id]
         if len(kept) == len(items):
             raise ProjectError(f"projeto desconhecido: {project_id}")

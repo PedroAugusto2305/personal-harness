@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import resource
 import signal
 import socket
 import sys
@@ -55,6 +56,23 @@ def port_free(host: str, port: int) -> bool:
     return True
 
 
+OPEN_FILES = 8192
+
+
+def raise_open_files(target: int = OPEN_FILES) -> int:
+    """Aberto pelo Finder, o núcleo herda do launchd o limite de 256 arquivos abertos, e cada
+    terminal, conexão da janela, banco e servidor MCP gasta alguns. Sobe o limite brando até
+    `target` (sem passar do rígido) e devolve o que ficou valendo."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        wanted = target if hard == resource.RLIM_INFINITY else min(target, hard)
+        if soft != resource.RLIM_INFINITY and soft < wanted:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (wanted, hard))
+        return resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+    except (ValueError, OSError):
+        return -1
+
+
 def free_port(host: str) -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind((host, 0))
@@ -62,6 +80,7 @@ def free_port(host: str) -> int:
 
 
 def main() -> None:
+    raise_open_files()
     settings = load_settings()
     # O uvicorn só tenta a porta depois de subir tudo (sessões, consulta ao Codex), então
     # a porta é conferida antes. Aberto pelo app, o núcleo usa outra porta livre e avisa

@@ -1,6 +1,6 @@
 [package]
 name = "harness"
-version = "1.3.2"
+version = "1.3.3"
 description = "MÊTIS: OS pessoal e ADE no Mac"
 authors = ["Pedro Aquino"]
 edition = "2024"
@@ -38,5 +38,7 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# Sem `panic = "abort"` (v1.3.3): com ele, o `objc2::exception::catch` com que o wry cerca o
+# didReceiveResponse/didReceiveData/didFinish não pega a exceção do WebKit quando a carga de
+# um arquivo da tela é cancelada no meio (página recarregando), e a MÊTIS fechava sozinha.
 strip = true

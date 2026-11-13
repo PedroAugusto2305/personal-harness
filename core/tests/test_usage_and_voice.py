@@ -1,5 +1,9 @@
+import asyncio
 import io
+import os
+import subprocess
 import sys
+import time
 import wave
 
 import pytest
@@ -89,6 +93,78 @@ async def test_read_codex_limits_speaks_json_rpc(tmp_path):
     script.chmod(0o755)
     limits = await read_codex_limits(str(script), {"PATH": "/usr/bin:/bin"}, timeout=10)
     assert limits["five_hour"]["used_pct"] == 12.0 and limits["plan"] == "plus"
+
+
+# Como o codex.js do npm: roda o servidor de verdade como filho (com a mesma entrada e saída)
+# e não repassa o SIGKILL. O servidor daqui é teimoso: nem com a entrada fechada ele sai.
+FAKE_LAUNCHER = r"""
+import subprocess, sys
+child = subprocess.Popen([sys.executable, "-c", SERVER])
+open(PIDFILE, "w").write(str(child.pid))
+sys.exit(child.wait())
+"""
+
+
+def _gone(pid: int, wait: float = 5.0) -> bool:
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+@pytest.mark.anyio
+async def test_read_codex_limits_leaves_no_orphan_behind_the_launcher(tmp_path):
+    # Da 1.2.0 à 1.3.2 sobrava um `codex app-server` órfão a cada consulta, e o núcleo
+    # esgotava os arquivos abertos em ~5 h.
+    pidfile = tmp_path / "server.pid"
+    server = f"RESULT = {CODEX_RESULT!r}\n{FAKE_APP_SERVER}\nimport time\ntime.sleep(600)\n"
+    script = tmp_path / "codex"
+    script.write_text(f"#!{sys.executable}\nSERVER = {server!r}\nPIDFILE = {str(pidfile)!r}\n{FAKE_LAUNCHER}", encoding="utf-8")
+    script.chmod(0o755)
+    limits = await read_codex_limits(str(script), {"PATH": "/usr/bin:/bin"}, timeout=10)
+    assert limits["plan"] == "plus"
+    assert _gone(int(pidfile.read_text()))
+
+
+@pytest.mark.anyio
+async def test_read_codex_limits_frees_the_pipes_even_if_a_child_escapes_the_group(tmp_path):
+    # Um filho com sessão própria escapa do killpg e segura a saída: o núcleo solta os
+    # canais mesmo assim, em vez de guardar dois arquivos abertos por consulta.
+    pidfile = tmp_path / "server.pid"
+    server = f"RESULT = {CODEX_RESULT!r}\n{FAKE_APP_SERVER}\nimport time\ntime.sleep(600)\n"
+    launcher = FAKE_LAUNCHER.replace('[sys.executable, "-c", SERVER]', '[sys.executable, "-c", SERVER], start_new_session=True')
+    script = tmp_path / "codex"
+    script.write_text(f"#!{sys.executable}\nSERVER = {server!r}\nPIDFILE = {str(pidfile)!r}\n{launcher}", encoding="utf-8")
+    script.chmod(0o755)
+    before = len(os.listdir("/dev/fd"))
+    try:
+        limits = await read_codex_limits(str(script), {"PATH": "/usr/bin:/bin"}, timeout=10)
+        assert limits["plan"] == "plus"
+        await asyncio.sleep(0.05)  # o fechamento do canal de leitura roda no giro seguinte do loop
+        assert len(os.listdir("/dev/fd")) == before
+    finally:
+        if pidfile.exists():
+            try:
+                os.kill(int(pidfile.read_text()), 9)
+            except ProcessLookupError:
+                pass
+
+
+def test_core_raises_the_open_files_limit_it_inherits_from_finder():
+    # O launchd dá 256 ao app aberto pelo Finder; o núcleo sobe o limite brando ao partir.
+    code = "from harness_core.__main__ import raise_open_files; print(raise_open_files())"
+
+    def finder_limit() -> None:
+        import resource
+
+        resource.setrlimit(resource.RLIMIT_NOFILE, (256, resource.getrlimit(resource.RLIMIT_NOFILE)[1]))
+
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, preexec_fn=finder_limit)
+    assert int(out.stdout) >= 4096
 
 
 @pytest.mark.anyio

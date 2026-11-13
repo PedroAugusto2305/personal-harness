@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.3.2)
+## O que já faz (v1.3.3)
+
+**Na 1.3.3:** a MÊTIS não fecha mais sozinha, e depois de horas aberta a lista de projetos e a conversa não somem mais (o núcleo esgotava os arquivos abertos com um Codex esquecido a cada consulta da cota).
 
 **Na 1.3.2:** a aba NotebookLM do Estudo mostra o site de verdade (antes ficava em branco com o aviso "aba de navegador inválida").
 
