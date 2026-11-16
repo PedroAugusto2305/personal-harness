@@ -31,6 +31,7 @@ from .agents import Agent, AgentError, AgentStore, allowed_connectors
 from .capture import interpret
 from .study import DAILY_BEFORE, StudyLog
 from .study_map import SESSION_TYPES, StudyError, StudyMap, session_rules
+from .study_plans import PlanError, StudyPlans
 from .notebooklm import NotebookError, NotebookLM, NotLoggedIn, notebook_url
 from .study_images import StudyImages
 from .boards import BoardConflict, BoardError, BoardStore
@@ -412,6 +413,8 @@ class CaptureBody(BaseModel):
 class StudyBlock(BaseModel):
     minutos: float = Field(gt=0, le=240)
     assunto: str = Field(default="", max_length=200)
+    #: v1.4.0: o plano do bloco (o que estava em foco quando o foco começou); vazio = o plano em foco agora.
+    plano: str | None = Field(default=None, max_length=120)
 
 
 # v0.9.8: Estudo completo (o mapa de conceitos, o plano e as sessões com o Sócrates).
@@ -420,17 +423,55 @@ class NewConcept(BaseModel):
     resumo: str = Field(default="", max_length=4000)
     relacionados: list[str] = Field(default_factory=list, max_length=40)
     semana: int | None = Field(default=None, ge=0, le=200)
+    plano: str | None = Field(default=None, max_length=120)  # v1.4.0: vazio = o plano em foco
 
 
 class ConceptPatch(BaseModel):
     titulo: str = Field(min_length=1, max_length=120)
     dominio: int | None = Field(default=None, ge=0, le=4)
     semana: int | None = Field(default=None, ge=0, le=200)
+    plano: str | None = Field(default=None, max_length=120)
 
 
 class StudySessionBody(BaseModel):
     tipo: str
     conceito: str | None = Field(default=None, max_length=120)
+    plano: str | None = Field(default=None, max_length=120)  # v1.4.0: vazio = o plano em foco
+
+
+# v1.4.0: planos de estudo (criar, editar, ativar, desativar e excluir na aba de Estudos).
+class NewStudyPlan(BaseModel):
+    nome: str = Field(min_length=1, max_length=120)
+    tema: str = Field(default="", max_length=200)
+    inicio: str = Field(min_length=10, max_length=10)
+    fim: str = Field(min_length=10, max_length=10)
+    objetivo: str = Field(default="", max_length=8000)
+
+
+class StudyPlanPatch(BaseModel):
+    tema: str | None = Field(default=None, max_length=200)
+    inicio: str | None = Field(default=None, max_length=10)
+    fim: str | None = Field(default=None, max_length=10)
+    objetivo: str | None = Field(default=None, max_length=8000)
+
+
+class StudyPlanState(BaseModel):
+    ativo: bool
+
+
+class StudyPlanWeek(BaseModel):
+    inicio: str = Field(max_length=10)
+    fim: str = Field(default="", max_length=10)
+    foco: str = Field(default="", max_length=400)
+    entrega: str = Field(default="", max_length=400)
+
+
+class StudyPlanSchedule(BaseModel):
+    semanas: list[StudyPlanWeek] = Field(default_factory=list, max_length=106)
+
+
+class StudyFocus(BaseModel):
+    plano: str = Field(min_length=1, max_length=120)
 
 
 class StudyAgentChoice(BaseModel):
@@ -705,6 +746,9 @@ def create_app(
     connectors = ConnectorStore(settings.home, keychain or Keychain(keychain_service(settings.profile)), http)
     activity = ActivityLog(settings.home / "atividade.db")
 
+    # v1.4.0: o plano de estudos de cada sessão aberta pelo Estudo (as ferramentas estudo_* gravam nele).
+    study_session_plans: dict[str, str] = {}
+
     def session_info(session_id: str) -> dict | None:
         session = manager.get(session_id)
         if session is None:
@@ -718,7 +762,13 @@ def create_app(
         # v1.3.0: sessão de estudo (aberta pelo Estudo, ou do agente conectado a ele) ganha o NotebookLM e as imagens.
         connected = manager.prefs.get()["estudo_agente"]
         study_session = session.tag == "estudo" or bool(connected and session.agent == connected)
-        return {"who": agent.name if agent else session.title, "cwd": session.cwd, "allowed": allowed_connectors(agent), "estudo": study_session}
+        return {
+            "who": agent.name if agent else session.title,
+            "cwd": session.cwd,
+            "allowed": allowed_connectors(agent),
+            "estudo": study_session,
+            "plano": study_session_plans.get(session_id),
+        }
 
     def study_agent() -> Agent | None:
         """v1.3.0: o agente conectado à aba de Estudo. A aba começa sem agente: o Pedro cria o agente
@@ -751,6 +801,15 @@ def create_app(
     study = StudyLog(settings.home, vault)
     study_map = StudyMap(vault, project=lambda: manager.prefs.get()["estudo_projeto"])
     hub.study_map = study_map  # ferramentas estudo_* da central (v0.9.8)
+    # v1.4.0: vários planos de estudo; o ajuste estudo_projeto passa a ser o plano em foco.
+    study_plans = StudyPlans(
+        vault,
+        study_map,
+        get_focus=lambda: manager.prefs.get()["estudo_projeto"],
+        set_focus=lambda name: manager.prefs.update({"estudo_projeto": name}),
+        versions=settings.home / "estudo" / "versoes",
+    )
+    hub.study_plans = study_plans
     # v1.3.0: o NotebookLM (CLI do notebooklm-py) e as imagens de estudo (o GPT, pelo Codex).
     notebooks = notebooklm or NotebookLM()
     notebooks.on_change = lambda status: manager.events.publish({"type": "notebooklm", "status": status})
@@ -950,6 +1009,7 @@ def create_app(
     app.state.suggestions = suggestions
     app.state.hub = hub
     app.state.study_map = study_map
+    app.state.study_plans = study_plans
     app.state.notebooklm = notebooks
     app.state.study_images = study_images
     app.state.embedder = embedder
@@ -3646,9 +3706,24 @@ def create_app(
 
     @app.get("/estudo", dependencies=[Depends(require_token)])
     def study_summary() -> dict:
-        # v0.9.8: quantos conceitos vencem hoje e a semana do cronograma; v1.3.0: o agente conectado.
+        # v0.9.8: quantos conceitos vencem hoje e a semana do cronograma; v1.3.0: o agente conectado;
+        # v1.4.0: o plano em foco (é dele a semana e os vencidos) e os planos ativos com a semana de cada um.
         agent = study_agent()
-        return {**study.summary(), "vencidos": study_map.due_count(), "semana_atual": study_map.current(), "agente": agent.id if agent else ""}
+        focus, active = None, []
+        try:
+            focus = study_plans.focus()
+            active = [{"nome": p["nome"], "semana_atual": p["semana_atual"]} for p in study_plans.list(detail=False) if p["estado"] == "ativo"]
+        except (StudyError, OSError, VaultError):
+            pass
+        target = study_map.bound(focus) if focus else None
+        return {
+            **study.summary(),
+            "vencidos": target.due_count() if target else 0,
+            "semana_atual": target.current() if target else None,
+            "agente": agent.id if agent else "",
+            "foco": focus or "",
+            "planos": active,
+        }
 
     @app.put("/estudo/agente", dependencies=[Depends(require_token)])
     def study_connect(body: StudyAgentChoice) -> dict:
@@ -3671,7 +3746,14 @@ def create_app(
 
     @app.post("/estudo/blocos", dependencies=[Depends(require_token)], status_code=201)
     def study_block(body: StudyBlock) -> dict:
-        block = study.add(body.minutos, body.assunto)
+        # v1.4.0: o bloco vai para o plano que estava em foco quando o foco começou (ou o em foco agora).
+        asked = (body.plano or "").strip()
+        try:
+            note = study_plans.find(asked) if asked else None
+            plano = note.name if note is not None else (study_plans.focus() or "")
+        except (StudyError, OSError, VaultError):
+            plano = ""
+        block = study.add(body.minutos, body.assunto, plano=plano)
         manager.events.publish({"type": "study", "summary": study.summary()})
         return block
 
@@ -3679,27 +3761,41 @@ def create_app(
 
     def study_fail(exc: Exception) -> HTTPException:
         text = str(exc)
-        status = 404 if "não encontrado" in text or "não está no Brain" in text else 409 if "já existe" in text else 400
+        missing = "não encontrado" in text or "não está no Brain" in text or "nenhum plano" in text
+        status = 404 if missing else 409 if "já existe" in text else 400
         return HTTPException(status_code=status, detail=text)
 
+    def study_for(plano: str | None) -> StudyMap:
+        """v1.4.0: o mapa do plano pedido (pelo nome) ou do plano em foco."""
+        asked = (plano or "").strip()
+        if asked:
+            note = study_plans.find(asked)
+            if note is None:
+                raise PlanError(f"plano de estudos não encontrado: {asked}")
+            return study_map.bound(note.name)
+        focus = study_plans.focus()
+        if focus is None:
+            raise PlanError("nenhum plano de estudos ativo: crie um na aba Estudos › Planos")
+        return study_map.bound(focus)
+
     @app.get("/estudo/mapa", dependencies=[Depends(require_token)])
-    def study_map_route() -> dict:
+    def study_map_route(plano: str | None = None) -> dict:
         try:
-            return study_map.map()
+            return study_for(plano).map()
         except (StudyError, OSError) as exc:
             raise study_fail(exc) from exc
 
     @app.get("/estudo/plano", dependencies=[Depends(require_token)])
-    def study_plan() -> dict:
+    def study_plan(plano: str | None = None) -> dict:
         try:
-            return study_map.plan()
+            return study_for(plano).plan()
         except (StudyError, OSError) as exc:
             raise study_fail(exc) from exc
 
     @app.post("/estudo/conceitos", dependencies=[Depends(require_token)], status_code=201)
     def study_new_concept(body: NewConcept) -> dict:
         try:
-            concept = study_map.create(body.nome, body.resumo, body.relacionados, body.semana)
+            concept = study_for(body.plano).create(body.nome, body.resumo, body.relacionados, body.semana)
         except (StudyError, OSError) as exc:
             raise study_fail(exc) from exc
         manager.events.publish({"type": "estudo.mudou"})
@@ -3709,7 +3805,7 @@ def create_app(
     def study_patch_concept(body: ConceptPatch) -> dict:
         week = body.semana if "semana" in body.model_fields_set else "keep"
         try:
-            concept = study_map.update(body.titulo, body.dominio, week)
+            concept = study_for(body.plano).update(body.titulo, body.dominio, week)
         except (StudyError, OSError) as exc:
             raise study_fail(exc) from exc
         manager.events.publish({"type": "estudo.mudou"})
@@ -3726,26 +3822,110 @@ def create_app(
         notebook = manager.prefs.get()["estudo_caderno"]
         chosen = notebook if notebook.get("id") else None
         try:
-            prompt = study_map.session_prompt(body.tipo, (body.conceito or "").strip() or None, chosen)
-            cwd = study_map.session_cwd(body.tipo)
+            # v1.4.0: a sessão é de um plano (o pedido ou o em foco); sem plano nenhum, só a conversa livre abre.
+            try:
+                target, with_plan = study_for(body.plano), True
+            except PlanError:
+                if body.tipo != "conversa" or (body.plano or "").strip():
+                    raise
+                target, with_plan = study_map, False
+            prompt = target.session_prompt(body.tipo, (body.conceito or "").strip() or None, chosen, with_plan=with_plan)
+            plan_rule = target.plan_rule(study_plans.active_names()) if with_plan else ""
+            cwd = target.session_cwd(body.tipo) if with_plan else None
         except (StudyError, OSError) as exc:
             raise study_fail(exc) from exc
         # v1.3.0: o jeito de explicar (modo visual, registro e o caderno) vai no papel de sistema;
         # a CLI "outra" não tem papel de sistema, e as regras vão no pedido.
-        rules = session_rules(chosen)
+        rules = "\n\n".join(part for part in (session_rules(chosen), plan_rule) if part)
         if agent.cli in ("claude", "codex"):
             agent = replace(agent, prompt=f"{agent.prompt.rstrip()}\n\n{rules}".strip())
         else:
             prompt = f"{prompt}\n\n{rules}"
         label = {"medir": "medir o que sei", "aprender": f"aprender {body.conceito}" if body.conceito else "aprender",
-                 "praticar": "praticar", "revisar": "revisar", "conversa": "conversa"}[body.tipo]  # fmt: skip
+                 "praticar": "praticar", "revisar": "revisar", "conversa": "conversa",
+                 "planejar": f"planejar {target.project_name}"}[body.tipo]  # fmt: skip
         try:
             session = manager.create(agent.cli, cwd, title=f"Estudo · {label}"[:60], tag="estudo", agent=agent, prompt=prompt)
         except (LaunchError, UnknownKind, ExecutableNotFound) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise HTTPException(status_code=400, detail=f"pasta inválida para a sessão: {exc}") from exc
+        if with_plan:
+            study_session_plans[session.id] = target.project_name
         return session.to_dict()
+
+    # --- planos de estudo (v1.4.0) ---
+    # Um plano é um projeto do Brain com plano_estudo: ativo ou inativo (study_plans.py). Desativar só
+    # troca o estado; excluir arquiva a pasta em 04-ARQUIVO, e só pela janela.
+
+    def plan_changed(name: str) -> None:
+        manager.events.publish({"type": "estudo.mudou"})
+        brain_changed(name)
+
+    def plan_call(fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except PrefsError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (StudyError, VaultError, OSError) as exc:
+            raise study_fail(exc) from exc
+
+    @app.get("/estudo/planos", dependencies=[Depends(require_token)])
+    def study_plans_list() -> dict:
+        plans = plan_call(study_plans.list)
+        minutes = study.summary().get("por_plano", {})
+        for plan in plans:
+            plan["minutos_semana"] = round(minutes.get(plan["nome"], 0), 1)
+        return {"planos": plans, "foco": plan_call(study_plans.focus) or ""}
+
+    @app.post("/estudo/planos", dependencies=[Depends(require_token)], status_code=201)
+    def study_plan_create(body: NewStudyPlan) -> dict:
+        plan = plan_call(study_plans.create, body.nome, body.tema, body.inicio, body.fim, body.objetivo)
+        plan_changed(plan["nome"])
+        return plan
+
+    @app.get("/estudo/planos/{nome}", dependencies=[Depends(require_token)])
+    def study_plan_get(nome: str) -> dict:
+        return plan_call(study_plans.get, nome)
+
+    @app.patch("/estudo/planos/{nome}", dependencies=[Depends(require_token)])
+    def study_plan_patch(nome: str, body: StudyPlanPatch) -> dict:
+        plan = plan_call(study_plans.update, nome, tema=body.tema, inicio=body.inicio, fim=body.fim, objetivo=body.objetivo)
+        plan_changed(plan["nome"])
+        return plan
+
+    @app.put("/estudo/planos/{nome}/estado", dependencies=[Depends(require_token)])
+    def study_plan_state(nome: str, body: StudyPlanState) -> dict:
+        plan = plan_call(study_plans.set_state, nome, body.ativo)
+        plan_changed(plan["nome"])
+        return plan
+
+    @app.put("/estudo/planos/{nome}/cronograma", dependencies=[Depends(require_token)])
+    def study_plan_schedule(nome: str, body: StudyPlanSchedule, x_harness_session: str | None = Header(default=None)) -> dict:
+        weeks = [week.model_dump() for week in body.semanas]
+        plan = plan_call(study_plans.write_schedule, nome, weeks, quem=quem_of(x_harness_session))
+        plan_changed(plan["nome"])
+        return plan
+
+    @app.delete("/estudo/planos/{nome}", dependencies=[Depends(require_token)])
+    def study_plan_delete(nome: str, x_harness_session: str | None = Header(default=None)) -> dict:
+        """Excluir arquiva a pasta do plano em 04-ARQUIVO (o vault não apaga nota). Só pela janela,
+        como a exclusão de tarefa: um terminal (comando metis ou agente) não exclui plano do Pedro."""
+        if x_harness_session:
+            raise HTTPException(status_code=403, detail="só o Pedro exclui plano de estudos, pela janela da MÊTIS")
+        result = plan_call(study_plans.archive, nome)
+        for session_id, plan in list(study_session_plans.items()):
+            if plan == result["nome"]:
+                study_session_plans.pop(session_id, None)
+        plan_changed(result["nome"])
+        return result
+
+    @app.put("/estudo/foco", dependencies=[Depends(require_token)])
+    def study_focus(body: StudyFocus) -> dict:
+        """O plano em foco: o Pomodoro, o mapa e as sessões usam ele quando ninguém diz o plano."""
+        name = plan_call(study_plans.set_focus, body.plano)
+        manager.events.publish({"type": "estudo.mudou"})
+        return {"foco": name}
 
     # --- NotebookLM no Estudo (v1.3.0) ---
 

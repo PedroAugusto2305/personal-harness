@@ -72,6 +72,8 @@ class Context:
     allowed: set[str] | None  # contas de conector liberadas; None = todas
     #: v1.3.0: sessão de estudo (aberta pelo Estudo ou do agente conectado a ele): ganha o NotebookLM e as imagens.
     estudo: bool = False
+    #: v1.4.0: o plano de estudos da sessão aberta pelo Estudo (as ferramentas estudo_* gravam nele).
+    plano: str | None = None
 
 
 @dataclass
@@ -204,7 +206,14 @@ class Hub:
         if session is None:
             return None
         info = self.session_info(session) or {}
-        return Context(session=session, who=info.get("who") or session, cwd=info.get("cwd"), allowed=info.get("allowed"), estudo=bool(info.get("estudo")))
+        return Context(
+            session=session,
+            who=info.get("who") or session,
+            cwd=info.get("cwd"),
+            allowed=info.get("allowed"),
+            estudo=bool(info.get("estudo")),
+            plano=info.get("plano") or None,
+        )
 
     # --- ferramentas -----------------------------------------------------------------
 
@@ -360,73 +369,150 @@ class Hub:
 
     def _study_tools(self) -> list[Tool]:
         """Estudo completo (v0.9.8): o plano e o mapa de conceitos do projeto de estudo no Brain.
-        Escrevem no vault sem pedir aprovação: é o Pedro estudando com o Sócrates ou a Aurora."""
+        Escrevem no vault sem pedir aprovação: é o Pedro estudando com o agente de estudo.
+
+        v1.4.0: vários planos de estudo. Cada ferramenta aceita `plano`; sem ele vale o plano da
+        sessão (a que o Estudo abriu) ou o plano em foco na aba. estudo_cronograma grava a tabela do
+        cronograma de um plano (o Pedro aprova antes, na conversa)."""
         study = getattr(self, "study_map", None)
         if study is None:
             return []
+        plans = getattr(self, "study_plans", None)
         try:
-            study.project_note()
-        except VaultError:
+            if plans is None:
+                study.project_note()
+            elif not plans.list(detail=False):
+                return []
+        except (VaultError, OSError):
             return []
-        from .study_map import DOMAIN_LABEL
+        from .study_map import DOMAIN_LABEL, StudyError
         from .study_map import fold as fold_title
+        from .study_plans import describe
+
+        plano_prop = {"type": "string", "description": "Nome do plano de estudos. Vazio: o plano desta sessão (ou o plano em foco na aba de Estudos)."}
+
+        def target(args: dict, ctx: Context):
+            """O mapa do plano pedido, do plano da sessão ou do plano em foco."""
+            if plans is None:
+                return study
+            asked = str(args.get("plano") or "").strip()
+            if asked:
+                note = plans.find(asked)
+                if note is None:
+                    names = ", ".join(f"«{n}»" for n in plans.active_names()) or "nenhum ativo"
+                    raise StudyError(f"plano de estudos não encontrado: {asked} (planos ativos: {names})")
+                return study.bound(note.name)
+            for name in (ctx.plano, plans.focus()):
+                note = plans.find(name) if name else None
+                if note is not None:
+                    return study.bound(note.name)
+            raise StudyError("nenhum plano de estudos ativo: o Pedro cria um na aba Estudos › Planos")
 
         def line(c) -> str:
             due = f" · revisar em {c.proxima_revisao}" + (" (vencido)" if c.vencido else "") if c.proxima_revisao else " · sem registro ainda"
             week = f" · semana {c.semana}" if c.semana is not None else ""
             return f"- {c.titulo} · domínio {c.dominio} ({DOMAIN_LABEL.get(c.dominio, '?')}){due}{week} · {c.acertos} acertos, {c.erros} erros"
 
-        def plano(_args: dict, _ctx: Context) -> str:
-            plan = study.plan()
+        def plano(args: dict, ctx: Context) -> str:
+            mine = target(args, ctx)
+            plan = mine.plan()
             weeks = plan["semanas"]
+            head = f"Plano de estudos «{plan['projeto']}»"
+            if plans is not None:
+                info = next((p for p in plans.list(detail=False) if p["nome"] == plan["projeto"]), None)
+                if info is not None:
+                    head = f"Plano de estudos {describe(info)}"
             if not weeks:
-                return f"A nota do projeto {plan['projeto']} não tem a tabela do cronograma (colunas Sem., Datas, Foco, Entrega)."
-            current = next((w for w in weeks if w["atual"]), None)
-            head = (f"Hoje ({plan['hoje']}) é a semana {current['numero']} ({current['inicio']} a {current['fim']}): {current['foco']}. Entrega: {current['entrega']}."
-                    if current else f"Hoje ({plan['hoje']}) está fora das semanas do cronograma.")  # fmt: skip
-            rows = [f"- Semana {w['numero']} · {w['inicio']} a {w['fim']} · {w['foco']}" + (" ← agora" if w["atual"] else "") for w in weeks]
-            return head + "\n\nCronograma:\n" + "\n".join(rows)
+                body = f"A nota do plano {plan['projeto']} não tem a tabela do cronograma (colunas Sem., Datas, Foco, Entrega)."
+            else:
+                current = next((w for w in weeks if w["atual"]), None)
+                now = (f"Hoje ({plan['hoje']}) é a semana {current['numero']} ({current['inicio']} a {current['fim']}): {current['foco']}. Entrega: {current['entrega']}."
+                       if current else f"Hoje ({plan['hoje']}) está fora das semanas do cronograma.")  # fmt: skip
+                rows = [f"- Semana {w['numero']} · {w['inicio']} a {w['fim']} · {w['foco'] or '(sem foco)'}" + (f" · entrega: {w['entrega']}" if w["entrega"] else "") + (" ← agora" if w["atual"] else "") for w in weeks]
+                body = now + "\n\nCronograma:\n" + "\n".join(rows)
+            text = f"{head}\n{body}"
+            if plans is not None and not str(args.get("plano") or "").strip():
+                others = [p for p in plans.list(detail=False) if p["nome"] != plan["projeto"]]
+                if others:
+                    text += "\n\nOutros planos:\n" + "\n".join(f"- {describe(p)}" for p in others)
+            return text
 
-        def conceitos(args: dict, _ctx: Context) -> str:
-            items = study.concepts()
+        def cronograma(args: dict, ctx: Context) -> str:
+            if plans is None:
+                raise StudyError("os planos de estudo não estão disponíveis")
+            name = str(args.get("plano") or "").strip()
+            note = plans.find(name)
+            if note is None:
+                raise StudyError(f"plano de estudos não encontrado: {name}")
+            plan = plans.write_schedule(note.name, args.get("semanas"), quem=ctx.who)
+            self.publish({"type": "estudo.mudou"})
+            self.on_brain_change(note.name)
+            weeks = plan["cronograma"]
+            span = f", de {weeks[0]['inicio']} a {weeks[-1]['fim']}" if weeks else ""
+            return f"Cronograma de «{plan['nome']}» gravado na nota do plano ({plan['caminho']}): {len(weeks)} semana(s){span}. Ele já aparece na aba Planos do Estudo."
+
+        def conceitos(args: dict, ctx: Context) -> str:
+            mine = target(args, ctx)
+            items = mine.concepts()
             if args.get("semana") not in (None, ""):
                 items = [c for c in items if c.semana == int(args["semana"])]
             if args.get("vencidos"):
                 items = [c for c in items if c.vencido]
             if not items:
-                return "Nenhum conceito com esse filtro no mapa de estudo."
-            return f"{len(items)} conceito(s) em {study.project_name}:\n" + "\n".join(line(c) for c in items)
+                return f"Nenhum conceito com esse filtro no mapa de estudo de {mine.project_name}."
+            return f"{len(items)} conceito(s) em {mine.project_name}:\n" + "\n".join(line(c) for c in items)
 
         def registrar(args: dict, ctx: Context) -> str:
-            concept = study.record(str(args.get("conceito") or ""), bool(args.get("acertou")), int(args.get("confianca") or 0), str(args.get("nota") or ""))
+            mine = target(args, ctx)
+            concept = mine.record(str(args.get("conceito") or ""), bool(args.get("acertou")), int(args.get("confianca") or 0), str(args.get("nota") or ""))
             self.publish({"type": "estudo.mudou"})
-            return f"Registrado. {line(concept)[2:]}"
+            return f"Registrado em {mine.project_name}. {line(concept)[2:]}"
 
         def novo(args: dict, ctx: Context) -> str:
+            mine = target(args, ctx)
             name = str(args.get("nome") or "")
-            existed = any(fold_title(c.titulo) == fold_title(name) for c in study.concepts())
-            concept = study.create(name, str(args.get("resumo") or ""), [str(r) for r in args.get("relacionados") or []], exist_ok=True)
+            existed = any(fold_title(c.titulo) == fold_title(name) for c in mine.concepts())
+            concept = mine.create(name, str(args.get("resumo") or ""), [str(r) for r in args.get("relacionados") or []], exist_ok=True)
             self.publish({"type": "estudo.mudou"})
             return ("Já existia: " if existed else "Conceito criado: ") + f"{concept.titulo} ({concept.caminho})"
 
         def pergunta(args: dict, ctx: Context) -> str:
+            mine = target(args, ctx)
             raw = args.get("opcoes") or []
-            answer = study.add_question(str(args.get("conceito") or ""), str(args.get("pergunta") or ""), [str(o) for o in raw] if isinstance(raw, list) else [], who=ctx.who)
+            answer = mine.add_question(str(args.get("conceito") or ""), str(args.get("pergunta") or ""), [str(o) for o in raw] if isinstance(raw, list) else [], who=ctx.who)
             self.publish({"type": "estudo.mudou"})
             return f"Pergunta escrita na nota de {answer['conceito']} ({answer['caminho']}). Espere a resposta do Pedro, que chega aqui."
 
-        return [
+        week_item = {
+            "type": "object",
+            "properties": {
+                "inicio": {"type": "string", "description": "AAAA-MM-DD"},
+                "fim": {"type": "string", "description": "AAAA-MM-DD"},
+                "foco": {"type": "string"},
+                "entrega": {"type": "string", "description": "a entrega demonstrável da semana"},
+            },
+            "required": ["inicio", "fim", "foco"],
+        }
+        tools = [
             Tool("estudo_pergunta", "Escreve uma pergunta de previsão com alternativas na nota do conceito; o Pedro responde pela tela do Estudo (alternativa, confiança e raciocínio) e a resposta chega neste terminal.",
-                 _schema({"conceito": {"type": "string"}, "pergunta": {"type": "string"}, "opcoes": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 6}}, ["conceito", "pergunta", "opcoes"]), pergunta),
-            Tool("estudo_plano", "O cronograma do estudo do Pedro (projeto de estudo no Brain): a semana de hoje com o foco e a entrega, e as outras semanas.",
-                 _schema({}, []), plano),
-            Tool("estudo_conceitos", "O mapa do que o Pedro sabe: cada conceito com o domínio (0 não vi … 4 consigo ensinar), a próxima revisão e os acertos. Filtre por semana ou só os vencidos hoje.",
-                 _schema({"semana": {"type": "integer"}, "vencidos": {"type": "boolean"}}, []), conceitos),
-            Tool("estudo_registrar", "Registra uma resposta do Pedro num conceito: se acertou e a confiança que ele disse ANTES de saber (1 a 5). Atualiza o domínio, a calibração e a próxima revisão; cria o conceito se não existir.",
-                 _schema({"conceito": {"type": "string"}, "acertou": {"type": "boolean"}, "confianca": {"type": "integer", "minimum": 1, "maximum": 5}, "nota": {"type": "string"}}, ["conceito", "acertou", "confianca"]), registrar),
-            Tool("estudo_conceito_novo", "Cria um conceito no mapa de estudo (nota em conceitos/ do projeto), com um resumo curto e os conceitos relacionados (a ligação vale dos dois lados).",
-                 _schema({"nome": {"type": "string"}, "resumo": {"type": "string"}, "relacionados": {"type": "array", "items": {"type": "string"}}}, ["nome"]), novo),
+                 _schema({"conceito": {"type": "string"}, "pergunta": {"type": "string"}, "opcoes": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 6}, "plano": plano_prop}, ["conceito", "pergunta", "opcoes"]), pergunta),
+            Tool("estudo_plano", "O cronograma de um plano de estudos do Pedro (no Brain): tema, período, a semana de hoje com o foco e a entrega, e as outras semanas. Sem plano, o desta sessão (ou o em foco) e a lista dos outros planos.",
+                 _schema({"plano": plano_prop}, []), plano),
+            Tool("estudo_conceitos", "O mapa do que o Pedro sabe num plano de estudos: cada conceito com o domínio (0 não vi … 4 consigo ensinar), a próxima revisão e os acertos. Filtre por semana ou só os vencidos hoje.",
+                 _schema({"semana": {"type": "integer"}, "vencidos": {"type": "boolean"}, "plano": plano_prop}, []), conceitos),
+            Tool("estudo_registrar", "Registra uma resposta do Pedro num conceito do plano de estudos: se acertou e a confiança que ele disse ANTES de saber (1 a 5). Atualiza o domínio, a calibração e a próxima revisão; cria o conceito se não existir.",
+                 _schema({"conceito": {"type": "string"}, "acertou": {"type": "boolean"}, "confianca": {"type": "integer", "minimum": 1, "maximum": 5}, "nota": {"type": "string"}, "plano": plano_prop}, ["conceito", "acertou", "confianca"]), registrar),
+            Tool("estudo_conceito_novo", "Cria um conceito no mapa de um plano de estudos (nota em conceitos/ do plano), com um resumo curto e os conceitos relacionados (a ligação vale dos dois lados).",
+                 _schema({"nome": {"type": "string"}, "resumo": {"type": "string"}, "relacionados": {"type": "array", "items": {"type": "string"}}, "plano": plano_prop}, ["nome"]), novo),
         ]  # fmt: skip
+        if plans is not None:
+            tools.append(
+                Tool("estudo_cronograma", "Grava o cronograma de um plano de estudos na nota dele no Brain: troca a tabela inteira pelas semanas dadas (em ordem, sem cruzar datas). "
+                     "Use só depois de o Pedro aprovar a proposta na conversa; a versão anterior da nota fica guardada na MÊTIS.",
+                     _schema({"plano": {"type": "string", "description": "Nome do plano de estudos (obrigatório)."},
+                              "semanas": {"type": "array", "items": week_item, "maxItems": 106}}, ["plano", "semanas"]), cronograma)  # fmt: skip
+            )
+        return tools
 
     def _notebook_tools(self, ctx: Context) -> list[Tool]:
         """v1.3.0: o NotebookLM do Pedro (pelo CLI do notebooklm-py) e as imagens de estudo (o GPT

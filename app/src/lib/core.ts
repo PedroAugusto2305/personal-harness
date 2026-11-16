@@ -74,6 +74,8 @@ import type {
   StudyConcept,
   StudyMap,
   StudyPlan,
+  StudyPlanDraft,
+  StudyPlanInfo,
   StudySessionKind,
   StudyNotebookChoice,
   Notebook,
@@ -1057,26 +1059,60 @@ export class CoreClient {
     return this.request("GET", "/estudo");
   }
 
-  // v0.9.8: Estudo completo
-  studyMap(): Promise<StudyMap> {
-    return this.request("GET", "/estudo/mapa");
+  // v0.9.8: Estudo completo (v1.4.0: de um plano; sem plano, o plano em foco)
+  studyMap(plano?: string): Promise<StudyMap> {
+    return this.request("GET", `/estudo/mapa${plano ? `?plano=${encodeURIComponent(plano)}` : ""}`);
   }
 
-  studyPlan(): Promise<StudyPlan> {
-    return this.request("GET", "/estudo/plano");
+  studyPlan(plano?: string): Promise<StudyPlan> {
+    return this.request("GET", `/estudo/plano${plano ? `?plano=${encodeURIComponent(plano)}` : ""}`);
   }
 
-  addConcept(nome: string, relacionados: string[] = [], resumo = ""): Promise<StudyConcept> {
+  addConcept(nome: string, relacionados: string[] = [], resumo = "", plano?: string): Promise<StudyConcept> {
     // resumo é texto no núcleo (vazio quando não há): null daria 422.
-    return this.request("POST", "/estudo/conceitos", { nome, relacionados, resumo });
+    return this.request("POST", "/estudo/conceitos", { nome, relacionados, resumo, plano: plano ?? null });
+  }
+
+  // v1.4.0: planos de estudo
+  studyPlans(): Promise<{ planos: StudyPlanInfo[]; foco: string }> {
+    return this.request("GET", "/estudo/planos");
+  }
+
+  studyPlanDetail(nome: string): Promise<StudyPlanInfo> {
+    return this.request("GET", `/estudo/planos/${encodeURIComponent(nome)}`);
+  }
+
+  createStudyPlan(draft: StudyPlanDraft): Promise<StudyPlanInfo> {
+    return this.request("POST", "/estudo/planos", draft);
+  }
+
+  patchStudyPlan(nome: string, changes: Partial<Omit<StudyPlanDraft, "nome">>): Promise<StudyPlanInfo> {
+    return this.request("PATCH", `/estudo/planos/${encodeURIComponent(nome)}`, changes);
+  }
+
+  setStudyPlanActive(nome: string, ativo: boolean): Promise<StudyPlanInfo> {
+    return this.request("PUT", `/estudo/planos/${encodeURIComponent(nome)}/estado`, { ativo });
+  }
+
+  saveStudySchedule(nome: string, semanas: { inicio: string; fim: string; foco: string; entrega: string }[]): Promise<StudyPlanInfo> {
+    return this.request("PUT", `/estudo/planos/${encodeURIComponent(nome)}/cronograma`, { semanas });
+  }
+
+  /** Excluir arquiva a pasta do plano em 04-ARQUIVO no Brain (nada é apagado). */
+  deleteStudyPlan(nome: string): Promise<{ nome: string; de: string; para: string; notas: number; conceitos: number }> {
+    return this.request("DELETE", `/estudo/planos/${encodeURIComponent(nome)}`);
+  }
+
+  setStudyFocus(plano: string): Promise<{ foco: string }> {
+    return this.request("PUT", "/estudo/foco", { plano });
   }
 
   patchConcept(titulo: string, changes: { dominio?: number; semana?: string | number | null }): Promise<StudyConcept> {
     return this.request("PATCH", "/estudo/conceitos", { titulo, ...changes });
   }
 
-  studySession(tipo: StudySessionKind, conceito?: string): Promise<Session> {
-    return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null });
+  studySession(tipo: StudySessionKind, conceito?: string, plano?: string): Promise<Session> {
+    return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null, plano: plano ?? null });
   }
 
   /** v1.3.0: conecta um agente da galeria à aba de Estudo (id vazio desconecta). */
@@ -1142,8 +1178,8 @@ export class CoreClient {
     return this.request("POST", "/backup/importar", { arquivo });
   }
 
-  studyBlock(minutos: number, assunto: string): Promise<{ line: string; note: string }> {
-    return this.request("POST", "/estudo/blocos", { minutos, assunto });
+  studyBlock(minutos: number, assunto: string, plano?: string): Promise<{ line: string; note: string; plano: string }> {
+    return this.request("POST", "/estudo/blocos", { minutos, assunto, plano: plano || null });
   }
 
   draftAgent(descricao: string): Promise<AgentDraftSuggestion> {

@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.3.3)
+## O que já faz (v1.4.0)
+
+**Na 1.4.0:** planos de estudo na aba Planos do Estudo: criar (a nota do plano nasce no Brain com as semanas do período), montar ou ajustar o cronograma com o agente de estudo, editar à mão, desativar, ativar e excluir (a pasta vai para `04-ARQUIVO`, nada é apagado). Vários planos ativos ao mesmo tempo, com um em foco para o Pomodoro, o mapa e as sessões.
 
 **Na 1.3.3:** a MÊTIS não fecha mais sozinha, e depois de horas aberta a lista de projetos e a conversa não somem mais (o núcleo esgotava os arquivos abertos com um Codex esquecido a cada consulta da cota).
 
@@ -47,7 +49,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 
 - **Checks falhos ao agente** e **revisão de PR por IA** (Claude em modo plano ou Codex só leitura, sem editar nem comentar no GitHub), no cartão do PR do painel de Git.
 - **Grafo do código pela central de MCP:** numa worktree com o grafo do graphify, os agentes consultam o grafo; na aba Arquivos, atualizar sem IA ou gerar com o agente.
-- **Estudo completo:** Foco (revisar os vencidos, medir, praticar), O que eu sei (um conceito por nota em `01-PROJETOS/<projeto>/conceitos`, com domínio, revisão espaçada e calibração da confiança) e Plano (o cronograma da nota do projeto).
+- **Estudo completo:** Foco (revisar os vencidos, medir, praticar), O que eu sei (um conceito por nota em `01-PROJETOS/<projeto>/conceitos`, com domínio, revisão espaçada e calibração da confiança) e Planos (desde a 1.4.0, vários planos de estudo, cada um com o cronograma na nota dele no Brain).
 - **Perfis** (Ajustes → Perfis e backup): cada perfil é uma MÊTIS separada, com pasta, núcleo, senhas e Brain próprios; **backup** da configuração num .zip sem segredos, com conferir antes de importar.
 - **Skills:** instalar de git, pasta ou .zip no Claude, no Codex ou no projeto; atualizar, exportar, copiar para a outra CLI e mandar para a Lixeira.
 

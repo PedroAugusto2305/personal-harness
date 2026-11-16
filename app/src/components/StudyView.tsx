@@ -10,7 +10,8 @@ import type { WebInfo } from "./BrowserView";
 import { StudyChat } from "./StudyChat";
 import { StudyNotebook } from "./StudyNotebook";
 import { StudyNote, markAnswer, type QuestionBlock } from "./StudyNote";
-import { StudyActions, StudyMapView, StudyPlanView } from "./StudyParts";
+import { StudyActions, StudyMapView } from "./StudyParts";
+import { StudyPlansView } from "./StudyPlans";
 import { VaultTree } from "./VaultTree";
 import "./brain.css";
 import "./study.css";
@@ -203,6 +204,23 @@ export function StudyView(props: Props) {
     }
   };
 
+  /** v1.4.0: o plano em foco (o Pomodoro, o mapa e as sessões usam ele quando ninguém diz o plano). */
+  const focusPlan = async (name: string) => {
+    if (!client || !name) return;
+    try {
+      const { foco } = await client.setStudyFocus(name);
+      setSummary((current) => (current ? { ...current, foco } : current));
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  /** v1.4.0: a conversa para montar ou ajustar o cronograma abre no painel do agente. */
+  const showSession = (session: Session) => {
+    onAdopt(session);
+    setPeekId(session.id);
+  };
+
   /** v1.3.0: conversa de estudo com o agente conectado (modo visual e, se houver, o caderno do NotebookLM). */
   const startChat = async (text?: string) => {
     if (!client || starting) return;
@@ -228,6 +246,8 @@ export function StudyView(props: Props) {
   const max = Math.max(60, ...(summary?.week.map((d) => d.minutes) ?? [0]));
   const running = state.phase !== "idle";
   const week = summary?.semana_atual;
+  const focusName = summary?.foco ?? "";
+  const activePlans = summary?.planos ?? [];
   const crumbs = note && isNote ? note.path.split("/").slice(1, -1).join(" / ") : "";
 
   return (
@@ -289,7 +309,7 @@ export function StudyView(props: Props) {
             [
               ["foco", "Foco"],
               ["mapa", summary?.vencidos ? `O que eu sei · ${summary.vencidos}` : "O que eu sei"],
-              ["plano", "Plano"],
+              ["plano", "Planos"],
               ["notebooklm", "NotebookLM"],
             ] as const
           ).map(([key, label]) => (
@@ -308,6 +328,24 @@ export function StudyView(props: Props) {
             </span>
           ))}
           <span className="grow" />
+          {summary &&
+            (activePlans.length > 0 ? (
+              <label className="sv-plan-pick small" title="Plano em foco: o Pomodoro, O que eu sei e as sessões com o agente usam este plano">
+                <span>plano</span>
+                <select className="web-select" value={focusName} onChange={(event) => void focusPlan(event.target.value)} aria-label="Plano de estudos em foco">
+                  {!focusName && <option value="">escolha…</option>}
+                  {activePlans.map((plan) => (
+                    <option key={plan.nome} value={plan.nome}>
+                      {plan.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <button type="button" className="link-btn sv-plan-pick" onClick={() => setActive("plano")}>
+                nenhum plano ativo · criar
+              </button>
+            ))}
           {running && (
             <button type="button" className="sv-pomo mono" onClick={() => setActive("foco")} title="Pomodoro em andamento">
               {state.phase === "focus" ? "foco" : "pausa"} {pomodoro.label}
@@ -317,11 +355,14 @@ export function StudyView(props: Props) {
 
         {active === "foco" ? (
           <section className="study-timer sv-timer" data-phase={state.phase}>
-            {week && (
+            {running && state.plano ? (
+              <div className="sv-week-line small mono">plano {state.plano}</div>
+            ) : focusName ? (
               <div className="sv-week-line small mono">
-                semana {week.numero} · {week.foco}
+                {focusName}
+                {week ? ` · semana ${week.numero} · ${week.foco}` : " · fora do cronograma hoje"}
               </div>
-            )}
+            ) : null}
             <div className="study-phase small">{state.phase === "focus" ? "Foco" : state.phase === "break" ? "Pausa" : "Pronto para estudar"}</div>
             <div className="study-clock mono">{pomodoro.label}</div>
             <input
@@ -341,7 +382,7 @@ export function StudyView(props: Props) {
                       </button>
                     ))}
                   </div>
-                  <button type="button" className="btn primary" onClick={() => pomodoro.start(subject)}>
+                  <button type="button" className="btn primary" onClick={() => pomodoro.start(subject, focusName)}>
                     Começar {state.focusMin} min
                   </button>
                 </>
@@ -351,7 +392,9 @@ export function StudyView(props: Props) {
                 </button>
               )}
             </div>
-            <p className="small study-note">Cada foco terminado vira uma linha em 📚 Estudo na nota do dia do Brain. Abra a nota da aula à esquerda para estudar ao lado do agente de estudo.</p>
+            <p className="small study-note">
+              Cada foco terminado vira uma linha em 📚 Estudo na nota do dia do Brain{focusName ? `, ligada ao plano em foco (${focusName})` : ""}. Abra a nota da aula à esquerda para estudar ao lado do agente de estudo.
+            </p>
           </section>
         ) : active === "mapa" && client ? (
           <div className="sv-scroll">
@@ -359,7 +402,7 @@ export function StudyView(props: Props) {
           </div>
         ) : active === "plano" && client ? (
           <div className="sv-scroll">
-            <StudyPlanView client={client} tick={tick} onOpenNote={(title) => void openTitle(title)} />
+            <StudyPlansView client={client} tick={tick} tutorName={tutor?.name ?? null} onPlanSession={showSession} onOpenNote={(title) => void openTitle(title)} />
           </div>
         ) : active === "notebooklm" && client ? (
           <StudyNotebook
@@ -406,6 +449,7 @@ export function StudyView(props: Props) {
             <b>{tutor?.name ?? "Agente de estudo"}</b>
             <span className="small mono">
               {peek ? `${peek.kind}${peek.statusline?.model ? ` · ${peek.statusline.model}` : ""}` : tutor ? "conectado" : "nenhum conectado"}
+              {focusName ? ` · ${focusName}` : ""}
               {week ? ` · semana ${week.numero}` : ""}
             </span>
           </span>

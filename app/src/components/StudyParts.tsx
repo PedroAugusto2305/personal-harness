@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CoreClient } from "../lib/core";
-import type { Session, StudyConcept, StudyMap, StudyPlan, StudySessionKind } from "../types";
+import type { Session, StudyConcept, StudyMap, StudySessionKind } from "../types";
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
@@ -177,63 +177,6 @@ export function StudyMapView({
             </section>
           ))}
       </div>
-    </div>
-  );
-}
-
-/** O cronograma do projeto de estudo (a tabela da nota), com a semana de agora em destaque. */
-export function StudyPlanView({ client, tick, onOpenNote }: { client: CoreClient; tick: number; onOpenNote: (title: string) => void }) {
-  const [plan, setPlan] = useState<StudyPlan | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    client
-      .studyPlan()
-      .then((value) => alive && (setPlan(value), setError(null)))
-      .catch((cause) => alive && setError(message(cause)));
-    return () => {
-      alive = false;
-    };
-  }, [client, tick]);
-  if (error) return <div className="study-plan error-box">{error}</div>;
-  if (!plan) return <p className="small study-plan">Lendo o cronograma…</p>;
-  return (
-    <div className="study-plan">
-      <div className="study-map-head">
-        <span>
-          Cronograma de <b>{plan.projeto}</b>
-          {plan.semana_atual ? ` · semana ${plan.semana_atual} agora` : " · fora do cronograma hoje"}
-        </span>
-        <button type="button" className="link-btn" onClick={() => onOpenNote(plan.projeto)}>
-          abrir a nota ›
-        </button>
-      </div>
-      {plan.semanas.length === 0 ? (
-        <p className="small study-empty">A nota do projeto não tem uma tabela de cronograma (colunas Sem., Datas, Foco e Entrega).</p>
-      ) : (
-        <table className="activity study-weeks">
-          <thead>
-            <tr>
-              <th>Sem.</th>
-              <th>Datas</th>
-              <th>Foco</th>
-              <th>Entrega</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.semanas.map((w) => (
-              <tr key={w.numero} data-current={w.atual ? "true" : undefined}>
-                <td className="mono">{w.numero}</td>
-                <td className="mono small">
-                  {dayLabel(w.inicio)} a {dayLabel(w.fim)}
-                </td>
-                <td>{w.foco}</td>
-                <td className="small">{w.entrega}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }

@@ -10,6 +10,8 @@ export interface PomodoroState {
   endsAt: number | null;
   startedAt: number | null;
   subject: string;
+  /** v1.4.0: o plano de estudos em foco quando o foco começou (o bloco vai para ele). */
+  plano?: string;
   focusMin: number;
   breakMin: number;
 }
@@ -68,12 +70,12 @@ export function usePomodoro(client: CoreClient | null, onEvent: (message: string
     setState(next);
   }, []);
 
-  const logBlock = useCallback(async (minutes: number, subject: string) => {
+  const logBlock = useCallback(async (minutes: number, subject: string, plano?: string) => {
     const { client: core, onEvent: notify } = live.current;
     if (!core || minutes < 1) return;
     try {
-      const block = await core.studyBlock(Math.round(minutes * 10) / 10, subject);
-      notify(`🍅 ${Math.round(minutes)} min registrados${block.note ? ` em ${block.note}` : ""}.`);
+      const block = await core.studyBlock(Math.round(minutes * 10) / 10, subject, plano);
+      notify(`🍅 ${Math.round(minutes)} min registrados${block.plano ? ` no plano ${block.plano}` : ""}${block.note ? ` em ${block.note}` : ""}.`);
     } catch (cause) {
       notify(`Não registrei o bloco: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
@@ -89,7 +91,7 @@ export function usePomodoro(client: CoreClient | null, onEvent: (message: string
       if (s.endsAt == null || t < s.endsAt) return;
       if (s.phase === "focus") {
         chime(3);
-        void logBlock(s.focusMin, s.subject);
+        void logBlock(s.focusMin, s.subject, s.plano);
         update({ ...s, phase: "break", startedAt: t, endsAt: t + s.breakMin * 60000 });
         live.current.onEvent(`Foco de ${s.focusMin} min concluído. Pausa de ${s.breakMin} min.`);
       } else {
@@ -101,9 +103,9 @@ export function usePomodoro(client: CoreClient | null, onEvent: (message: string
     return () => window.clearInterval(timer);
   }, [state.phase, logBlock, update]);
 
-  const start = (subject: string, focusMin = state.focusMin, breakMin = state.breakMin) => {
+  const start = (subject: string, plano = "", focusMin = state.focusMin, breakMin = state.breakMin) => {
     const t = Date.now();
-    update({ phase: "focus", startedAt: t, endsAt: t + focusMin * 60000, subject: subject.trim(), focusMin, breakMin });
+    update({ phase: "focus", startedAt: t, endsAt: t + focusMin * 60000, subject: subject.trim(), plano, focusMin, breakMin });
   };
 
   /** Para antes da hora: foco de 5 min ou mais ainda conta, pelo tempo feito. */
@@ -111,7 +113,7 @@ export function usePomodoro(client: CoreClient | null, onEvent: (message: string
     const s = state;
     if (s.phase === "focus" && s.startedAt) {
       const done = (Date.now() - s.startedAt) / 60000;
-      if (done >= 5) void logBlock(done, s.subject);
+      if (done >= 5) void logBlock(done, s.subject, s.plano);
     }
     update({ ...s, phase: "idle", startedAt: null, endsAt: null });
   };
