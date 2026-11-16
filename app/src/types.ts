@@ -275,6 +275,58 @@ export interface StudySummary {
   semana_atual?: { numero: number; foco: string } | null;
   /** v1.3.0: o agente conectado à aba de Estudo ("" = nenhum). */
   agente?: string;
+  /** v1.4.0: o plano em foco ("" = nenhum ativo) e os planos ativos com a semana de cada um. */
+  foco?: string;
+  planos?: { nome: string; semana_atual: StudyPlanWeekNow | null }[];
+  /** v1.4.0: minutos da semana em cada plano. */
+  por_plano?: Record<string, number>;
+}
+
+/** v1.4.0: a semana de hoje de um plano. */
+export interface StudyPlanWeekNow {
+  numero: number;
+  inicio: string;
+  fim: string;
+  foco: string;
+  entrega: string;
+}
+
+export interface StudyWeek {
+  numero: number;
+  inicio: string;
+  fim: string;
+  foco: string;
+  entrega: string;
+  atual: boolean;
+}
+
+/** v1.4.0: um plano de estudos (um projeto do Brain com plano_estudo: ativo ou inativo). */
+export interface StudyPlanInfo {
+  nome: string;
+  caminho: string;
+  estado: "ativo" | "inativo";
+  em_foco: boolean;
+  tema: string;
+  inicio: string;
+  fim: string;
+  atualizado: string;
+  semanas: number;
+  semanas_com_foco: number;
+  semana_atual: StudyPlanWeekNow | null;
+  objetivo?: string;
+  conceitos?: number;
+  vencidos?: number;
+  minutos_semana?: number;
+  /** Só no GET de um plano. */
+  cronograma?: StudyWeek[];
+}
+
+export interface StudyPlanDraft {
+  nome: string;
+  tema: string;
+  inicio: string;
+  fim: string;
+  objetivo: string;
 }
 
 export interface StudyConcept {
@@ -299,12 +351,12 @@ export interface StudyMap {
 
 export interface StudyPlan {
   projeto: string;
-  semanas: { numero: number; inicio: string; fim: string; foco: string; entrega: string; atual: boolean }[];
+  semanas: StudyWeek[];
   hoje: string;
   semana_atual: number | null;
 }
 
-export type StudySessionKind = "medir" | "aprender" | "praticar" | "revisar" | "conversa";
+export type StudySessionKind = "medir" | "aprender" | "praticar" | "revisar" | "conversa" | "planejar";
 
 /** v1.3.0: o caderno do NotebookLM que o Sócrates usa como base (id vazio = nenhum). */
 export interface StudyNotebookChoice {
