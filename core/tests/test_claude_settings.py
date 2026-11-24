@@ -21,6 +21,8 @@ def test_every_hook_event_calls_relay_with_its_name():
 
 
 def test_argv_passes_settings_as_one_json_argument():
-    argv = claude_argv("/usr/local/bin/claude", RELAY)
+    argv = claude_argv("/usr/local/bin/claude", RELAY, blocked_skills=())
     assert argv[:2] == ["/usr/local/bin/claude", "--settings"]
     assert json.loads(argv[2]) == build_claude_settings(RELAY)
+    # v1.6.0: por padrão a sessão nega as skills do Maestri (test_v160_agentes_metis.py).
+    assert "Skill(maestri)" in json.loads(claude_argv("/usr/local/bin/claude", RELAY)[2])["permissions"]["deny"]

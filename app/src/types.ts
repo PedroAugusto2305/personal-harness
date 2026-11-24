@@ -121,7 +121,10 @@ export interface Agent {
   account: string;
   folder: string;
   color: string;
+  /** "maestri:<id>" só nos importados e não migrados, que o núcleo não manda mais (v1.6.0). */
   origin: string;
+  /** v1.6.0: de onde veio o agente migrado do Maestri ("maestri:<id>"); vazio nos criados na MÊTIS. */
+  migrated?: string;
   prompt: string;
   sprite: boolean;
   /** v0.9.9: quadros do movimento parado (0 = só a sprite parada). */

@@ -610,10 +610,6 @@ export class CoreClient {
     return this.request("POST", `/agents/${encodeURIComponent(agentId)}/sprite/from-job`, { job });
   }
 
-  importMaestri(): Promise<{ imported: string[] }> {
-    return this.request("POST", "/agents/import/maestri");
-  }
-
   // --- Brain e kanban ---------------------------------------------------------
 
   brainSearch(q: string, options: { tipo?: string[]; projeto?: string; limit?: number } = {}): Promise<BrainHit[]> {

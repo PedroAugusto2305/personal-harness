@@ -2,14 +2,18 @@
 
 Passado na linha de comando, ele tem precedência sobre as configurações de usuário,
 então a statusline do Harness vale só nas sessões do Harness e o
-`~/.claude/settings.json` (usado também pelo Orca) fica intacto.
+`~/.claude/settings.json` (usado também pelo Orca) fica intacto. As regras de permissão
+dele somam às do usuário e do projeto (as negações da v1.6.0 não apagam o `allow` de ninguém).
 """
 
 from __future__ import annotations
 
 import json
 import shlex
+from collections.abc import Iterable
 from pathlib import Path
+
+from . import maestri
 
 HOOK_EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "Notification", "SessionEnd")
 
@@ -18,7 +22,8 @@ def _command(relay_path: Path, *args: str) -> str:
     return " ".join(["/bin/sh", shlex.quote(str(relay_path)), *args])
 
 
-def build_claude_settings(relay_path: Path) -> dict:
+def build_claude_settings(relay_path: Path, blocked_skills: Iterable[str] = ()) -> dict:
+    """`blocked_skills`: skills que a sessão não roda (v1.6.0: as do Maestri, maestri.py)."""
     hooks = {
         event: [{"hooks": [{"type": "command", "command": _command(relay_path, "hook", event), "timeout": 5}]}]
         for event in HOOK_EVENTS
@@ -26,7 +31,7 @@ def build_claude_settings(relay_path: Path) -> dict:
     # No início da sessão, o que o relay imprime entra no contexto do Claude: os precedentes
     # do Brain para o projeto da pasta (vazio fora de um projeto do Brain).
     hooks["SessionStart"][0]["hooks"].append({"type": "command", "command": _command(relay_path, "context"), "timeout": 8})
-    return {
+    settings = {
         "statusLine": {
             "type": "command",
             "command": _command(relay_path, "statusline"),
@@ -34,6 +39,12 @@ def build_claude_settings(relay_path: Path) -> dict:
         },
         "hooks": hooks,
     }
+    deny = [f"Skill({name})" for name in blocked_skills]
+    if deny:
+        # O Claude não aceita curinga no nome da skill: uma regra por skill. Ela continua na
+        # lista dele, mas chamar dá "Skill execution blocked by permission rules".
+        settings["permissions"] = {"deny": deny}
+    return settings
 
 
 def mcp_args(kind: str, core_url: str, token: str) -> list[str]:
@@ -50,5 +61,7 @@ def mcp_args(kind: str, core_url: str, token: str) -> list[str]:
     ]  # fmt: skip
 
 
-def claude_argv(executable: str, relay_path: Path) -> list[str]:
-    return [executable, "--settings", json.dumps(build_claude_settings(relay_path), separators=(",", ":"))]
+def claude_argv(executable: str, relay_path: Path, blocked_skills: Iterable[str] | None = None) -> list[str]:
+    """Sem `blocked_skills`, as skills do Maestri (v1.6.0): a sessão da MÊTIS não aciona os agentes dele."""
+    blocked = maestri.claude_skills() if blocked_skills is None else blocked_skills
+    return [executable, "--settings", json.dumps(build_claude_settings(relay_path, blocked), separators=(",", ":"))]

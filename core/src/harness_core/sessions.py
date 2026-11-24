@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
 
+from . import maestri
 from .accounts import PROVIDERS, AccountStore
 from .agents import Agent, AgentError, agent_args, parse_env, split_args
 from .claude_settings import claude_argv, mcp_args
@@ -366,6 +367,8 @@ class SessionManager:
             if kind == "codex":
                 codex_home = Path(env["CODEX_HOME"]) if env.get("CODEX_HOME") else Path.home() / ".codex"
                 argv = argv + codex_notify_args(self.settings.relay_path, codex_home / "config.toml")
+                # v1.6.0: as skills do Maestri ficam desligadas (falam com os agentes do canvas dele).
+                argv = argv + maestri.codex_args([Path.home() / ".agents" / "skills", codex_home / "skills"], codex_home / "config.toml")
             if extra_args:
                 argv = argv + list(extra_args)
             if resume:

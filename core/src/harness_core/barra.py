@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from . import maestri
 from .system import frontmatter
 
 CLAUDE_BUILTIN: list[tuple[str, str]] = [
@@ -81,6 +82,8 @@ def _skills(folder: Path) -> list[dict]:
     if not folder.is_dir():
         return out
     for skill in sorted(folder.glob("*/SKILL.md")):
+        if maestri.is_skill(skill.parent.name):
+            continue  # v1.6.0: desligadas nas sessões da MÊTIS (falam com os agentes do Maestri)
         out.append({"nome": f"/{skill.parent.name}", "descricao": describe(skill), "origem": "skill"})
     return out
 

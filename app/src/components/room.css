@@ -88,18 +88,6 @@
   color: var(--acct);
 }
 
-.room-import {
-  height: 28px;
-  border: 0;
-  background: transparent;
-  color: var(--fnt);
-  cursor: pointer;
-}
-
-.room-import:hover {
-  color: var(--acct);
-}
-
 .room-notice {
   padding: 0 8px;
   color: var(--mut);

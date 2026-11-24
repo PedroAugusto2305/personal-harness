@@ -108,10 +108,6 @@ export function Agents(props: Props) {
         setEditing("novo");
         setMode("editar");
       }}
-      onImport={async () => {
-        const result = await props.run((c) => c.importMaestri());
-        if (result) setNotice(result.imported.length ? `Importados: ${result.imported.join(", ")}.` : "Nada novo para importar do Maestri.");
-      }}
       onLaunch={props.onLaunch}
       onOpenSession={props.onOpenSession}
       onDelete={setDeleting}
@@ -268,7 +264,7 @@ function AgentEditor({ client, agents, accounts, run, onLaunch, onTest, connecto
               <div className="agent-hero-text">
                 <h1>{draft.name || "Novo agente"}</h1>
                 <p className="small">
-                  {current?.origin?.startsWith("maestri:") && "Importado do Maestri · "}
+                  {current?.migrated?.startsWith("maestri:") && "Migrado do Maestri · "}
                   {current ? `~/.harness/agentes/${current.id}.md` : "vira um arquivo em ~/.harness/agentes/"}
                 </p>
                 {current && (

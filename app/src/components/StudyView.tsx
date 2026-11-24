@@ -164,8 +164,9 @@ export function StudyView(props: Props) {
   // v1.3.0: a aba de Estudo começa sem agente. O Pedro cria o agente de estudo dele na aba Agentes e
   // conecta (ou desconecta) aqui; o núcleo guarda qual é (estudo_agente).
   const tutor = agents.find((a) => a.id === (summary?.agente ?? "")) ?? null;
-  // Os que podem ser conectados: Claude ou Codex criados na MÊTIS (os herdados do Maestri ficam de fora).
-  const eligible = useMemo(() => agents.filter((a) => (a.cli === "claude" || a.cli === "codex") && !a.origin.startsWith("maestri:")), [agents]);
+  // Os que podem ser conectados: os de Claude ou Codex. Desde a v1.6.0 a lista já é só da MÊTIS (os criados
+  // nela e os migrados do Maestri, que funcionam como os outros); o núcleo nem manda os não migrados.
+  const eligible = useMemo(() => agents.filter((a) => a.cli === "claude" || a.cli === "codex"), [agents]);
   // As conversas do painel: as do agente conectado (como antes) e toda conversa de estudo aberta (tag
   // estudo), inclusive a de um agente de estudo aberto pela tela de Agentes (v1.5.0). Cada uma fica
   // aqui até ser fechada, mesmo que o tipo do agente mude ou ele seja desconectado.

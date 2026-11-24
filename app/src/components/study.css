@@ -530,7 +530,7 @@
   cursor: default;
 }
 
-/* Sem agente conectado: escolher um da galeria (os do Maestri ficam de fora). */
+/* Sem agente conectado: escolher um da galeria (só os agentes da MÊTIS). */
 .sv-connect {
   display: flex;
   gap: 8px;
