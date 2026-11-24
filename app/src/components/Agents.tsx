@@ -3,13 +3,14 @@ import { Confirm } from "./Confirm";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
 import { shortPath } from "../lib/format";
+import { TIPO_LABEL, tipoOf } from "../lib/agentType";
 import type { Accounts, Agent, AgentDraft, AgentEvent, ConnectorAccount, Session } from "../types";
 import { AgentSprite, GreekBust } from "./AgentSprite";
 import { AgentsRoom } from "./AgentsRoom";
 import { SpriteChat } from "./SpriteChat";
 
 const SWATCHES = ["#82a0ff", "#007AFF", "#5AC8FA", "#8be9fd", "#bd93f9", "#AF52DE", "#FF2D55", "#FF3B30", "#d97757", "#a9aec9"];
-const EMPTY: AgentDraft = { name: "", description: "", pain: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "", args: "", env: "", command: "" };
+const EMPTY: AgentDraft = { name: "", description: "", pain: "", cli: "claude", model: "", account: "", folder: "", color: "#82a0ff", connectors: "", prompt: "", args: "", env: "", command: "", tipo: "trabalho" };
 const CLI_LABEL: Record<Agent["cli"], string> = { claude: "Claude Code", codex: "Codex", outra: "Outra CLI" };
 const SPRITE_MAX = 256;
 
@@ -18,6 +19,7 @@ interface Props {
   agents: Agent[];
   accounts: Accounts;
   run: <T>(action: (core: CoreClient) => Promise<T>) => Promise<T | null>;
+  /** Abre o agente: o de estudo numa conversa no painel do Estudo, o de trabalho em Terminais (v1.5.0). */
   onLaunch: (agent: Agent) => void;
   /** Abre um terminal com o rascunho, sem salvar ("testar antes de salvar"). */
   onTest: (draft: AgentDraft) => void;
@@ -113,6 +115,17 @@ export function Agents(props: Props) {
       onLaunch={props.onLaunch}
       onOpenSession={props.onOpenSession}
       onDelete={setDeleting}
+      onSetType={async (agent, tipo) => {
+        if (tipoOf(agent) === tipo) return;
+        const saved = await props.run((c) => c.updateAgent(agent.id, { ...toDraft(agent), tipo }));
+        if (!saved) return;
+        const open = openCount(agent.id) > 0 ? " O terminal já aberto fica onde está até você fechar." : "";
+        setNotice(
+          tipo === "estudo"
+            ? `${agent.name} agora é de estudo: aberto por aqui, o terminal vira uma conversa no Estudo.${open}`
+            : `${agent.name} agora é de trabalho: aberto por aqui, o terminal abre em Terminais.${open}`,
+        );
+      }}
       notice={notice}
     />
     {deleting && (
@@ -164,6 +177,7 @@ export const toDraft = (agent: Agent): AgentDraft => ({
   args: agent.args ?? "",
   env: agent.env ?? "",
   command: agent.command ?? "",
+  tipo: tipoOf(agent),
 });
 
 /** Qualquer imagem vira PNG de até 256 px, para servir de sprite. */
@@ -365,8 +379,40 @@ function AgentEditor({ client, agents, accounts, run, onLaunch, onTest, connecto
                 <span className="setting-label">CLI</span>
                 <div className="segmented" role="radiogroup" aria-label="CLI do agente">
                   {(["claude", "codex", "outra"] as const).map((cli) => (
-                    <button key={cli} type="button" role="radio" aria-checked={draft.cli === cli} onClick={() => setDraft((d) => ({ ...d, cli, account: "" }))}>
+                    <button
+                      key={cli}
+                      type="button"
+                      role="radio"
+                      aria-checked={draft.cli === cli}
+                      // Estudo é só do Claude e do Codex: a Outra CLI volta para trabalho.
+                      onClick={() => setDraft((d) => ({ ...d, cli, account: "", tipo: cli === "outra" ? "trabalho" : d.tipo }))}
+                    >
                       {CLI_LABEL[cli]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <span className="setting-label">
+                  Tipo
+                  <span className="small">
+                    {draft.tipo === "estudo"
+                      ? "Aberto pela tela de Agentes, o terminal abre no Estudo."
+                      : "Aberto pela tela de Agentes, o terminal abre em Terminais."}
+                  </span>
+                </span>
+                <div className="segmented" role="radiogroup" aria-label="Tipo do agente">
+                  {(["trabalho", "estudo"] as const).map((tipo) => (
+                    <button
+                      key={tipo}
+                      type="button"
+                      role="radio"
+                      aria-checked={(draft.tipo ?? "trabalho") === tipo}
+                      disabled={tipo === "estudo" && draft.cli === "outra"}
+                      title={tipo === "estudo" && draft.cli === "outra" ? "Agente de estudo é do Claude ou do Codex" : undefined}
+                      onClick={() => set("tipo", tipo)}
+                    >
+                      {TIPO_LABEL[tipo]}
                     </button>
                   ))}
                 </div>
@@ -502,7 +548,7 @@ function AgentEditor({ client, agents, accounts, run, onLaunch, onTest, connecto
               )}
               {current && (
                 <button type="button" className="btn" onClick={() => onLaunch(current)} disabled={dirty} title={dirty ? "Salve antes de abrir" : undefined}>
-                  Abrir agente {current.folder ? `em ${shortPath(current.folder)}` : "na worktree escolhida"}
+                  {tipoOf(current) === "estudo" ? "Abrir no Estudo" : `Abrir agente ${current.folder ? `em ${shortPath(current.folder)}` : "na worktree escolhida"}`}
                 </button>
               )}
               <span className="grow" />

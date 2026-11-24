@@ -130,7 +130,11 @@ export interface Agent {
   /** Contas de conector liberadas pela central: "" = todas; "nenhum" = nenhuma; senão ids separados por vírgula. */
   connectors: string;
   pain: string;
+  /** v1.5.0: o de estudo, aberto pela tela de Agentes, abre a conversa no Estudo; sem o campo (núcleo antigo), trabalho. */
+  tipo?: AgentType;
 }
+
+export type AgentType = "trabalho" | "estudo";
 
 export interface SpriteJob {
   id: string;
@@ -145,7 +149,7 @@ export interface SpriteJob {
   finished_at: number | null;
 }
 
-export type AgentDraft = Pick<Agent, "name" | "description" | "pain" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt" | "args" | "env" | "command">;
+export type AgentDraft = Pick<Agent, "name" | "description" | "pain" | "cli" | "model" | "account" | "folder" | "color" | "connectors" | "prompt" | "args" | "env" | "command" | "tipo">;
 
 export interface TextFile {
   path: string;

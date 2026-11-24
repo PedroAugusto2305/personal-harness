@@ -230,6 +230,8 @@ class AgentBody(BaseModel):
     args: str = Field(default="", max_length=2000)
     env: str = Field(default="", max_length=8000)
     command: str = Field(default="", max_length=2000)
+    #: v1.5.0: estudo ou trabalho; sem o campo (cliente antigo), fica o tipo que o agente já tinha.
+    tipo: str | None = Field(default=None, pattern="^(estudo|trabalho)$")
 
 
 class SpriteRequest(BaseModel):
@@ -437,6 +439,8 @@ class StudySessionBody(BaseModel):
     tipo: str
     conceito: str | None = Field(default=None, max_length=120)
     plano: str | None = Field(default=None, max_length=120)  # v1.4.0: vazio = o plano em foco
+    #: v1.5.0: o agente da conversa (um agente de estudo, aberto pela tela de Agentes); vazio = o conectado.
+    agente: str | None = Field(default=None, max_length=80)
 
 
 # v1.4.0: planos de estudo (criar, editar, ativar, desativar e excluir na aba de Estudos).
@@ -759,9 +763,10 @@ def create_app(
                 agent = agents.get(session.agent)
             except AgentError:
                 agent = None
-        # v1.3.0: sessão de estudo (aberta pelo Estudo, ou do agente conectado a ele) ganha o NotebookLM e as imagens.
+        # v1.3.0: sessão de estudo (aberta pelo Estudo, ou do agente conectado a ele) ganha o NotebookLM e as imagens;
+        # v1.5.0: a de um agente marcado como de estudo também, de onde quer que tenha sido aberta.
         connected = manager.prefs.get()["estudo_agente"]
-        study_session = session.tag == "estudo" or bool(connected and session.agent == connected)
+        study_session = session.tag == "estudo" or bool(connected and session.agent == connected) or bool(agent and agent.tipo == "estudo")
         return {
             "who": agent.name if agent else session.title,
             "cwd": session.cwd,
@@ -3816,7 +3821,19 @@ def create_app(
         # async de propósito: o PTY nasce no loop do asyncio, como em POST /sessions.
         if body.tipo not in SESSION_TYPES:
             raise HTTPException(status_code=400, detail=f"tipo de sessão é {', '.join(SESSION_TYPES)}")
-        agent = study_agent()
+        asked_agent = (body.agente or "").strip()
+        if asked_agent:
+            # v1.5.0: a conversa de um agente de estudo aberta pela tela de Agentes (ou o + do painel dele).
+            try:
+                agent = agents.get(asked_agent)
+            except AgentError as exc:
+                raise HTTPException(status_code=404, detail=f"agente não encontrado: {asked_agent}") from exc
+            if agent.cli not in ("claude", "codex"):
+                raise HTTPException(status_code=400, detail="o agente de estudo precisa ser do Claude ou do Codex")
+            if agent.tipo != "estudo" and agent.id != manager.prefs.get()["estudo_agente"]:
+                raise HTTPException(status_code=400, detail=f"{agent.name} é um agente de trabalho: marque como de estudo na aba Agentes")
+        else:
+            agent = study_agent()
         if agent is None:
             raise HTTPException(status_code=400, detail="nenhum agente de estudo conectado: crie o seu na aba Agentes e conecte na aba Estudo")
         notebook = manager.prefs.get()["estudo_caderno"]

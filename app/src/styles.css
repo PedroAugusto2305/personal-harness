@@ -2339,6 +2339,12 @@ kbd {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
+/* v1.5.0: opção que não vale para o caso (ex.: Estudo numa Outra CLI). */
+.segmented button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .diff-body,
 .file-body {
   flex: 1 1 auto;

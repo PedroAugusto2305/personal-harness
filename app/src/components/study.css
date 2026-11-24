@@ -920,3 +920,20 @@
   margin-top: 10px;
   flex-wrap: wrap;
 }
+
+/* v1.5.0: a aba de cada conversa com a sprite e o nome do agente, e a barra de conectar
+   quando a conversa em vista é de um agente de estudo sem nenhum conectado ao Estudo. */
+.sv-tutor-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.sv-connect-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}

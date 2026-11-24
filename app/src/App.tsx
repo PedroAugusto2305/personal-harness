@@ -35,6 +35,7 @@ import { agentAction, agentJs, browser, describePick, normalizeUrl, onBrowserEve
 import { applyAppearance, applyTheme, BUILTIN_THEMES, customOf, loadAppearance, nextZoom, saveAppearance, setCustomThemes, themeKey, themeLabel, type Appearance } from "./lib/appearance";
 import { appExecutable, CoreError, inTauri, onNativeNoticeClick, takePendingNotice, type NewSessionOptions } from "./lib/core";
 import { KIND_LABEL, STATUS_COLOR, fold, shortPath } from "./lib/format";
+import { tipoOf } from "./lib/agentType";
 import type { Notice } from "./lib/inbox";
 import { quotePaths, submit, terminals } from "./lib/terminals";
 import { bindings, comboOf, hintFor, recorder } from "./lib/keymap";
@@ -530,6 +531,38 @@ export default function App() {
     // Agente com pasta própria (os do Brain) abre nela; os de código, na worktree escolhida.
     // Outra CLI (v0.9.8) roda num terminal comum, com o comando do agente.
     void create(agent.cli === "outra" ? "shell" : agent.cli, { agent: agent.id, cwd: agent.folder ? null : cwdNow() });
+  };
+
+  /** v1.5.0: a conversa que o painel do agente na aba Estudo mostra ao abrir (pedida pela tela de Agentes). */
+  const [studyPeek, setStudyPeek] = useState<string | null>(null);
+
+  /** v1.5.0: pela tela de Agentes, o agente de estudo abre uma conversa de estudo com ele, no painel do
+   * Estudo (o mesmo jeito do "Conversar com" do Estudo); o de trabalho continua abrindo em Terminais. */
+  const launchFromAgents = async (agent: Agent) => {
+    if (tipoOf(agent) !== "estudo") return launchAgent(agent);
+    const client = harness.client;
+    if (!client) return;
+    setView("study");
+    try {
+      const session = await client.studySession("conversa", undefined, undefined, agent.id);
+      harness.adopt(session);
+      setStudyPeek(session.id);
+    } catch (cause) {
+      setToast(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  /** v1.5.0: a sessão já aberta fica onde nasceu: a conversa de estudo no Estudo, o resto em Terminais
+   * (trocar o tipo do agente não move o terminal aberto). */
+  const openFromAgents = (id: string) => {
+    const session = harness.sessions.find((s) => s.id === id);
+    if (session?.tag === "estudo" && session.status !== "exited") {
+      setStudyPeek(id);
+      setView("study");
+      return;
+    }
+    setView("term");
+    select(id);
   };
 
   const sessionsRef = useRef(harness.sessions);
@@ -2084,7 +2117,7 @@ export default function App() {
             agents={harness.agents}
             accounts={harness.accounts}
             run={harness.run}
-            onLaunch={launchAgent}
+            onLaunch={(agent) => void launchFromAgents(agent)}
             onTest={(draft) => {
               setView("term");
               if (draft.cli === "outra") {
@@ -2101,7 +2134,7 @@ export default function App() {
             sessions={harness.sessions}
             events={harness.agentEvents}
             tick={harness.routinesTick}
-            onOpenSession={(id) => (setView("term"), select(id))}
+            onOpenSession={openFromAgents}
           />
         )}
         {view === "study" && (
@@ -2120,6 +2153,8 @@ export default function App() {
             sessions={harness.sessions}
             onAdopt={(session) => harness.adopt(session)}
             onOpenSession={(id) => (setView("term"), select(id))}
+            peekRequest={studyPeek}
+            onPeekUsed={() => setStudyPeek(null)}
             onError={setToast}
             theme={theme}
             notebookTick={harness.notebookTick}

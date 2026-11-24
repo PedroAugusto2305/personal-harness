@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.4.0)
+## O que já faz (v1.5.0)
+
+**Na 1.5.0:** cada agente é de estudo ou de trabalho, escolhido na aba Agentes (no cartão do agente ou no formulário) e guardado no arquivo dele. O de estudo, aberto pela tela de Agentes, abre uma conversa de estudo com ele no painel do Estudo, com o nome e a sprite dele; o de trabalho continua abrindo em Terminais. Os agentes de antes são de trabalho, e trocar o tipo não move o terminal que já está aberto.
 
 **Na 1.4.0:** planos de estudo na aba Planos do Estudo: criar (a nota do plano nasce no Brain com as semanas do período), montar ou ajustar o cronograma com o agente de estudo, editar à mão, desativar, ativar e excluir (a pasta vai para `04-ARQUIVO`, nada é apagado). Vários planos ativos ao mesmo tempo, com um em foco para o Pomodoro, o mapa e as sessões.
 
