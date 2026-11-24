@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RoomScene } from "./RoomScene";
 import { ICON, Icon } from "../icons";
 import type { CoreClient } from "../lib/core";
-import type { Accounts, Agent, AgentEvent, ConnectorAccount, Routine, Session } from "../types";
+import type { Accounts, Agent, AgentEvent, AgentType, ConnectorAccount, Routine, Session } from "../types";
+import { TIPO_LABEL, tipoOf } from "../lib/agentType";
 import { AgentSprite, type SpriteState } from "./AgentSprite";
 import "./room.css";
 
@@ -132,7 +133,16 @@ interface Props {
   onOpenSession: (id: string) => void;
   /** v0.9.9: apagar o agente (com confirmação; o arquivo vai para a lixeira dos agentes). */
   onDelete: (agent: Agent) => void;
+  /** v1.5.0: marca o agente como de estudo ou de trabalho. */
+  onSetType: (agent: Agent, tipo: AgentType) => void;
   notice: string | null;
+}
+
+/** v1.5.0: onde o terminal aberto por aqui aparece. O já aberto fica onde nasceu (a conversa de estudo,
+ * tag "estudo", no Estudo; o resto em Terminais); o novo segue o tipo do agente. */
+function destination(agent: Agent, live: Session | null): "estudo" | "terminais" {
+  if (live) return live.tag === "estudo" ? "estudo" : "terminais";
+  return tipoOf(agent) === "estudo" ? "estudo" : "terminais";
 }
 
 export function AgentsRoom(props: Props) {
@@ -195,6 +205,7 @@ export function AgentsRoom(props: Props) {
             >
               <span className="room-dot" style={{ background: STATE_COLOR[d.state] }} />
               <span className="room-file-name">{d.agent.id}.md</span>
+              {tipoOf(d.agent) === "estudo" && <span className="room-file-tipo">estudo</span>}
               <span className="room-file-cli">{d.agent.cli}</span>
             </button>
             <button type="button" className="room-file-del" title={`Apagar ${d.agent.name}`} aria-label={`Apagar ${d.agent.name}`} onClick={() => props.onDelete(d.agent)}>
@@ -235,7 +246,9 @@ export function AgentsRoom(props: Props) {
               onSelect={props.onSelect}
               onOpen={(agent) => {
                 const desk = desks.find((d) => d.agent.id === agent.id);
-                if (desk?.session) props.onOpenSession(desk.session.id);
+                // A conversa de estudo encerrada não aparece no Estudo: o agente de estudo abre outra.
+                const stale = desk?.session?.status === "exited" && tipoOf(agent) === "estudo";
+                if (desk?.session && !stale) props.onOpenSession(desk.session.id);
                 else props.onLaunch(agent);
               }}
               items={desks.map((d) => ({
@@ -280,8 +293,11 @@ export function AgentsRoom(props: Props) {
   );
 }
 
-function AgentCard({ desk, client, accounts, connectors, onEdit, onLaunch, onOpenSession, onDelete }: Props & { desk: Desk }) {
+function AgentCard({ desk, client, accounts, connectors, onEdit, onLaunch, onOpenSession, onDelete, onSetType }: Props & { desk: Desk }) {
   const { agent, session, routine } = desk;
+  const live = session && session.status !== "exited" ? session : null;
+  const target = destination(agent, live);
+  const tipo = tipoOf(agent);
   const accountName =
     agent.cli === "outra" ? "—" : agent.account ? (accounts[agent.cli].accounts.find((a) => a.id === agent.account)?.name ?? agent.account) : "a conta em uso";
   const allowed =
@@ -319,6 +335,32 @@ function AgentCard({ desk, client, accounts, connectors, onEdit, onLaunch, onOpe
       </div>
       <div className="room-props">
         <span className="room-label">Propriedades</span>
+        <div className="room-prop">
+          <span className="room-prop-key">tipo</span>
+          <span className="room-prop-value room-tipo">
+            <span className="segmented" role="radiogroup" aria-label={`Tipo de ${agent.name}`}>
+              {(["trabalho", "estudo"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={tipo === value}
+                  disabled={value === "estudo" && agent.cli === "outra"}
+                  title={
+                    value === "estudo"
+                      ? agent.cli === "outra"
+                        ? "Agente de estudo é do Claude ou do Codex"
+                        : "Aberto por aqui, o terminal vira uma conversa no painel do Estudo"
+                      : "Aberto por aqui, o terminal abre em Terminais"
+                  }
+                  onClick={() => onSetType(agent, value)}
+                >
+                  {TIPO_LABEL[value]}
+                </button>
+              ))}
+            </span>
+          </span>
+        </div>
         {props.map(([key, value, link]) => (
           <div key={key} className="room-prop">
             <span className="room-prop-key">{key}</span>
@@ -334,8 +376,13 @@ function AgentCard({ desk, client, accounts, connectors, onEdit, onLaunch, onOpe
       </div>
       <div className="room-msg mono">● {desk.message}</div>
       <div className="room-actions">
-        <button type="button" className="room-open" onClick={() => (session && session.status !== "exited" ? onOpenSession(session.id) : onLaunch(agent))}>
-          {session && session.status !== "exited" ? "Ir para o terminal" : "Abrir terminal"}
+        <button
+          type="button"
+          className="room-open"
+          title={target === "estudo" ? "Abre no painel do agente na aba Estudo" : "Abre na tela Terminais"}
+          onClick={() => (live ? onOpenSession(live.id) : onLaunch(agent))}
+        >
+          {live ? (target === "estudo" ? "Ir para o Estudo" : "Ir para o terminal") : target === "estudo" ? "Abrir no Estudo" : "Abrir terminal"}
         </button>
         <button type="button" className="room-edit" onClick={() => onEdit(agent.id)}>
           Editar

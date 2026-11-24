@@ -2,6 +2,15 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.5.0 · agente de estudo ou de trabalho, e o de estudo abre no Estudo
+
+- **Cada agente é de estudo ou de trabalho.** Na aba Agentes, o cartão do agente (à direita da sala) ganhou a propriedade **tipo**, com Trabalho e Estudo, e o formulário de editar ganhou o campo Tipo ao lado da CLI. A escolha fica no arquivo do agente (`tipo:` em `~/.harness/agentes/<agente>.md`) e continua depois de fechar e abrir a MÊTIS. Na lista de arquivos da sala, o agente de estudo leva a marca "estudo"; no cenário, ele continua na mesa dele com os demais.
+- **O agente de estudo abre no Estudo.** Pela tela de Agentes (Abrir no Estudo no cartão, dois cliques no cenário ou Abrir no Estudo no editor), o agente de estudo abre uma conversa de estudo com ele, a mesma do "Conversar com" do Estudo (modo visual, o caderno do NotebookLM e o plano em foco), e a MÊTIS vai para a aba Estudo com essa conversa no painel da direita. O agente de trabalho continua abrindo em Terminais.
+- **Os agentes de antes são de trabalho**, e o agente novo também nasce de trabalho: nada muda até você marcar algum como de estudo. Estudo vale para o Claude e o Codex; a Outra CLI fica de trabalho.
+- **Trocar o tipo não move o terminal aberto.** A conversa que já está aberta fica onde nasceu até você fechar (a de estudo no Estudo, a outra em Terminais), e o botão do cartão diz para onde vai ("Ir para o Estudo" ou "Ir para o terminal"). O próximo terminal já abre pelo tipo novo.
+- **No Estudo, o agente aparece com nome e sprite.** O topo do painel mostra a sprite e o nome do agente da conversa em vista, e, com mais de uma conversa aberta, cada aba leva a sprite e o nome do agente dela. O + abre outra conversa com o agente de estudo em vista. Se nenhum agente estiver conectado ao Estudo, uma barra em cima da conversa deixa conectar um. O agente conectado continua sendo escolha sua no Estudo: ser de estudo não conecta o agente sozinho.
+- **O terminal de um agente de estudo ganha as ferramentas de estudo** (NotebookLM e imagens), de onde quer que tenha sido aberto. O ⌘K e o lançador da tela Terminais continuam abrindo em Terminais.
+
 ## v1.4.0 · planos de estudo: criar, editar, desativar e excluir, com mais de um ativo
 
 - **A aba Plano virou Planos.** Cada plano aparece num cartão com o nome, o tema, o período, a semana de hoje, os conceitos, o que vence para revisar e os minutos da semana. Dali dá para **pôr em foco**, **editar** (tema, período e objetivo), **desativar** ou **ativar** e **excluir**. Clicar no cartão mostra o cronograma do plano embaixo.

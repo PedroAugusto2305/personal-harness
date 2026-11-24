@@ -3,6 +3,7 @@
     ---
     nome: Aurora
     descricao: Coach de Estudo
+    tipo: estudo
     cli: claude
     modelo:
     conta:
@@ -29,7 +30,13 @@ from .accounts import ENV_VAR, slugify
 
 #: "outra" (v0.9.8): qualquer CLI de agente (opencode, aider, gemini…) num terminal comum.
 CLIS = ("claude", "codex", "outra")
-FIELDS = ("nome", "descricao", "dor", "cli", "comando", "modelo", "conta", "pasta", "cor", "origem", "conectores", "args", "env")
+#: Tipo do agente: o de estudo, aberto pela tela de Agentes, abre a conversa no painel do Estudo;
+#: o de trabalho abre em Terminais. Sem o campo no arquivo (os agentes de antes), é de trabalho.
+TIPOS = ("trabalho", "estudo")
+#: Estudo é só do Claude e do Codex: o modo de estudo vai no papel de sistema e a conversa do
+#: Estudo é desenhada do transcript deles.
+STUDY_CLIS = ("claude", "codex")
+FIELDS = ("nome", "descricao", "tipo", "dor", "cli", "comando", "modelo", "conta", "pasta", "cor", "origem", "conectores", "args", "env")
 ENV_KEY = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 MAX_SPRITE_BYTES = 2 * 1024 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -97,6 +104,8 @@ class Agent:
     args: str = ""
     env: str = ""
     command: str = ""
+    #: "trabalho" (o padrão) ou "estudo".
+    tipo: str = "trabalho"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -167,12 +176,15 @@ class AgentStore:
         idle = self.sprites / f"{agent_id}-parado.png"
         frames = _strip_frames(idle) if sprite.is_file() else 0
         cli = meta.get("cli", "claude")
+        cli = cli if cli in CLIS else "claude"
+        tipo = meta.get("tipo", "")
         return Agent(
             id=agent_id,
             name=meta.get("nome") or agent_id,
             description=meta.get("descricao", ""),
             pain=meta.get("dor", ""),
-            cli=cli if cli in CLIS else "claude",
+            cli=cli,
+            tipo="estudo" if tipo == "estudo" and cli in STUDY_CLIS else "trabalho",
             args=meta.get("args", ""),
             env=meta.get("env", ""),
             command=meta.get("comando", ""),
@@ -230,9 +242,19 @@ class AgentStore:
                 agent_id, n = f"{base}-{n}", n + 1
         path = self._file(agent_id)
         previous = parse_agent(path.read_text(encoding="utf-8"))[0] if path.exists() else {}
+        # Sem tipo no pedido (cliente antigo, importação), fica o do arquivo; sem nenhum, trabalho.
+        tipo = str(data.get("tipo") or "").strip()
+        if not tipo:
+            kept = previous.get("tipo", "")
+            tipo = kept if kept in TIPOS and (kept != "estudo" or cli in STUDY_CLIS) else "trabalho"
+        if tipo not in TIPOS:
+            raise AgentError(f"tipo de agente desconhecido: {tipo} (use estudo ou trabalho)")
+        if tipo == "estudo" and cli not in STUDY_CLIS:
+            raise AgentError("o agente de estudo precisa ser do Claude ou do Codex: a Outra CLI fica de trabalho")
         meta = {
             "nome": name,
             "descricao": str(data.get("description", "")).strip(),
+            "tipo": tipo,
             "dor": str(data.get("pain", "") or "").strip(),
             "cli": cli,
             "modelo": str(data.get("model", "")).strip(),

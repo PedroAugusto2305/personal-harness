@@ -1111,8 +1111,9 @@ export class CoreClient {
     return this.request("PATCH", "/estudo/conceitos", { titulo, ...changes });
   }
 
-  studySession(tipo: StudySessionKind, conceito?: string, plano?: string): Promise<Session> {
-    return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null, plano: plano ?? null });
+  /** v1.5.0: `agente` abre a conversa com um agente de estudo (vazio = o conectado ao Estudo). */
+  studySession(tipo: StudySessionKind, conceito?: string, plano?: string, agente?: string): Promise<Session> {
+    return this.request("POST", "/estudo/sessao", { tipo, conceito: conceito ?? null, plano: plano ?? null, agente: agente ?? null });
   }
 
   /** v1.3.0: conecta um agente da galeria à aba de Estudo (id vazio desconecta). */

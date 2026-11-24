@@ -593,3 +593,14 @@
 .scene-bubble[data-loud="true"] {
   color: #fff;
 }
+
+/* v1.5.0: o agente de estudo na lista de arquivos da sala. */
+.room-file-tipo {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--acct) 14%, transparent);
+  color: var(--acct);
+  font-size: 10.5px;
+  line-height: 16px;
+}
