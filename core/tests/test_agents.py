@@ -1,10 +1,8 @@
-"""v0.3: agentes em arquivo, sprite, importação do Maestri e sessão com papel."""
+"""v0.3: agentes em arquivo, sprite e sessão com papel (a importação do Maestri saiu na v1.6.0)."""
 
-import json
 import os
 import time
 import tomllib
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -53,32 +51,6 @@ def test_sprite_must_be_png(settings):
     assert store.get(agent.id).sprite and store.sprite_path(agent.id).read_bytes() == PNG
     store.clear_sprite(agent.id)
     assert not store.get(agent.id).sprite
-
-
-def test_import_maestri_takes_codename_folder_and_cli_from_terminals(settings, tmp_path):
-    roles = tmp_path / "Brain" / ".maestri" / "roles"
-    for role_id, name, color in (("aaa-111", "Coach de Estudo", "#AF52DE"), ("bbb-222", "Bibliotecário", "#FF3B30")):
-        (roles / role_id).mkdir(parents=True)
-        (roles / role_id / "role.json").write_text(
-            json.dumps({"id": role_id.upper(), "name": name, "color": color, "prompt": f"Você é o {name}."}), encoding="utf-8"
-        )
-    maestri = tmp_path / ".maestri"
-    (maestri / "workspaces" / "w1").mkdir(parents=True)
-    (maestri / "workspaces" / "w1" / "workspace.json").write_text(
-        json.dumps({"canvas": {"items": [{"name": "Aurora", "assignedRoleId": "AAA-111", "command": "claude", "workingDirectory": "/Users/x/Brain"}]}}),
-        encoding="utf-8",
-    )
-    store = AgentStore(settings.home)
-    imported = store.import_maestri(roles, maestri)
-    by_desc = {a.description: a for a in imported}
-    assert by_desc["Coach de Estudo"].name == "Aurora" and by_desc["Coach de Estudo"].folder == "/Users/x/Brain"
-    assert by_desc["Coach de Estudo"].color == "#AF52DE" and by_desc["Coach de Estudo"].origin == "maestri:AAA-111"
-    assert by_desc["Bibliotecário"].name == "Bibliotecário"  # papel sem terminal: fica o nome do papel
-    assert store.import_maestri(roles, maestri) == []  # importar de novo não duplica
-
-    # Importado continua editável, e a origem não se perde.
-    edited = store.save({"name": "Aurora Coach", "cli": "codex", "prompt": "outro"}, by_desc["Coach de Estudo"].id)
-    assert edited.name == "Aurora Coach" and edited.origin == "maestri:AAA-111"
 
 
 def test_agent_args_for_each_cli_carry_role_and_model():

@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.5.0)
+## O que já faz (v1.6.0)
+
+**Na 1.6.0:** a MÊTIS trabalha só com os agentes dela: os criados nela e os migrados do Maestri de propósito (a Aurora). O importado do Maestri que não foi migrado não aparece nem abre por nenhum caminho; o "Importar do Maestri" saiu; e as skills do Maestri ficam desligadas nas sessões do Claude e do Codex abertas pela MÊTIS. Os arquivos do Maestri continuam onde estão.
 
 **Na 1.5.0:** cada agente é de estudo ou de trabalho, escolhido na aba Agentes (no cartão do agente ou no formulário) e guardado no arquivo dele. O de estudo, aberto pela tela de Agentes, abre uma conversa de estudo com ele no painel do Estudo, com o nome e a sprite dele; o de trabalho continua abrindo em Terminais. Os agentes de antes são de trabalho, e trocar o tipo não move o terminal que já está aberto.
 
@@ -210,7 +212,7 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 - **Revisão com notas**: o diff de cada arquivo abre numa aba; uma nota por linha, e "Mandar ao agente" junta todas na barra de entrada do agente da worktree.
 - **Commit pelo agente**: "Pedir ao agente" manda o agente da worktree escrever a mensagem e commitar, no terminal dele (se não houver agente aberto, abre um Claude).
 - **Visualizadores**: Markdown, imagem, PDF, CSV, áudio, vídeo, HTML (sem scripts) e código. ⌘P abre qualquer arquivo da worktree.
-- **Agentes em arquivo**: cada agente é um `.md` em `~/.harness/agentes/` (nome, descrição, CLI, modelo, conta, pasta, cor, argumentos extras, variáveis de ambiente e o papel; na outra CLI, o comando). A tela de Agentes edita tudo, inclusive a sprite (PNG em pixel art) e os importados do Maestri. O papel vai como `--append-system-prompt` no Claude e `developer_instructions` no Codex.
+- **Agentes em arquivo**: cada agente é um `.md` em `~/.harness/agentes/` (nome, descrição, CLI, modelo, conta, pasta, cor, argumentos extras, variáveis de ambiente e o papel; na outra CLI, o comando). A tela de Agentes edita tudo, inclusive a sprite (PNG em pixel art). Desde a v1.6.0 a MÊTIS não importa mais do Maestri: o importado antes (`origem: maestri:<id>`) só conta se foi migrado, isto é, se a `origem` ficou vazia e o arquivo guarda `migrado: maestri:<id>`; sem isso ele não aparece nem abre. Para trazer um da lixeira (`~/.harness/agentes/.lixeira/`), mova o `.md` de volta e faça essa troca. O papel vai como `--append-system-prompt` no Claude e `developer_instructions` no Codex.
 
 **Desde a 0.2:**
 

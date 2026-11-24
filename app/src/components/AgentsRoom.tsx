@@ -128,7 +128,6 @@ interface Props {
   onSelect: (id: string | null) => void;
   onEdit: (id: string) => void;
   onNew: () => void;
-  onImport: () => void;
   onLaunch: (agent: Agent) => void;
   onOpenSession: (id: string) => void;
   /** v0.9.9: apagar o agente (com confirmação; o arquivo vai para a lixeira dos agentes). */
@@ -216,9 +215,6 @@ export function AgentsRoom(props: Props) {
         <button type="button" className="room-new" onClick={props.onNew}>
           + Novo agente
         </button>
-        <button type="button" className="room-import small" onClick={props.onImport} title="Lê ~/Documents/Brain/.maestri/roles e os terminais do Maestri">
-          Importar do Maestri
-        </button>
         {props.notice && <p className="small room-notice">{props.notice}</p>}
       </nav>
 
@@ -235,8 +231,7 @@ export function AgentsRoom(props: Props) {
         <div className="room-floor">
           {agents.length === 0 && (
             <p className="room-empty">
-              Agente é um papel com prompt próprio que abre o Claude Code ou o Codex já sabendo o que fazer. Crie um em "+ Novo agente" ou importe
-              os do Maestri.
+              Agente é um papel com prompt próprio que abre o Claude Code ou o Codex já sabendo o que fazer. Crie um em "+ Novo agente".
             </p>
           )}
           {agents.length > 0 && (

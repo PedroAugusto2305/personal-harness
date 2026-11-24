@@ -9,11 +9,16 @@
     conta:
     pasta: ~/Documents/Brain
     cor: "#AF52DE"
+    migrado: maestri:CA4671E7-…
     ---
     Você é o coach de constância do Pedro...
 
-Ficam em ~/.harness/agentes/. Tudo é editável, inclusive os importados, e a sprite é
-um PNG em ~/.harness/agentes/sprites/<id>.png. Apagar manda o arquivo para .lixeira.
+Ficam em ~/.harness/agentes/. Tudo é editável e a sprite é um PNG em
+~/.harness/agentes/sprites/<id>.png. Apagar manda o arquivo para .lixeira.
+
+v1.6.0: só os agentes da MÊTIS. O que veio do Maestri pela importação da v0.3 (`origem:
+maestri:<id>`) e não foi migrado não aparece na lista nem abre (maestri.py); o migrado guarda
+de onde veio em `migrado` e funciona como qualquer outro. A MÊTIS não lê mais o Maestri.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from . import maestri
 from .accounts import ENV_VAR, slugify
 
 #: "outra" (v0.9.8): qualquer CLI de agente (opencode, aider, gemini…) num terminal comum.
@@ -36,7 +42,7 @@ TIPOS = ("trabalho", "estudo")
 #: Estudo é só do Claude e do Codex: o modo de estudo vai no papel de sistema e a conversa do
 #: Estudo é desenhada do transcript deles.
 STUDY_CLIS = ("claude", "codex")
-FIELDS = ("nome", "descricao", "tipo", "dor", "cli", "comando", "modelo", "conta", "pasta", "cor", "origem", "conectores", "args", "env")
+FIELDS = ("nome", "descricao", "tipo", "dor", "cli", "comando", "modelo", "conta", "pasta", "cor", "origem", "migrado", "conectores", "args", "env")
 ENV_KEY = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 MAX_SPRITE_BYTES = 2 * 1024 * 1024
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -91,7 +97,10 @@ class Agent:
     account: str = ""
     folder: str = ""
     color: str = "#82a0ff"
+    #: "maestri:<id>" = importado do Maestri e não migrado (fica de fora da MÊTIS, v1.6.0).
     origin: str = ""
+    #: v1.6.0: de onde veio o agente migrado para a MÊTIS ("maestri:<id>"); só registro.
+    migrated: str = ""
     #: Contas de conector que o agente usa pela central de MCP: vazio = todas; "nenhum" = nenhuma.
     connectors: str = ""
     prompt: str = ""
@@ -193,6 +202,7 @@ class AgentStore:
             folder=meta.get("pasta", ""),
             color=meta.get("cor") or "#82a0ff",
             origin=meta.get("origem", ""),
+            migrated=meta.get("migrado", ""),
             connectors=meta.get("conectores", ""),
             prompt=body.strip(),
             sprite=sprite.is_file(),
@@ -202,21 +212,29 @@ class AgentStore:
         )
 
     def list(self) -> list[dict]:
+        """Os agentes da MÊTIS: os criados nela e os migrados do Maestri, nunca os não migrados."""
         if not self.dir.is_dir():
             return []
         agents = []
         for path in sorted(self.dir.glob("*.md")):
             try:
-                agents.append(self._read(path).to_dict())
+                agent = self._read(path)
             except (OSError, UnicodeDecodeError):
                 continue
+            if not maestri.is_leftover(agent.origin):
+                agents.append(agent.to_dict())
         return sorted(agents, key=lambda a: a["name"].lower())
 
     def get(self, agent_id: str) -> Agent:
+        """Um agente da MÊTIS. O importado do Maestri e não migrado conta como não encontrado:
+        nada o abre (sessão, rotina, automação, Auto, Estudo), nem pelo id."""
         path = self._file(agent_id)
         if not path.is_file():
             raise AgentError(f"agente não encontrado: {agent_id}")
-        return self._read(path)
+        agent = self._read(path)
+        if maestri.is_leftover(agent.origin):
+            raise AgentError(f"agente não encontrado: {agent_id} (veio do Maestri e não foi migrado para a MÊTIS)")
+        return agent
 
     def save(self, data: dict, agent_id: str | None = None) -> Agent:
         name = str(data.get("name", "")).strip()
@@ -261,7 +279,9 @@ class AgentStore:
             "conta": str(data.get("account", "")).strip(),
             "pasta": str(data.get("folder", "")).strip(),
             "cor": str(data.get("color", "") or "#82a0ff").strip(),
-            "origem": previous.get("origem", "") or str(data.get("origin", "")).strip(),
+            # Origem e migração só vêm do arquivo: a MÊTIS não importa mais do Maestri (v1.6.0).
+            "origem": previous.get("origem", ""),
+            "migrado": previous.get("migrado", ""),
             "conectores": str(data.get("connectors", "") or "").strip(),
             "args": args,
             "env": env,
@@ -315,61 +335,6 @@ class AgentStore:
     def sprite_path(self, agent_id: str, anim: bool = False) -> Path | None:
         path = self.sprites / f"{self.get(agent_id).id}{'-parado' if anim else ''}.png"
         return path if path.is_file() else None
-
-    # --- importação do Maestri ---------------------------------------------
-
-    def import_maestri(self, roles_dir: Path, maestri_home: Path | None = None) -> list[Agent]:
-        """Cada papel (`role.json`) vira um agente. O nome vem do terminal do Maestri que
-        usa o papel (o codinome), e a pasta e a CLI também; sem terminal, fica o nome do papel."""
-        terminals = _maestri_terminals(maestri_home or Path.home() / ".maestri")
-        imported: list[Agent] = []
-        existing = {a["origin"] for a in self.list() if a["origin"]}
-        for role_file in sorted(roles_dir.glob("*/role.json")):
-            try:
-                role = json.loads(role_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            role_id = str(role.get("id", role_file.parent.name)).upper()
-            origin = f"maestri:{role_id}"
-            if origin in existing or not role.get("prompt"):
-                continue
-            terminal = terminals.get(role_id, {})
-            command = str(terminal.get("command", "claude")).split()[0]
-            agent = self.save(
-                {
-                    "name": terminal.get("name") or role.get("name"),
-                    "description": role.get("name", ""),
-                    "cli": command if command in CLIS else "claude",
-                    "folder": terminal.get("workingDirectory") or str(roles_dir.parent.parent),
-                    "color": role.get("color") or "#82a0ff",
-                    "origin": origin,
-                    "prompt": role["prompt"],
-                }
-            )
-            imported.append(agent)
-        return imported
-
-
-def _maestri_terminals(maestri_home: Path) -> dict[str, dict]:
-    found: dict[str, dict] = {}
-
-    def walk(node) -> None:
-        if isinstance(node, dict):
-            role_id = node.get("assignedRoleId")
-            if role_id and node.get("name"):
-                found.setdefault(str(role_id).upper(), node)
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-
-    for workspace in (maestri_home / "workspaces").glob("*/workspace.json"):
-        try:
-            walk(json.loads(workspace.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            continue
-    return found
 
 
 def agent_args(agent: Agent) -> list[str]:

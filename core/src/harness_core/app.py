@@ -4166,16 +4166,6 @@ def create_app(
             raise fail(exc, 404) from exc
         agents_changed()
 
-    @app.post("/agents/import/maestri", dependencies=[Depends(require_token)])
-    def import_maestri(roles: str = Query(default="~/Documents/Brain/.maestri/roles")) -> dict:
-        folder = __import__("pathlib").Path(roles).expanduser()
-        if not folder.is_dir():
-            raise HTTPException(status_code=404, detail=f"pasta de papéis não encontrada: {roles}")
-        imported = agents.import_maestri(folder)
-        if imported:
-            agents_changed()
-        return {"imported": [a.name for a in imported]}
-
     # --- hooks do Claude Code ----------------------------------------------
 
     @app.post("/hooks/statusline", dependencies=[Depends(require_token)], response_class=PlainTextResponse)

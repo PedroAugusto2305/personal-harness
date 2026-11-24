@@ -2,6 +2,14 @@
 
 Cada versão, da mais nova para a mais velha. O detalhe de cada uma está no [`README.md`](README.md), o plano em [`docs/MAPA.md`](docs/MAPA.md) e o porquê das decisões no Brain, em `01-PROJETOS/Personal Harness/`. Versões no formato `MAIOR.MENOR.CORREÇÃO`, uma tag `v*` por versão.
 
+## v1.6.0 · só os agentes da MÊTIS, sem os do Maestri
+
+- **A MÊTIS trabalha só com os agentes dela:** os criados nela e os que vieram do Maestri e foram migrados de propósito. A Sala dos agentes, a coluna Auto e o Rodar sozinha do kanban, o Estudo, o Novo workspace, o ⌘K, os Quadros, o catálogo das automações e o `metis agente` mostram e abrem só esses.
+- **O agente importado do Maestri e não migrado fica de fora.** Ele não aparece em nenhuma lista e nada o abre: nem terminal, nem rotina, nem automação, nem a coluna Auto, nem o Estudo, nem pelo id. Quem ainda apontar para ele recebe "agente não encontrado (veio do Maestri e não foi migrado para a MÊTIS)". O arquivo dele não é apagado nem mexido.
+- **Saiu o "Importar do Maestri"** da Sala dos agentes (e a rota do núcleo). A MÊTIS não lê mais os papéis nem os terminais do Maestri. Os arquivos do Maestri continuam onde estão.
+- **A Aurora foi migrada** e funciona como antes, com a rotina do check-in. O papel dela não manda mais rodar `maestri list` nem encaminhar ao "Tutor" do Maestri: pedido técnico vai para o agente de estudo conectado na aba Estudo. No editor, o agente migrado mostra "Migrado do Maestri".
+- **As skills do Maestri ficam desligadas nas sessões da MÊTIS.** `maestri`, `maestri-chat`, `maestri-manager` e as outras falam com os agentes do canvas do Maestri, que não existem aqui. No Claude elas não rodam (a sessão recusa), no Codex elas nem aparecem, e a barra do "/" não as sugere mais. As skills continuam instaladas para quem usar o Maestri fora da MÊTIS.
+
 ## v1.5.0 · agente de estudo ou de trabalho, e o de estudo abre no Estudo
 
 - **Cada agente é de estudo ou de trabalho.** Na aba Agentes, o cartão do agente (à direita da sala) ganhou a propriedade **tipo**, com Trabalho e Estudo, e o formulário de editar ganhou o campo Tipo ao lado da CLI. A escolha fica no arquivo do agente (`tipo:` em `~/.harness/agentes/<agente>.md`) e continua depois de fechar e abrir a MÊTIS. Na lista de arquivos da sala, o agente de estudo leva a marca "estudo"; no cenário, ele continua na mesa dele com os demais.
