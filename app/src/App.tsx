@@ -15,7 +15,7 @@ import { StudyView } from "./components/StudyView";
 import { TodayView } from "./components/TodayView";
 import { usePomodoro } from "./lib/pomodoro";
 import { DocView, docTitle, type DocTab } from "./components/DocView";
-import { Dock, type DockHandle } from "./components/Dock";
+import { Dock, moveDraft, type DockHandle } from "./components/Dock";
 import "./components/terminals.css";
 import "./components/chat.css";
 import { warmMonaco } from "./lib/monaco";
@@ -262,6 +262,7 @@ export default function App() {
       focus: () => (handle() ? handle()!.focus() : terminals.get(target() ?? "")?.focusTerminal()),
       toggleVoice: () => handle()?.toggleVoice(),
       attach: (files) => handle()?.attach(files),
+      attachPaths: (paths) => (handle() ? handle()!.attachPaths(paths) : fallback(quotePaths(paths))),
     };
     return { current: proxy };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -808,10 +809,21 @@ export default function App() {
   const restartAgent = async (old: Session, continuar: boolean) => {
     const client = harness.client;
     if (!client) throw new Error("O núcleo está fora do ar.");
+    await replaceSession(old, () => client.restartSession(old.id, continuar));
+  };
+
+  /**
+   * Sessão nova no lugar de outra, no mesmo painel (reiniciar, ou a v1.7.0 trocando o modelo ou a
+   * força pela barra, que reabre a mesma conversa). O rascunho da barra vai junto.
+   */
+  const replaceSession = async (old: Session, open: () => Promise<Session>) => {
     const wasLast = lastTerm.current === old.id;
+    // Antes do pedido: o aviso de "fechou" da antiga chega antes da resposta.
     keepTabs.current.add(old.id);
     try {
-      const session = await client.restartSession(old.id, continuar);
+      const session = await open();
+      if (session.id === old.id) return; // nada mudou: a mesma sessão continua
+      moveDraft(old.id, session.id);
       harness.adopt(session);
       setLayouts((all) => {
         let changed = false;
@@ -1135,21 +1147,21 @@ export default function App() {
       window.dispatchEvent(new CustomEvent("metis:anexar-tarefa", { detail: paths }));
       return;
     }
-    const text = quotePaths(paths);
+    // v1.7.0: na barra de um agente, o arquivo vira anexo com prévia (o caminho vai no envio).
     if (target?.startsWith("dock:")) {
       const own = docks.current.get(target.slice(5));
-      if (own) return own.insert(text);
+      if (own) return own.attachPaths(paths);
     }
     const id = target && target !== "dock" && !target.startsWith("dock:") ? target : null;
     const handle = terminals.get(id ?? live.current.dockTargetId ?? "");
-    // Terminal de agente (só para ler): o caminho vai para a barra dele, não para o terminal.
+    // Terminal de agente (só para ler): o anexo vai para a barra dele, não para o terminal.
     const ownDock = docks.current.get(id ?? live.current.dockTargetId ?? "");
     if (target === "dock" || !handle || ownDock) {
-      if (ownDock) ownDock.insert(text);
-      else dock.current?.insert(text);
+      if (ownDock) ownDock.attachPaths(paths);
+      else dock.current?.attachPaths(paths);
       return;
     }
-    handle.paste(`${text} `);
+    handle.paste(`${quotePaths(paths)} `);
     handle.focus();
   };
 
@@ -2435,6 +2447,7 @@ export default function App() {
                             language={language}
                             dropping={drop === `dock:${session.id}`}
                             compact
+                            onSettings={(ajustes) => replaceSession(session, async () => (await harness.client!.sessionSettings(session.id, ajustes)).sessao)}
                           />
                         ) : undefined
                       }

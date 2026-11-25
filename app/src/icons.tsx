@@ -73,6 +73,16 @@ export const ICON = {
   chat: "M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-9l-5 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",
   image: "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM3 16l5-5 4 4 3-3 6 6M15.5 8.5h.01",
   copy: "M9 9h10v11H9zM5 15V4h10",
+  /** v1.7.0: a barra da conversa (tipos de anexo, força e atalhos). */
+  video: "M4 6h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zM16 10.5l5-3v9l-5-3",
+  play: "M8 5.5v13l10.5-6.5z",
+  audio: "M9 18V6l11-2v12M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
+  sheet: "M5 3h14v18H5zM5 9h14M5 15h14M11 3v18",
+  slides: "M3 5h18v11H3zM12 16v4M8 20h8",
+  archive: "M4 4h16v4H4zM5 8h14v12H5zM10 12h4",
+  pdf: "M6 3h8l5 5v13H6zM14 3v5h5M9 13h6M9 17h4",
+  brain: "M9.5 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 5.5 1.5V5.5A3 3 0 0 0 9.5 4zM14.5 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-5.5 1.5",
+  help: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.6v.6M12 17v.1",
 } as const;
 
 export function Icon({ d, size = 18, strokeWidth = 1.7 }: { d: string; size?: number; strokeWidth?: number }) {

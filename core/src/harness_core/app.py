@@ -58,6 +58,7 @@ from .clickup_rest import ClickupBoard, ClickupError
 from .vault import Vault, VaultError, link_target, split_frontmatter, write_atomic
 from .sprites import SpriteStudio, model_image
 from .attachments import MAX_ATTACHMENT_BYTES, save_attachment
+from . import attachments as anexos, modelos  # v1.7.0: a barra com modelo, força e prévia dos anexos
 from .config import DEFAULT_PORT as metis_profiles_port, Settings, load_settings
 from .connectors import CATALOG, ConnectorError, ConnectorStore, tool_mode
 from .keychain import Keychain
@@ -108,7 +109,7 @@ class NewSession(BaseModel):
     draft: DraftAgent | None = None
     #: v0.9.8: modelo e esforço só desta sessão e o pedido que já entra no agente.
     model: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:/-]{1,80}$")
-    effort: str | None = Field(default=None, pattern="^(low|medium|high|xhigh)$")
+    effort: str | None = Field(default=None, pattern="^(minimal|low|medium|high|xhigh|max|ultra)$")
     prompt: str | None = Field(default=None, max_length=8000)
 
 
@@ -537,6 +538,13 @@ class ScriptsBody(BaseModel):
 
 class RestartBody(BaseModel):
     continuar: bool = False
+
+
+class AjustesBody(BaseModel):
+    """v1.7.0: modelo e força da conversa, escolhidos na barra (vazio é o padrão da CLI)."""
+
+    modelo: str | None = Field(default=None, max_length=80)
+    esforco: str | None = Field(default=None, max_length=20)
 
 
 class HandOffBody(BaseModel):
@@ -1020,6 +1028,7 @@ def create_app(
     app.state.embedder = embedder
     app.state.engine = engine
     app.state.cli_homes = None  # None = ~/.claude e ~/.codex; os testes apontam para pastas temporárias
+    conversa.set_attachments_root(settings.home / "anexos")  # v1.7.0: o que está lá é anexo da barra
     app.state.model_usage = ModelUsage(manager.accounts.list, projects.list, settings.worktrees, lambda: app.state.cli_homes)
     app.state.skills_downloads = None  # v0.9.8: None = ~/Downloads (exportar skill); os testes trocam
     app.state.skills_trash = None  # None = ~/.Trash (tirar skill)
@@ -1225,8 +1234,12 @@ def create_app(
         return codex_rollout_for(manager.accounts.list(), session.cwd, session.created_at - 5, app.state.cli_homes,
                                  conversation=session.conversa, skip=others)  # fmt: skip
 
-    def reopen(old, *, kind: str | None = None, resume: str | None = None, prompt: str | None = None):
-        """Sessão nova no lugar de outra: mesma pasta, conta, agente e etiqueta."""
+    KEEP = object()
+
+    def reopen(old, *, kind: str | None = None, resume: str | None = None, prompt: str | None = None, model=KEEP, effort=KEEP,
+               extra_args: list[str] | None = None):
+        """Sessão nova no lugar de outra: mesma pasta, conta, agente e etiqueta. Na mesma CLI, o
+        modelo e a força escolhidos para a conversa (v1.7.0) vão junto, se não vierem outros."""
         agent = None
         if old.agent:
             try:
@@ -1236,8 +1249,13 @@ def create_app(
         if kind and agent is not None and agent.cli != kind:
             agent = None  # passar o trabalho para a outra CLI: o agente é de uma CLI só
         same_kind = (kind or old.kind) == old.kind
+        if model is KEEP:
+            model = getattr(old, "modelo", None) if same_kind else None
+        if effort is KEEP:
+            effort = getattr(old, "esforco", None) if same_kind else None
         return manager.create(kind or old.kind, old.cwd, title=None if agent else (old.title if same_kind else None),
-                              account_id=old.account if same_kind else None, tag=old.tag, agent=agent, resume=resume, prompt=prompt)  # fmt: skip
+                              account_id=old.account if same_kind else None, tag=old.tag, agent=agent, resume=resume, prompt=prompt,
+                              model=model, effort=effort, permission=old.permissao if same_kind else None, extra_args=extra_args)  # fmt: skip
 
     @app.post("/sessions/{session_id}/reiniciar", dependencies=[Depends(require_token)], status_code=201)
     async def restart_session(session_id: str, body: RestartBody) -> dict:
@@ -1247,11 +1265,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="sessão não encontrada")
         resume = None
         if body.continuar:
-            if old.kind == "claude":
-                resume = (old.statusline or {}).get("session_id")
-            elif old.kind == "codex":
-                found = await asyncio.to_thread(codex_rollout_of, old)
-                resume = found["id"] if found else None
+            resume = await conversation_id(old)
             if not resume:
                 raise HTTPException(status_code=409, detail="não achei a conversa desta sessão para continuar; reinicie do zero")
         if old.pty.alive:
@@ -1263,6 +1277,71 @@ def create_app(
         except (LaunchError, UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
             raise fail(exc) from exc
         return session.to_dict()
+
+    async def conversation_id(session) -> str | None:
+        """O id da conversa para retomar: o do Claude vem da statusline, o do Codex do rollout.
+
+        A statusline do Claude já traz o id antes da primeira mensagem, quando a conversa ainda não
+        existe no disco: retomar esse id faz o Claude sair (código 1). Sem o transcript, não há o que retomar."""
+        if session.kind == "claude":
+            line = session.statusline or {}
+            transcript = line.get("transcript")
+            if not transcript or not os.path.isfile(os.path.expanduser(transcript)):
+                return None
+            return line.get("session_id")
+        if session.kind == "codex":
+            found = await asyncio.to_thread(codex_rollout_of, session)
+            return found["id"] if found else None
+        return None
+
+    @app.get("/sessions/{session_id}/modelos", dependencies=[Depends(require_token)])
+    def session_models(session_id: str) -> dict:
+        """v1.7.0: os modelos e as forças que a barra oferece para esta conversa, e o que vale agora."""
+        session = manager.get(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        if session.kind not in ("claude", "codex"):
+            raise HTTPException(status_code=400, detail="só o Claude e o Codex têm modelo e força")
+        data = modelos.catalog(session.kind, cli_home("codex", session.account) if session.kind == "codex" else None)
+        if session.agent:
+            try:
+                agent = agents.get(session.agent)
+            except AgentError:
+                agent = None
+            if agent is not None and agent.model:
+                data["padrao"] = {**data["padrao"], "modelo": agent.model, "do_agente": True}
+        return {"cli": session.kind, **data, "atual": {"modelo": session.modelo, "esforco": session.esforco}}
+
+    @app.post("/sessions/{session_id}/ajustes", dependencies=[Depends(require_token)])
+    async def session_settings(session_id: str, body: AjustesBody) -> dict:
+        """v1.7.0: troca o modelo e a força da conversa. As duas CLIs reabrem a mesma conversa com as
+        flags oficiais (`--resume --model --effort`, `resume -m -c model_reasoning_effort`), que valem
+        só para a sessão; antes da primeira mensagem, reabrem do zero. A sessão nova toma o lugar desta."""
+        old = manager.get(session_id)
+        if old is None:
+            raise HTTPException(status_code=404, detail="sessão não encontrada")
+        try:
+            modelo, esforco = modelos.validate(old.kind, body.modelo, body.esforco)
+        except modelos.AjusteError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if (modelo, esforco) == (old.modelo, old.esforco):
+            return {"sessao": old.to_dict(), "reabriu": False}
+        if old.status == "exited" or not old.pty.alive:
+            raise HTTPException(status_code=409, detail="o agente saiu: reinicie ou continue a conversa antes de trocar")
+        if old.status == "working":
+            raise HTTPException(status_code=409, detail="o agente está trabalhando: troque quando ele terminar a resposta")
+        if old.atencao == "pergunta":
+            raise HTTPException(status_code=409, detail="o agente espera uma resposta sua no terminal: responda antes de trocar")
+        resume = await conversation_id(old)
+        # O Codex abre com o aviso de atualização marcado em "Update now": numa reabertura por troca
+        # de modelo, o Enter da mensagem que espera na barra cairia nele. Nesta reabertura, sem aviso.
+        extra = ["-c", "check_for_update_on_startup=false"] if old.kind == "codex" else None
+        await manager.close(session_id)
+        try:
+            session = reopen(old, resume=resume, model=modelo, effort=esforco, extra_args=extra)
+        except (LaunchError, UnknownKind, ExecutableNotFound, UnknownAccount, OSError) as exc:
+            raise fail(exc) from exc
+        return {"sessao": session.to_dict(), "reabriu": True}
 
     @app.post("/sessions/{session_id}/passar", dependencies=[Depends(require_token)], status_code=201)
     async def hand_off(session_id: str, body: HandOffBody) -> dict:
@@ -1587,7 +1666,40 @@ def create_app(
         data = await request.body()
         if len(data) > MAX_ATTACHMENT_BYTES:
             raise HTTPException(status_code=413, detail="anexo grande demais (máximo 50 MB)")
-        return {"path": str(save_attachment(settings.home, name, data))}
+        saved = save_attachment(settings.home, name, data)
+        # v1.7.0: com o nome, o tamanho e o tipo, a barra desenha a prévia no lugar do caminho.
+        return {"path": str(saved), **anexos.describe(saved)}
+
+    def bar_attachment(caminho: str) -> Path:
+        """O anexo da barra (v1.7.0) pelo caminho; o `attachment_file` de baixo é o do kanban."""
+        found = anexos.local_file(caminho)
+        if found is None:
+            raise HTTPException(status_code=404, detail="arquivo não encontrado")
+        return found
+
+    @app.get("/anexos/info", dependencies=[Depends(require_token)])
+    def attachment_info(caminho: str = Query(min_length=1, max_length=4096)) -> dict:
+        """v1.7.0: nome, tamanho e tipo de um anexo (o arrastado do Finder vai pelo caminho original)."""
+        return anexos.describe(bar_attachment(caminho))
+
+    @app.get("/anexos/miniatura", dependencies=[Depends(require_token_or_query)])
+    async def attachment_thumbnail(caminho: str = Query(min_length=1, max_length=4096), tamanho: int = Query(default=192, ge=32, le=1024)) -> Response:
+        """v1.7.0: a prévia de um anexo em PNG (imagem, quadro do vídeo, primeira página do PDF…);
+        404 quando não há desenho possível, e a barra mostra ícone, nome e tamanho."""
+        target = bar_attachment(caminho)
+        data = await asyncio.to_thread(anexos.thumbnail, settings.home, target, tamanho)
+        if data is None:
+            raise HTTPException(status_code=404, detail="sem prévia para este arquivo")
+        return Response(content=data, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+    @app.get("/anexos/arquivo", dependencies=[Depends(require_token_or_query)])
+    def attachment_media(caminho: str = Query(min_length=1, max_length=4096)) -> FileResponse:
+        """v1.7.0: imagem, vídeo ou áudio inteiro para a prévia grande (o player pede por partes)."""
+        target = bar_attachment(caminho)
+        media = anexos.media_type(target)
+        if media is None:
+            raise HTTPException(status_code=415, detail="só imagem, vídeo e áudio abrem na prévia")
+        return FileResponse(target, media_type=media, headers={"Cache-Control": "private, no-cache"})
 
     # --- projetos e worktrees -----------------------------------------------
 

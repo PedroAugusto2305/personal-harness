@@ -7,9 +7,12 @@ caminho original; o upload só existe para o seletor de arquivos e para o navega
 
 from __future__ import annotations
 
+import hashlib
 import io
+import os
 import re
 import subprocess
+import tempfile
 import uuid
 from datetime import date
 from pathlib import Path
@@ -86,3 +89,117 @@ def save_attachment(home: Path, name: str, data: bytes) -> Path:
         except (OSError, subprocess.SubprocessError):
             png.unlink(missing_ok=True)
     return target
+
+
+# --- prévia dos anexos (v1.7.0) ------------------------------------------------------------------
+#
+# A barra mostra cada anexo como prévia, no lugar do caminho: a miniatura da imagem, um quadro do
+# vídeo, a primeira página do PDF, e ícone com nome e tamanho quando não há desenho possível. O
+# agente continua recebendo o caminho, como antes. A miniatura da imagem sai do Pillow; a dos
+# outros tipos, do QuickLook do macOS (`qlmanage -t`), que desenha vídeo, PDF, texto e documentos.
+
+KIND_BY_EXT: dict[str, str] = {}
+for _kind, _exts in {
+    "imagem": "png jpg jpeg gif webp svg avif bmp heic heif tif tiff ico",
+    "video": "mp4 mov m4v webm mkv avi mpg mpeg 3gp",
+    "audio": "mp3 m4a wav aac ogg oga flac aiff aif opus",
+    "pdf": "pdf",
+    "planilha": "xlsx xls csv tsv numbers ods",
+    "apresentacao": "ppt pptx key odp",
+    "documento": "doc docx pages rtf odt md markdown txt",
+    "compactado": "zip tar gz tgz bz2 xz rar 7z dmg",
+    "codigo": "py ts tsx js jsx mjs json html css scss sh zsh rs go java rb swift kt c cc cpp h hpp yaml yml toml sql ipynb",
+}.items():
+    for _ext in _exts.split():
+        KIND_BY_EXT[_ext] = _kind
+
+MEDIA_TYPES = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+    ".avif": "image/avif", ".bmp": "image/bmp", ".svg": "image/svg+xml", ".heic": "image/heic",
+    ".mp4": "video/mp4", ".m4v": "video/x-m4v", ".mov": "video/quicktime", ".webm": "video/webm",
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".aac": "audio/aac", ".ogg": "audio/ogg",
+    ".oga": "audio/ogg", ".flac": "audio/flac", ".opus": "audio/ogg",
+}  # fmt: skip
+#: Acima disso a prévia nem é tentada: ícone, nome e tamanho (o anexo vai do mesmo jeito).
+MAX_PREVIEW_BYTES = 2 * 1024 * 1024 * 1024
+#: O QuickLook que demora mais que isso (arquivo enorme, formato estranho) fica sem desenho.
+PREVIEW_TIMEOUT = 8
+THUMB_SIZES = (96, 192, 384, 768)
+
+
+def kind_of(name: str) -> str:
+    """imagem, video, audio, pdf, planilha, apresentacao, documento, compactado, codigo ou arquivo."""
+    return KIND_BY_EXT.get(Path(name).suffix.lower().lstrip("."), "arquivo")
+
+
+def local_file(path: str) -> Path | None:
+    """O arquivo comum (não pasta, não link para pasta) num caminho absoluto, ou None."""
+    target = Path(os.path.expanduser(path or ""))
+    if not target.is_absolute() or not target.is_file():
+        return None
+    return target
+
+
+def describe(path: Path) -> dict:
+    """O que a barra mostra de um anexo: nome, tamanho e tipo."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = None
+    return {"caminho": str(path), "nome": path.name, "tamanho": size, "tipo": kind_of(path.name)}
+
+
+def _image_thumbnail(path: Path, px: int) -> bytes | None:
+    try:
+        with Image.open(path) as source:
+            source.seek(0)  # GIF e WebP animados: o primeiro quadro
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail((px, px))
+            if image.mode not in ("RGB", "RGBA", "L", "LA"):
+                image = image.convert("RGBA")
+            out = io.BytesIO()
+            image.save(out, format="PNG", optimize=True)
+            return out.getvalue()
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return None
+
+
+def _quicklook_thumbnail(path: Path, px: int) -> bytes | None:
+    with tempfile.TemporaryDirectory(prefix="metis-ql-") as folder:
+        try:
+            _run(["/usr/bin/qlmanage", "-t", "-s", str(px), "-o", folder, str(path)],
+                 capture_output=True, timeout=PREVIEW_TIMEOUT, check=False)  # fmt: skip
+        except (OSError, subprocess.SubprocessError):
+            return None
+        made = sorted(Path(folder).glob("*.png"))
+        return made[0].read_bytes() if made else None
+
+
+def thumbnail(home: Path, path: Path, px: int = 192) -> bytes | None:
+    """PNG da prévia de um arquivo, guardado em <home>/cache/miniaturas (a chave muda quando o
+    arquivo muda). None quando não há desenho possível: a barra mostra ícone, nome e tamanho."""
+    px = min(THUMB_SIZES, key=lambda size: abs(size - px))
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if stat.st_size == 0 or stat.st_size > MAX_PREVIEW_BYTES:
+        return None
+    key = hashlib.sha256(f"{path}\0{stat.st_mtime_ns}\0{stat.st_size}\0{px}".encode()).hexdigest()[:32]
+    cache = home / "cache" / "miniaturas"
+    cached = cache / f"{key}.png"
+    if cached.is_file():
+        return cached.read_bytes()
+    data = _image_thumbnail(path, px) if kind_of(path.name) == "imagem" and path.suffix.lower() not in (".svg", ".heic", ".heif") else None
+    if data is None:
+        data = _quicklook_thumbnail(path, px)
+    if data is None:
+        return None
+    cache.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(data)
+    return data
+
+
+def media_type(path: Path) -> str | None:
+    """O tipo de mídia que o <img>, o <video> e o <audio> da barra abrem (só esses saem inteiros)."""
+    return MEDIA_TYPES.get(path.suffix.lower())

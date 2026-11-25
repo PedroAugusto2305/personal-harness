@@ -1,5 +1,7 @@
 import type {
   ActivityItem,
+  AttachmentInfo,
+  SessionModels,
   Approval,
   BoardProject,
   ConnectorAccount,
@@ -252,7 +254,7 @@ export interface NewSessionOptions {
   /** v0.9.9: o pedido que já entra no agente, e modelo e esforço só desta sessão. */
   prompt?: string;
   model?: string;
-  effort?: "low" | "medium" | "high" | "xhigh";
+  effort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 }
 
 export class CoreClient {
@@ -656,6 +658,19 @@ export class CoreClient {
   /** Reinicia o agente na mesma pasta e conta; `continuar` retoma a conversa (409 se não achar). */
   restartSession(id: string, continuar: boolean): Promise<Session> {
     return this.request("POST", `/sessions/${encodeURIComponent(id)}/reiniciar`, { continuar });
+  }
+
+  /** v1.7.0: os modelos e as forças que a barra oferece para esta conversa, e o que vale agora. */
+  sessionModels(id: string): Promise<SessionModels> {
+    return this.request("GET", `/sessions/${encodeURIComponent(id)}/modelos`);
+  }
+
+  /**
+   * v1.7.0: troca o modelo e a força da conversa (vazio volta ao padrão da CLI). O núcleo reabre
+   * a mesma conversa com as flags da CLI; `reabriu` diz que a sessão nova toma o lugar desta.
+   */
+  sessionSettings(id: string, ajustes: { modelo: string | null; esforco: string | null }): Promise<{ sessao: Session; reabriu: boolean }> {
+    return this.request("POST", `/sessions/${encodeURIComponent(id)}/ajustes`, ajustes);
   }
 
   /** Passa o trabalho para a outra CLI (Claude ↔ Codex) com o transcript e as últimas mensagens. */
@@ -1505,13 +1520,33 @@ export class CoreClient {
   }
 
   async upload(file: Blob, name: string): Promise<string> {
-    const answer = await this.send<{ path: string }>(
+    return (await this.uploadAttachment(file, name)).caminho;
+  }
+
+  /** v1.7.0: sobe o anexo e devolve o caminho com o nome, o tamanho e o tipo (para a prévia). */
+  async uploadAttachment(file: Blob, name: string): Promise<AttachmentInfo> {
+    const answer = await this.send<AttachmentInfo & { path: string }>(
       "POST",
       `/attachments?name=${encodeURIComponent(name)}`,
       file,
       "application/octet-stream",
     );
-    return answer.path;
+    return { caminho: answer.caminho ?? answer.path, nome: answer.nome ?? name, tamanho: answer.tamanho ?? file.size, tipo: answer.tipo ?? "arquivo" };
+  }
+
+  /** v1.7.0: nome, tamanho e tipo de um anexo que já está no disco (arrastado do Finder). */
+  attachmentInfo(caminho: string): Promise<AttachmentInfo> {
+    return this.request("GET", `/anexos/info?${new URLSearchParams({ caminho })}`);
+  }
+
+  /** v1.7.0: a prévia de um anexo em PNG para o <img> (404 quando não há desenho possível). */
+  attachmentThumbUrl(caminho: string, tamanho = 192): string {
+    return `${this.info.url}/anexos/miniatura?${new URLSearchParams({ caminho, tamanho: String(tamanho), token: this.info.token })}`;
+  }
+
+  /** v1.7.0: a imagem, o vídeo ou o áudio inteiro, para a prévia grande. */
+  attachmentFileUrl(caminho: string): string {
+    return `${this.info.url}/anexos/arquivo?${new URLSearchParams({ caminho, token: this.info.token })}`;
   }
 }
 

@@ -6,6 +6,7 @@ Campos usados (doc: code.claude.com/docs/en/statusline):
 - context_window.used_percentage, context_window_size, current_usage
 - cost.total_cost_usd
 - transcript_path (a janela de contexto lê o JSONL da conversa)
+- effort.level (v1.7.0: a força atual, só nos modelos que têm força)
 - rate_limits.five_hour / seven_day: used_percentage, resets_at (só para assinantes
   e só depois da primeira resposta; cada janela pode faltar)
 """
@@ -48,8 +49,12 @@ def parse_statusline(payload: dict) -> dict:
         if pct is not None:
             rate_limits[window] = {"used_pct": pct, "resets_at": _int(data.get("resets_at"))}
 
+    effort = _dict(payload.get("effort")).get("level")
     return {
         "model": model.get("display_name") or model.get("id"),
+        # v1.7.0: o id do modelo (claude-opus-5-5) e a força, para a barra marcar o que está valendo.
+        "model_id": model.get("id") if isinstance(model.get("id"), str) else None,
+        "effort": effort if isinstance(effort, str) and effort else None,
         "cwd": workspace.get("current_dir") or payload.get("cwd"),
         "context": {
             "used_pct": _num(context.get("used_percentage")),

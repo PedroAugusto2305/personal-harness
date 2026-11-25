@@ -1106,3 +1106,8 @@
     animation: none;
   }
 }
+
+/* v1.7.0: os anexos da barra na sua mensagem (vídeo, PDF, documento…), como na barra. */
+.msg-att {
+  justify-content: flex-end;
+}

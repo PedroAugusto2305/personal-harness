@@ -4,7 +4,9 @@
 
 OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de verdade, com o Brain como memória. O plano completo está em [`docs/MAPA.md`](docs/MAPA.md), o visual em [`docs/DESIGN.md`](docs/DESIGN.md) e a régua do Orca em [`docs/PARIDADE-ORCA.md`](docs/PARIDADE-ORCA.md).
 
-## O que já faz (v1.6.0)
+## O que já faz (v1.7.0)
+
+**Na 1.7.0:** a barra da conversa do Claude e do Codex escolhe o modelo e a força do raciocínio, só para aquela conversa e a partir da próxima resposta (a MÊTIS reabre a mesma conversa com as flags da CLI, sem gravar nada como padrão), e mostra cada anexo como prévia no lugar do caminho: a miniatura da imagem, um quadro do vídeo, a primeira página do PDF, ou o ícone com nome e tamanho, com o × para tirar antes de enviar. A sua mensagem na conversa mostra os mesmos anexos.
 
 **Na 1.6.0:** a MÊTIS trabalha só com os agentes dela: os criados nela e os migrados do Maestri de propósito (a Aurora). O importado do Maestri que não foi migrado não aparece nem abre por nenhum caminho; o "Importar do Maestri" saiu; e as skills do Maestri ficam desligadas nas sessões do Claude e do Codex abertas pela MÊTIS. Os arquivos do Maestri continuam onde estão.
 
@@ -221,7 +223,8 @@ OS pessoal e ADE no Mac: os agentes (Claude Code, Codex) rodam em terminais de v
 - **Salto rápido** (⌘K): pula para um terminal, abre um novo, divide a tela, troca de conta ou de tema.
 - **Barra de entrada** embaixo dos terminais: escreva com calma, revise e mande para o terminal em foco (⏎ envia, ⌥⏎ só cola).
 - **Ditado com o microfone**: o botão Ditar vira uma onda sonora ao vivo enquanto grava; ao parar, o Whisper transcreve no próprio Mac (sem internet, sem custo) e o texto cai na barra para revisar.
-- **Anexos**: o botão Anexar ou arrastar arquivos do Finder. Solto num terminal, o caminho vai direto para ele; solto na barra, entra junto com o texto.
+- **Anexos**: o botão Anexar ou arrastar arquivos do Finder. Solto num terminal, o caminho vai direto para ele; solto na barra, vira anexo com prévia (v1.7.0: miniatura, quadro do vídeo, primeira página do PDF ou ícone com nome e tamanho, e o × para tirar) e o caminho vai junto com o texto no envio. A prévia sai do núcleo (`/anexos/miniatura`: Pillow para imagem, QuickLook do Mac para o resto, guardada em `~/.harness/cache/miniaturas`).
+- **Modelo e força da conversa** (v1.7.0): os botões da barra trocam o modelo e a força do Claude e do Codex só para aquela conversa. O núcleo reabre a mesma conversa com `--resume <id> --model --effort` (Claude) ou `resume <id> -m -c model_reasoning_effort=` (Codex); a lista do Codex vem do `models_cache.json` da conta.
 - **Contas e uso**: várias contas do Claude Code e do Codex, cada uma na própria pasta (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). Troca pelos Ajustes, pelo ⌘K ou com `metis switch`. A barra de status mostra as janelas de 5 horas e 7 dias da conta em uso de cada plano, em destaque a partir de 80%.
 - **Status do agente** (trabalhando, esperando você) vindo dos hooks do Claude Code, e o contexto da sessão em foco.
 - **Ajustes**: contas e uso, aparência (Drácula azul, Grafite, Claro), voz e atalhos.

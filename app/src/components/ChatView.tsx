@@ -17,7 +17,9 @@ import {
   type DiffRow,
 } from "../lib/chat";
 import { ICON, Icon } from "../icons";
+import { stripAttachmentPaths } from "../lib/composer";
 import type { ChatImage, ChatItem, Session, ThemeName } from "../types";
+import { AttachmentCard, AttachmentViewer, type PreviewItem } from "./AttachmentPreview";
 
 /*
  * A conversa do agente (v1.2.0), no jeito do app do Codex: suas mensagens em balões à direita,
@@ -260,7 +262,7 @@ export function ChatView({ session, client, theme, visible, searchOpen, searchSi
         onMouseUp={(event) => {
           // Clique sem selecionar texto volta para a barra de baixo (é a única entrada).
           const target = event.target as Element;
-          if (window.getSelection()?.toString() || target.closest("button, a, input, textarea, select, summary, .chat-box")) return;
+          if (window.getSelection()?.toString() || target.closest("button, a, input, textarea, select, summary, video, audio, .chat-box, .att-viewer")) return;
           onFocusInput?.();
         }}
         onPaste={(event) => {
@@ -337,14 +339,35 @@ function clock(iso?: string): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Sua mensagem. v1.7.0: os anexos da barra aparecem como prévia (as imagens em miniatura, como já
+ * era; vídeo, PDF e outros arquivos em cartão) e o caminho deles sai do texto do balão.
+ */
 function YouMessage({ item }: { item: ChatItem }) {
+  const { client } = useChat();
+  const [viewing, setViewing] = useState<PreviewItem | null>(null);
+  const files = item.anexos ?? [];
+  const text = useMemo(
+    () => stripAttachmentPaths(item.texto ?? "", [...(item.imagens ?? []).map((i) => i.arquivo ?? ""), ...files.map((a) => a.arquivo)]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [item.texto, item.imagens, item.anexos],
+  );
   return (
     <div className="msg-you" title={clock(item.hora)}>
       <div className="msg-you-bubble">
         {!!item.imagens?.length && <ImageStrip images={item.imagens} version={item.v} big />}
-        {item.texto && <div className="msg-you-text">{item.texto}</div>}
+        {files.length > 0 && (
+          <div className="att-row msg-att">
+            {files.map((file) => {
+              const preview: PreviewItem = { caminho: file.arquivo, nome: file.nome, tipo: file.tipo, tamanho: file.tamanho };
+              return <AttachmentCard key={file.arquivo} client={client} item={preview} onOpen={() => setViewing(preview)} />;
+            })}
+          </div>
+        )}
+        {text && <div className="msg-you-text">{text}</div>}
       </div>
       {item.fila && <span className="msg-you-tag">entrou na fila enquanto o agente trabalhava</span>}
+      {viewing && <AttachmentViewer client={client} item={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

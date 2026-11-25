@@ -210,7 +210,9 @@ class PtySession:
             return
         try:
             os.killpg(self._proc.pid, signal.SIGHUP)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
+            # PermissionError: no macOS, o grupo de um processo que acabou de sair (ainda zumbi)
+            # recusa o sinal. Nos dois casos não há mais o que encerrar.
             return
         if self.paused:
             self.resume()  # parado, o processo não trataria o SIGHUP
@@ -220,5 +222,5 @@ class PtySession:
             await asyncio.sleep(0.05)
         try:
             os.killpg(self._proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass

@@ -20,6 +20,9 @@ export interface Statusline {
   transcript?: string | null;
   /** Id da conversa no Claude (para continuar depois de sair). */
   session_id?: string | null;
+  /** v1.7.0: id do modelo (claude-opus-5-5) e a força atual, quando o modelo tem força. */
+  model_id?: string | null;
+  effort?: string | null;
 }
 
 export interface Session {
@@ -41,6 +44,37 @@ export interface Session {
   statusline: Statusline | null;
   exit_code: number | null;
   pid: number | null;
+  /** v1.7.0: modelo e força escolhidos para esta conversa (null é o padrão da CLI). */
+  modelo?: string | null;
+  esforco?: string | null;
+}
+
+/** v1.7.0: o tipo de um anexo, pela extensão (o núcleo e a barra usam os mesmos nomes). */
+export type AttachmentKind = "imagem" | "video" | "audio" | "pdf" | "planilha" | "apresentacao" | "documento" | "compactado" | "codigo" | "arquivo";
+
+/** v1.7.0: um anexo da barra ou da mensagem enviada: o caminho que o agente recebe e o que se mostra. */
+export interface AttachmentInfo {
+  caminho: string;
+  nome: string;
+  tamanho: number | null;
+  tipo: AttachmentKind;
+}
+
+/** v1.7.0: um modelo que a barra oferece, com as forças que ele aceita. */
+export interface ModelOption {
+  id: string;
+  nome: string;
+  esforcos: string[];
+  esforco_padrao: string | null;
+}
+
+/** v1.7.0: modelos e forças da conversa, o padrão da CLI (ou do agente) e o escolhido. */
+export interface SessionModels {
+  cli: "claude" | "codex";
+  modelos: ModelOption[];
+  esforcos: string[];
+  padrao: { modelo: string | null; esforco: string | null; do_agente?: boolean };
+  atual: { modelo: string | null; esforco: string | null };
 }
 
 export interface Account {
@@ -1255,6 +1289,14 @@ export interface ChatImage {
   nome?: string;
 }
 
+/** v1.7.0: anexo da barra que não é imagem (vídeo, PDF, documento…) citado na sua mensagem. */
+export interface ChatAttachment {
+  arquivo: string;
+  nome: string;
+  tipo: AttachmentKind;
+  tamanho?: number | null;
+}
+
 /** Um passo do plano (TodoWrite do Claude, update_plan do Codex). */
 export interface ChatStep {
   texto: string;
@@ -1273,6 +1315,8 @@ export interface ChatItem {
   hora?: string;
   texto?: string;
   imagens?: ChatImage[];
+  /** v1.7.0: os outros anexos da sua mensagem, mostrados como prévia. */
+  anexos?: ChatAttachment[];
   /** Mensagem sua que entrou na fila enquanto o agente trabalhava. */
   fila?: boolean;
   /** Ferramenta. */

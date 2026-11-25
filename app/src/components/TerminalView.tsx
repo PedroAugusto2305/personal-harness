@@ -141,8 +141,11 @@ function findMenu(terminal: Terminal): { option: boolean; hint: boolean } {
   let hint = false;
   for (let i = Math.max(0, rows - 24); i < rows; i += 1) {
     const text = buffer.getLine(base + i)?.translateToString(true) ?? "";
+    // v1.7.0: a revisão de hooks do Codex (sem opção numerada) também é um menu: espera você.
+    if (/press t to trust all|enter to review hooks/i.test(text)) return { option: true, hint: true };
     if (/^\s*[❯›>▶]\s*\d+[.)]\s+\S/.test(text)) option = true;
-    else if (option && /\besc\b|enter to (confirm|select|submit)/i.test(text)) hint = true;
+    // v1.7.0: "Press enter to continue" é o fim do aviso de atualização do Codex.
+    else if (option && /\besc\b|enter to (confirm|select|submit|continue)/i.test(text)) hint = true;
   }
   return { option, hint };
 }
@@ -401,6 +404,7 @@ export function TerminalView({
       // Num terminal só para ler, "focar" é ir para a barra de baixo.
       focus: () => (live.current.readOnly && live.current.onFocusInput ? live.current.onFocusInput() : terminal.focus()),
       focusTerminal: () => terminal.focus(),
+      menuOpen: () => menuRaw,
     });
 
     (async () => {

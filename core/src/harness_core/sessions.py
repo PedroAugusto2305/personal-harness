@@ -92,6 +92,14 @@ class CommandError(ValueError):
 #: Etiquetas de sessão que nunca hibernam: o motor das automações e as rotinas esperam por elas.
 NO_HIBERNATE_TAGS = ("automacao", "rotina")
 EFFORTS = ("low", "medium", "high", "xhigh")
+#: v1.7.0: a força (nível de raciocínio) que cada CLI aceita. O Claude Code recebe `--effort` e
+#: o `/effort`; o Codex, `model_reasoning_effort` (cada modelo aceita uma parte, na lista dele).
+EFFORTS_BY_KIND: dict[str, tuple[str, ...]] = {
+    "claude": ("low", "medium", "high", "xhigh", "max"),
+    "codex": ("minimal", "low", "medium", "high", "xhigh", "max", "ultra"),
+}
+#: Nome de modelo que pode ir para a linha de comando e para o `/model` digitado no terminal.
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,79}$")
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[@-Z\\\]^_=>78]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -168,6 +176,13 @@ class Session:
     #: Id da conversa do Codex (o thread-id que ele manda no notify a cada fim de turno). Com ele,
     #: dois Codex na mesma pasta não trocam de conversa ao copiar o id, retomar ou passar o trabalho.
     conversa: str | None = None
+    #: v1.7.0: modelo e força escolhidos para esta conversa (na abertura ou na barra); None é o
+    #: padrão da CLI. Valem só para a sessão e a acompanham quando ela reinicia ou continua.
+    modelo: str | None = None
+    esforco: str | None = None
+    #: v1.7.0: o modo de permissão pedido para esta sessão (None é o dos Ajustes). Também vai
+    #: junto quando ela reabre, para a troca de modelo não mudar o que o agente pode fazer.
+    permissao: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -187,6 +202,8 @@ class Session:
             "hibernando": self.hibernando,
             "atencao": self.atencao,
             "status_desde": self.status_desde,
+            "modelo": self.modelo,
+            "esforco": self.esforco,
         }
 
 
@@ -347,12 +364,15 @@ class SessionManager:
                     argv = argv + agent_args(agent)
         except AgentError as exc:
             raise CommandError(str(exc)) from exc
+        if model and kind in PROVIDERS and not MODEL_RE.match(model):
+            raise CommandError(f"modelo inválido: {model}")
         if model and kind in PROVIDERS and (agent is None or not agent.model):
             argv = argv + (["--model", model] if kind == "claude" else ["-m", model])
-        if effort and kind == "codex":
-            if effort not in EFFORTS:
+        if effort and kind in PROVIDERS:
+            if effort not in EFFORTS_BY_KIND[kind]:
                 raise CommandError(f"esforço inválido: {effort}")
-            argv = argv + ["-c", f'model_reasoning_effort="{effort}"']
+            # v1.7.0: o Claude também recebe a força (antes ela só valia para o Codex).
+            argv = argv + (["--effort", effort] if kind == "claude" else ["-c", f'model_reasoning_effort="{effort}"'])
         env, account = self.session_env(kind, session_id, account_id)
         env.update(agent_env)
         if kind in PROVIDERS:
@@ -406,6 +426,10 @@ class SessionManager:
         )
         if kind == "codex" and resume:
             session.conversa = resume  # v1.2.0: a conversa retomada já é conhecida, antes do primeiro turno
+        if kind in PROVIDERS:
+            session.modelo = model or (agent.model if agent is not None and agent.model else None)
+            session.esforco = effort or None
+            session.permissao = permission or None
         self.sessions[session_id] = session
         pty.start()
         if prompt and other_cli:

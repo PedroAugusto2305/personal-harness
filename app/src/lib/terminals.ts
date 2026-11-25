@@ -14,6 +14,11 @@ export interface TerminalHandle {
    * outro sem fim, e no WebKit (que faz tail call de verdade) a janela travava.
    */
   focusTerminal(): void;
+  /**
+   * v1.7.0: o agente mostra um menu agora (permissão, pergunta, aviso de atualização). A barra não
+   * manda sozinha a mensagem que esperava: o Enter dela escolheria a opção marcada.
+   */
+  menuOpen?(): boolean;
 }
 
 export const terminals = new Map<string, TerminalHandle>();

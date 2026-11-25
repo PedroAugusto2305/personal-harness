@@ -126,7 +126,9 @@ def test_model_effort_and_prompt_on_new_session(core):
     claude = client.post("/sessions", json={"kind": "claude", "model": "opus", "effort": "high", "prompt": "rode os testes"}, headers=AUTH).json()
     argv = argv_of(app, claude["id"])
     assert argv[argv.index("--model") + 1] == "opus" and argv[1] == "rode os testes"
-    assert not any("model_reasoning_effort" in a for a in argv)  # esforço é só do Codex
+    # v1.7.0: o Claude também recebe a força (--effort); o model_reasoning_effort é do Codex.
+    assert argv[argv.index("--effort") + 1] == "high"
+    assert not any("model_reasoning_effort" in a for a in argv)
     codex = client.post("/sessions", json={"kind": "codex", "model": "gpt-5.5-codex", "effort": "xhigh"}, headers=AUTH).json()
     argv = argv_of(app, codex["id"])
     assert argv[argv.index("-m") + 1] == "gpt-5.5-codex"
@@ -136,8 +138,10 @@ def test_model_effort_and_prompt_on_new_session(core):
     chosen = client.post("/sessions", json={"kind": "claude", "agent": agent["id"], "model": "haiku"}, headers=AUTH).json()
     argv = argv_of(app, chosen["id"])
     assert argv.count("--model") == 1 and argv[argv.index("--model") + 1] == "haiku"
-    for bad in ({"model": "rm -rf /"}, {"effort": "max"}, {"prompt": "x" * 8001}):
+    for bad in ({"model": "rm -rf /"}, {"effort": "turbo"}, {"prompt": "x" * 8001}):
         assert client.post("/sessions", json={"kind": "codex", **bad}, headers=AUTH).status_code == 422
+    # A força que a CLI não aceita é recusada pelo núcleo (o "ultra" só existe no Codex).
+    assert client.post("/sessions", json={"kind": "claude", "effort": "ultra"}, headers=AUTH).status_code == 400
 
 
 # --- hibernar ----------------------------------------------------------------------------------

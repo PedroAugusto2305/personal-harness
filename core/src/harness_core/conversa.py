@@ -3,7 +3,8 @@
 O terminal interativo continua por baixo, pelo plano, como sempre: a tela da conversa só lê o
 JSONL que a própria CLI grava e o transforma em itens.
 
-- `voce`: o que você mandou, com as imagens coladas ou anexadas;
+- `voce`: o que você mandou, com as imagens coladas ou anexadas e (v1.7.0) os outros anexos da
+  barra (vídeo, PDF, documento…), que a tela mostra como prévia no lugar do caminho;
 - `agente`: a resposta em Markdown (com as imagens que ele citou pelo caminho);
 - `pensamento`: o raciocínio, quando a CLI o grava em texto;
 - `ferramenta`: comando, leitura, edição (com o diff), busca, MCP, subagente…, com o resultado
@@ -33,6 +34,7 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 
+from .attachments import kind_of
 from .transcript import _short_path
 
 IMAGE_TYPES = {
@@ -60,6 +62,28 @@ IMAGE_PATH = re.compile(r"(?<![\w/~.-])((?:~|\.{1,2})?/?[\w@%+=,~.-]*(?:/[\w@%+=
 #: O mesmo caminho entre crases ou aspas, que pode ter espaço (o anexo da barra vem entre aspas simples).
 QUOTED_IMAGE_PATH = re.compile(r"[`'\"]([^`'\"\n]+\.(?:png|jpe?g|gif|webp|svg|avif|bmp))[`'\"]", re.IGNORECASE)
 MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)")
+#: v1.7.0: caminho absoluto de arquivo na sua mensagem, entre aspas simples (como a barra cola o
+#: que tem espaço) ou solto, com extensão.
+QUOTED_FILE_PATH = re.compile(r"'((?:/|~/)[^'\n]+\.[A-Za-z0-9]{1,8})'")
+BARE_FILE_PATH = re.compile(r"(?<![\w/~.'-])((?:~|)/(?:[\w@%+=,~.-]+/)+[\w@%+=,~.-]+\.[A-Za-z0-9]{1,8})(?![\w/-])")
+#: Tipos que viram prévia em qualquer pasta (o arrastado do Finder vai pelo caminho original). Código
+#: citado fora da pasta de anexos é referência no texto, não anexo: continua como texto.
+ATTACHMENT_KINDS = {"imagem", "video", "audio", "pdf", "planilha", "apresentacao", "documento", "compactado", "arquivo"}
+_attachments_root: str | None = None
+#: v1.7.0: o Claude Code (2.1.3xx) grava a colagem longa embrulhada, depois do que foi digitado:
+#: `<pasted_content id="2b6d">\n…\n</pasted_content id="2b6d">`. A barra manda tudo colado.
+PASTED_CONTENT = re.compile(r'<pasted_content(?:\s+id="[^"]*")?>\n?(.*?)\n?</pasted_content(?:\s+id="[^"]*")?>', re.S)
+
+
+def unwrap_pasted(text: str) -> str:
+    """O texto colado sem o embrulho do Claude (sem ele, a mensagem parecia um aviso e sumia)."""
+    return PASTED_CONTENT.sub(lambda m: m.group(1), text) if "<pasted_content" in text else text
+
+
+def set_attachments_root(path: str | os.PathLike | None) -> None:
+    """A pasta onde a barra guarda os anexos (<home>/anexos): tudo o que está nela é anexo."""
+    global _attachments_root
+    _attachments_root = os.path.realpath(path) if path else None
 
 
 class _State:
@@ -242,6 +266,34 @@ def images_in_text(text: str, cwd: str) -> list[dict]:
     return found
 
 
+def files_in_text(text: str, cwd: str) -> list[dict]:
+    """v1.7.0: os anexos da barra que não são imagem desenhável (vídeo, PDF, documento…), citados
+    pelo caminho na sua mensagem e que existem no disco. As imagens vão por `images_in_text`."""
+    found: list[dict] = []
+    seen: set[str] = set()
+    candidates = [m.group(1) for m in QUOTED_FILE_PATH.finditer(text)] + [m.group(1) for m in BARE_FILE_PATH.finditer(text)]
+    for candidate in candidates:
+        full = _abs(candidate, cwd)
+        if full in seen or Path(full).suffix.lower() in IMAGE_TYPES:
+            continue
+        seen.add(full)
+        kind = kind_of(full)
+        inside = bool(_attachments_root) and os.path.realpath(full).startswith(_attachments_root + os.sep)
+        if (kind not in ATTACHMENT_KINDS and not inside) or not os.path.isfile(full):
+            continue
+        try:
+            size = os.path.getsize(full)
+        except OSError:
+            size = None
+        name = os.path.basename(full)
+        if inside:
+            name = re.sub(r"^[0-9a-f]{8}-", "", name)  # o prefixo que a barra põe ao guardar o anexo
+        found.append({"arquivo": full, "nome": name, "tipo": kind, "tamanho": size})
+        if len(found) >= IMAGES_PER_ITEM:
+            break
+    return found
+
+
 def _ref(state: _State, offset: int, *path: str | int) -> dict:
     return {"ref": f"{offset}:" + ".".join(str(p) for p in path)}
 
@@ -311,8 +363,10 @@ def _claude(state: _State, entry: dict, offset: int) -> None:
         attachment = entry.get("attachment") or {}
         prompt = attachment.get("prompt")
         if attachment.get("type") == "queued_command" and isinstance(prompt, str) and attachment.get("commandMode") in (None, "prompt"):
+            prompt = unwrap_pasted(prompt)
             if prompt.strip() and not prompt.lstrip().startswith("<"):
-                state.add({"tipo": "voce", "texto": _cut(prompt.strip(), TEXT_LIMIT), "hora": _when(entry), "imagens": images_in_text(prompt, state.cwd), "fila": True})
+                state.add({"tipo": "voce", "texto": _cut(prompt.strip(), TEXT_LIMIT), "hora": _when(entry), "imagens": images_in_text(prompt, state.cwd),
+                           "anexos": files_in_text(prompt, state.cwd), "fila": True})  # fmt: skip
         return
     message = entry.get("message") or {}
     content = message.get("content")
@@ -358,7 +412,7 @@ def _claude_user(state: _State, entry: dict, content, offset: int) -> None:
                 texts.append(str(block.get("text", "")))
             elif block.get("type") == "image" and len(images) < IMAGES_PER_ITEM:
                 images.append({**_ref(state, offset, "message", "content", i), "nome": f"Imagem {len(images) + 1}"})
-    text = "\n\n".join(t for t in texts if t.strip()).strip()
+    text = unwrap_pasted("\n\n".join(t for t in texts if t.strip())).strip()
     if "<command-name>" in text:
         name = COMMAND_NAME.search(text)
         args = COMMAND_ARGS.search(text)
@@ -389,7 +443,8 @@ def _claude_user(state: _State, entry: dict, content, offset: int) -> None:
         return  # lembretes e avisos do Claude Code, não conversa
     known_files = {i.get("arquivo") for i in images}
     images += [i for i in images_in_text(text, state.cwd) if i["arquivo"] not in known_files][: max(0, IMAGES_PER_ITEM - len(images))]
-    state.add({"id": entry.get("uuid") or None, "tipo": "voce", "texto": _cut(text, TEXT_LIMIT), "hora": _when(entry), "imagens": images})
+    state.add({"id": entry.get("uuid") or None, "tipo": "voce", "texto": _cut(text, TEXT_LIMIT), "hora": _when(entry), "imagens": images,
+               "anexos": files_in_text(text, state.cwd)})  # fmt: skip
 
 
 TOOL_CATEGORY = {
@@ -562,7 +617,10 @@ def _codex(state: _State, entry: dict, offset: int) -> None:
             return
         known_files = {i.get("arquivo") for i in images}
         images += [i for i in images_in_text(text, state.cwd) if i["arquivo"] not in known_files][: max(0, IMAGES_PER_ITEM - len(images))]
-        state.add({"id": payload.get("id") or None, "tipo": "voce" if role == "user" else "agente", "texto": _cut(text, TEXT_LIMIT), "hora": _when(entry), "imagens": images})
+        item = {"id": payload.get("id") or None, "tipo": "voce" if role == "user" else "agente", "texto": _cut(text, TEXT_LIMIT), "hora": _when(entry), "imagens": images}
+        if role == "user":
+            item["anexos"] = files_in_text(text, state.cwd)
+        state.add(item)
         return
     if p_type == "reasoning":
         summary = "\n\n".join(str(s.get("text", "")) for s in payload.get("summary") or [] if isinstance(s, dict)).strip()
